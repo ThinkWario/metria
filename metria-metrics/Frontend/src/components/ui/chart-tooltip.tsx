@@ -2,12 +2,14 @@
 
 import { TooltipProps } from "recharts"
 
-interface ChartTooltipProps extends TooltipProps<number, string> {
-    labelFormatter?: (label: string) => string
-    valueFormatter?: (value: number, name: string) => string
+import React from "react"
+
+interface ChartTooltipProps extends Omit<TooltipProps<number, string>, "labelFormatter"> {
+    labelFormatter?: (label: any) => React.ReactNode
+    valueFormatter?: (value: number, name: string) => React.ReactNode
 }
 
-export function ChartTooltip({ active, payload, label, labelFormatter, valueFormatter }: ChartTooltipProps) {
+export function ChartTooltip({ active, payload, label, labelFormatter, valueFormatter }: ChartTooltipProps & { payload?: any[], label?: any }) {
     if (!active || !payload || payload.length === 0) return null
 
     return (
