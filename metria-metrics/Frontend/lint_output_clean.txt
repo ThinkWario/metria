@@ -1,0 +1,30 @@
+﻿
+> frontend@0.1.0 lint C:\Proyectos\Metria\metria-metrics\Frontend
+> eslint
+
+
+C:\Proyectos\Metria\metria-metrics\Frontend\src\app\dashboard\finances\page.tsx
+   6:51  warning  'Percent' is defined but never used                                                                                                                                                                                                                                                      @typescript-eslint/no-unused-vars
+  42:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  52:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Proyectos\Metria\metria-metrics\Frontend\src\components\ui\date-range-picker.tsx
+  7:10  warning  'DateRange' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Proyectos\Metria\metria-metrics\Frontend\src\components\ui\sidebar.tsx
+  611:26  error  Error: Cannot call impure function during render
+
+`Math.random` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+C:\Proyectos\Metria\metria-metrics\Frontend\src\components\ui\sidebar.tsx:611:26
+  609 |   // Random width between 50 to 90%.
+  610 |   const width = React.useMemo(() => {
+> 611 |     return `${Math.floor(Math.random() * 40) + 50}%`
+      |                          ^^^^^^^^^^^^^ Cannot call impure function
+  612 |   }, [])
+  613 |
+  614 |   return (  react-hooks/purity
+
+Ô£û 5 problems (1 error, 4 warnings)
+
+ÔÇëELIFECYCLEÔÇë Command failed with exit code 1.
