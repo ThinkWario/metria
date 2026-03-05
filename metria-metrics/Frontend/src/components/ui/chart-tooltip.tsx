@@ -1,11 +1,17 @@
 "use client"
 
 import React from "react"
-import type { Payload, TooltipProps } from "recharts"
+
+interface ChartEntry {
+    name?: string
+    value?: number | string
+    color?: string
+    [key: string]: unknown
+}
 
 interface ChartTooltipProps {
     active?: boolean
-    payload?: Payload<number, string>[]
+    payload?: ChartEntry[]
     label?: React.ReactNode
     labelFormatter?: (label: React.ReactNode) => React.ReactNode
     valueFormatter?: (value: number, name: string) => React.ReactNode
