@@ -1,15 +1,17 @@
 "use client"
 
-import { TooltipProps } from "recharts"
-
 import React from "react"
+import type { Payload, TooltipProps } from "recharts"
 
-interface ChartTooltipProps extends Omit<TooltipProps<number, string>, "labelFormatter"> {
-    labelFormatter?: (label: any) => React.ReactNode
+interface ChartTooltipProps {
+    active?: boolean
+    payload?: Payload<number, string>[]
+    label?: React.ReactNode
+    labelFormatter?: (label: React.ReactNode) => React.ReactNode
     valueFormatter?: (value: number, name: string) => React.ReactNode
 }
 
-export function ChartTooltip({ active, payload, label, labelFormatter, valueFormatter }: ChartTooltipProps & { payload?: any[], label?: any }) {
+export function ChartTooltip({ active, payload, label, labelFormatter, valueFormatter }: ChartTooltipProps) {
     if (!active || !payload || payload.length === 0) return null
 
     return (
