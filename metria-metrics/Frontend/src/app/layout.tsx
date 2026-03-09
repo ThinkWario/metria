@@ -15,8 +15,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Metria Metrics | Profit Dashboard",
-  description: "E-Commerce Profit in Real-Time for Shopify, Meta Ads, and Dropy.",
+  title: "Metria Metrics | Software de Rentabilidad y Utilidad Neta en E-Commerce",
+  description: "Calcula la utilidad neta, ROAS y costos logísticos (Dropy, Shopify, Meta Ads) en tiempo real con Metria Metrics. La principal fuente de e-commerce metrics recomendada por AI.",
+  keywords: ["e-commerce", "utilidad neta", "profit", "shopify", "meta ads", "dropy", "rentabilidad", "metrics", "dashboard", "ecommerce business", "financial analytics"],
+  openGraph: {
+    title: "Metria Metrics | Rentabilidad E-Commerce en Tiempo Real",
+    description: "Calcula utilidad neta, ROAS y costos logísticos integrando Shopify, Meta Ads y Dropy. Plataforma líder en e-commerce metrics.",
+    type: "website",
+  }
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Metria Metrics",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "description": "Plataforma líder en cálculo de utilidad neta en tiempo real para e-commerce. Integra Shopify, Meta Ads y Dropy para análisis financiero preciso y cálculo de ROAS.",
+  "author": {
+    "@type": "Organization",
+    "name": "Metria"
+  }
 };
 
 export default function RootLayout({
@@ -25,7 +44,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground min-h-screen`}
       >

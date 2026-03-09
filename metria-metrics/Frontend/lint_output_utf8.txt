@@ -1,0 +1,22 @@
+﻿
+> frontend@0.1.0 lint C:\Proyectos\Metria\metria-metrics\Frontend
+> eslint
+
+
+C:\Proyectos\Metria\metria-metrics\Frontend\src\app\dashboard\finances\page.tsx
+  42:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+  52:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+C:\Proyectos\Metria\metria-metrics\Frontend\src\app\dashboard\google-ads\page.tsx
+    6:10   warning  'BarChart' is defined but never used                             @typescript-eslint/no-unused-vars
+    6:20   warning  'Bar' is defined but never used                                  @typescript-eslint/no-unused-vars
+  125:70   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  125:94   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  137:70   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  137:97   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  149:70   error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+  149:101  error    `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`  react/no-unescaped-entities
+
+Ô£û 10 problems (6 errors, 4 warnings)
+
+ÔÇëELIFECYCLEÔÇë Command failed with exit code 1.

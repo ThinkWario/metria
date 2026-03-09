@@ -3,13 +3,31 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:4000/api'
+
 export async function login(formData: FormData) {
     const email = formData.get("email")
     const password = formData.get("password")
 
-    // Hardcoded Admin Credential
-    if (email === "admin@metria.ai" && password === "admin123") {
-        // Set a session cookie
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+            return { success: false, error: data.error || 'Credenciales inválidas' }
+        }
+
+        // Handle Force Password Change Flow
+        if (data.requiresPasswordChange) {
+            return { success: true, requiresPasswordChange: true, tempToken: data.token }
+        }
+
+        // Set a session cookie for Next.js middleware protection
         const cookieStore = await cookies()
         cookieStore.set("metria_session", "authenticated", {
             httpOnly: true,
@@ -18,10 +36,17 @@ export async function login(formData: FormData) {
             path: "/",
         })
 
-        return { success: true }
-    }
+        return {
+            success: true,
+            token: data.token,
+            user: data.user,
+            workspace: data.workspace
+        }
 
-    return { success: false, error: "Credenciales inválidas. Usa admin@metria.ai / admin123" }
+    } catch (error) {
+        console.error("Login server error:", error)
+        return { success: false, error: "Error de conexión con el servidor" }
+    }
 }
 
 export async function logout() {

@@ -9,8 +9,8 @@ interface DateRangeState {
 
 export const useDateRangeStore = create<DateRangeState>((set) => ({
     date: {
-        from: addDays(new Date(), -7),
-        to: new Date(),
+        from: undefined,
+        to: undefined,
     },
     setDate: (date) => set({ date: date || { from: undefined, to: undefined } }),
 }))

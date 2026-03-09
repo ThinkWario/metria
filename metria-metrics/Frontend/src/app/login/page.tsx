@@ -19,8 +19,23 @@ export default function LoginPage() {
         const result = await login(formData)
 
         if (result?.success) {
-            toast.success("Bienvenido a Metria Metrics")
-            router.push("/dashboard")
+            if (result.requiresPasswordChange) {
+                // Store temp token for the force-password page
+                sessionStorage.setItem("metria_temp_token", result.tempToken)
+                router.push("/force-password")
+                return
+            }
+
+            // Standard success
+            localStorage.setItem("metria_token", result.token)
+
+            if (result.user?.role === "SUPER_ADMIN") {
+                toast.success("Bienvenido Super Admin")
+                router.push("/admin")
+            } else {
+                toast.success("Bienvenido a Metria Metrics")
+                router.push("/dashboard")
+            }
         } else {
             setIsLoading(false)
             toast.error("Error de Autenticación", {
@@ -30,7 +45,8 @@ export default function LoginPage() {
     }
 
     return (
-        <div className="min-h-screen w-full flex items-center justify-center bg-background relative overflow-hidden">
+        <main className="min-h-screen w-full flex items-center justify-center bg-background relative overflow-hidden" aria-labelledby="login-heading">
+            <a href="#login-form" className="sr-only focus:not-sr-only">Saltar al formulario de inicio de sesión</a>
             {/* Background Ambience */}
             <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-primary/20 blur-[150px] rounded-full mix-blend-screen pointer-events-none" />
             <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-accent/20 blur-[150px] rounded-full mix-blend-screen pointer-events-none" />
@@ -41,7 +57,7 @@ export default function LoginPage() {
                         <BarChart3 className="w-8 h-8 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tighter bg-gradient-to-br from-foreground to-foreground/50 bg-clip-text text-transparent">Metria Metrics</h1>
+                        <h1 id="login-heading" className="text-3xl font-bold tracking-tighter bg-gradient-to-br from-foreground to-foreground/50 bg-clip-text text-transparent">Metria Metrics</h1>
                         <p className="text-muted-foreground mt-2">Cálculo de Utilidad Neta en Tiempo Real</p>
                     </div>
                 </div>
@@ -49,11 +65,12 @@ export default function LoginPage() {
                 <Card className="border border-border/50 bg-card/40 backdrop-blur-2xl shadow-2xl">
                     <CardHeader>
                         <CardTitle>Iniciar Sesión</CardTitle>
-                        <CardDescription>
-                            Usa <strong className="text-primary">admin@metria.ai</strong> y clave <strong className="text-primary">admin123</strong>
+                        <CardDescription className="flex flex-col gap-1">
+                            <span>Admin: <strong className="text-primary">admin@metria.com</strong> / <strong className="text-primary">metria2025</strong></span>
+                            <span>Super Admin: <strong className="text-primary">superadmin@metria.ai</strong> / <strong className="text-primary">masterkey</strong></span>
                         </CardDescription>
                     </CardHeader>
-                    <form action={handleSubmit}>
+                    <form id="login-form" action={handleSubmit} aria-label="Formulario de inicio de sesión">
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
                                 <Label htmlFor="email">Correo Electrónico</Label>
@@ -62,7 +79,7 @@ export default function LoginPage() {
                                     name="email"
                                     type="email"
                                     required
-                                    placeholder="admin@metria.ai"
+                                    placeholder="admin@metria.com"
                                     className="bg-background/50 border-border/50 focus-visible:ring-primary backdrop-blur-md transition-all duration-300"
                                 />
                             </div>
@@ -99,6 +116,6 @@ export default function LoginPage() {
                     </form>
                 </Card>
             </div>
-        </div>
+        </main>
     )
 }

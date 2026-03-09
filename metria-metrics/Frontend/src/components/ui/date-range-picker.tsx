@@ -20,6 +20,29 @@ export function DateRangePicker({
     className,
 }: React.HTMLAttributes<HTMLDivElement>) {
     const { date, setDate } = useDateRangeStore()
+    const [mounted, setMounted] = React.useState(false)
+
+    React.useEffect(() => {
+        setMounted(true)
+    }, [])
+
+    if (!mounted) {
+        return (
+            <div className={cn("grid gap-2", className)}>
+                <Button
+                    id="date-placeholder"
+                    variant={"outline"}
+                    className={cn(
+                        "w-[300px] justify-start text-left font-normal bg-card/50 backdrop-blur-md border border-border/50 opacity-50"
+                    )}
+                    disabled
+                >
+                    <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
+                    <span>Cargando calendario...</span>
+                </Button>
+            </div>
+        )
+    }
 
     return (
         <div className={cn("grid gap-2", className)}>
@@ -30,7 +53,7 @@ export function DateRangePicker({
                         variant={"outline"}
                         className={cn(
                             "w-[300px] justify-start text-left font-normal bg-card/50 backdrop-blur-md border border-border/50",
-                            !date && "text-muted-foreground"
+                            (!date || (!date.from && !date.to)) && "text-muted-foreground"
                         )}
                     >
                         <CalendarIcon className="mr-2 h-4 w-4 text-primary" />

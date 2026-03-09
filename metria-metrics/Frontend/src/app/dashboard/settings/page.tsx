@@ -12,21 +12,11 @@ import { Switch } from "@/components/ui/switch"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Activity, Unplug, ShieldCheck, Database, Key, Trash2, UserPlus, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
+import { useEffect } from "react"
+import { getGlobalSettings, updateGlobalSettings, getIntegrations, updateIntegration, getSystemLogs } from "@/lib/api"
+import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 
-// Mock Data states
-const initialConnections = [
-    { id: "shopify", name: "Shopify Store", status: "Connected", lastSync: "Hace 2 min", type: "Webhook / GraphQL" },
-    { id: "meta", name: "Meta Ads API", status: "Connected", lastSync: "Hace 15 min", type: "REST API v18.0" },
-    { id: "dropy", name: "Dropy Logistics", status: "Warning", lastSync: "Hace 1 hora", type: "REST API" },
-    { id: "n8n", name: "n8n Automations", status: "Connected", lastSync: "Hace 5 min", type: "Webhook" },
-]
-
-const recentLogs = [
-    { id: "evt_9812", source: "Shopify", event: "orders/create", timestamp: "10:42:01 AM", status: "200 OK" },
-    { id: "evt_9811", source: "Dropy", event: "shipment/update", timestamp: "10:15:22 AM", status: "200 OK" },
-    { id: "evt_9810", source: "Meta", event: "insights/read", timestamp: "09:00:05 AM", status: "200 OK" },
-    { id: "evt_9809", source: "Dropy", event: "shipment/update", timestamp: "08:45:10 AM", status: "500 Error" },
-]
+// Table structure for system event logs
 
 const initialUsers = [
     { id: "u_1", name: "Alex Admin", email: "alex@metria.ai", role: "Admin", status: "Activo" },
@@ -35,8 +25,10 @@ const initialUsers = [
 ]
 
 export default function SettingsPage() {
-    const [connections, setConnections] = useState(initialConnections)
+    const [connections, setConnections] = useState<Record<string, any>[]>([])
     const [users, setUsers] = useState(initialUsers)
+    const [recentLogs, setRecentLogs] = useState<any[]>([])
+    const [isLoadingLogs, setIsLoadingLogs] = useState(true)
 
     // Global Settings State
     const [timezone, setTimezone] = useState("santiago")
@@ -46,34 +38,106 @@ export default function SettingsPage() {
 
     // API Token form state
     const [isApiDialogOpen, setIsApiDialogOpen] = useState(false)
-    const [apiForm, setApiForm] = useState({ platform: "shopify", token: "" })
+    const [apiForm, setApiForm] = useState({ platform: "shopify", config: {} as Record<string, string> })
 
-    const handleSaveSettings = () => {
-        setIsSaving(true)
-        setTimeout(() => {
-            setIsSaving(false)
-            toast.success("Preferencias Guardadas", {
-                description: "Se han actualizado las variables de entorno correctamente."
-            })
-        }, 800)
-    }
+    useEffect(() => {
+        const loadSettings = async () => {
+            try {
+                const globalData = await getGlobalSettings()
+                if (globalData) {
+                    setTimezone(globalData.timezone)
+                    setCurrency(globalData.currency)
+                    setStrictAttribution(globalData.strictAttribution)
+                }
 
-    const handleSaveTokens = () => {
-        if (!apiForm.token) {
-            toast.error("Error", { description: "El token no puede estar vacío" })
-            return
+                const integrationsData = await getIntegrations()
+
+                // Always ensure all 4 platforms are displayed, merge with DB data
+                const basePlatforms = [
+                    { id: "shopify", platform: "shopify", name: "Shopify Store", status: "Disconnected", type: "Webhook", lastSync: null },
+                    { id: "meta", platform: "meta", name: "Meta Ads API", status: "Disconnected", type: "REST API", lastSync: null },
+                    { id: "dropy", platform: "dropy", name: "Dropy Logistics", status: "Disconnected", type: "REST API", lastSync: null },
+                    { id: "google", platform: "google", name: "Google Ads API", status: "Disconnected", type: "REST API", lastSync: null },
+                ]
+
+                if (integrationsData && Array.isArray(integrationsData)) {
+                    const merged = basePlatforms.map(bp => {
+                        const dbMatch = integrationsData.find((db: any) => db.platform === bp.platform)
+                        return dbMatch ? { ...bp, ...dbMatch } : bp
+                    })
+                    setConnections(merged)
+                } else {
+                    setConnections(basePlatforms)
+                }
+            } catch (err) {
+                console.error("Failed to load settings from DB", err)
+            }
         }
 
-        // Simulate updating API connection status
-        setConnections(prev => prev.map(c =>
-            c.id === apiForm.platform ? { ...c, status: "Connected", lastSync: "Justo ahora" } : c
-        ))
+        const loadLogs = async () => {
+            try {
+                const logsData = await getSystemLogs()
+                setRecentLogs(logsData)
+            } catch (err) {
+                console.error("Failed to load audit logs", err)
+            } finally {
+                setIsLoadingLogs(false)
+            }
+        }
 
-        toast.success("Tokens Actualizados", {
-            description: `Se probó y guardó la conexión real con ${apiForm.platform}.`
-        })
-        setIsApiDialogOpen(false)
-        setApiForm({ platform: "shopify", token: "" })
+        loadSettings()
+        loadLogs()
+    }, [])
+
+    const handleSaveSettings = async () => {
+        setIsSaving(true)
+        try {
+            await updateGlobalSettings({ timezone, currency, strictAttribution })
+            toast.success("Preferencias Guardadas", {
+                description: "Se han actualizado las configuraciones del Workspace correctamente."
+            })
+        } catch (_err) {
+            toast.error("Error al guardar configuraciones globales")
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    const handleSaveTokens = async () => {
+        setIsSaving(true)
+        try {
+            const platformNames: Record<string, string> = {
+                shopify: "Shopify Store",
+                meta: "Meta Ads",
+                dropy: "Dropy Logistics",
+                google: "Google Ads"
+            }
+
+            const updated = await updateIntegration({
+                platform: apiForm.platform,
+                name: platformNames[apiForm.platform] || apiForm.platform,
+                type: "REST API",
+                config: apiForm.config
+            })
+
+            // Update UI state directly
+            setConnections(prev => prev.map(c =>
+                c.platform === apiForm.platform ? { ...c, ...updated, status: updated.status || "Connected" } : c
+            ))
+
+            // Trigger global event so useWorkspaceConfig can refetch 
+            window.dispatchEvent(new Event('integrations-updated'))
+
+            toast.success("Tokens Actualizados", {
+                description: `Se guardó y validó la conexión con ${platformNames[apiForm.platform]}.`
+            })
+            setIsApiDialogOpen(false)
+            setApiForm({ platform: "shopify", config: {} })
+        } catch (err: any) {
+            toast.error("Error", { description: err.message || "Ocurrió un error guardando las claves de integración" })
+        } finally {
+            setIsSaving(false)
+        }
     }
 
     const handleRemoveUser = (id: string) => {
@@ -127,17 +191,25 @@ export default function SettingsPage() {
                                     </div>
                                     <div>
                                         <div className="font-medium text-sm">{api.name}</div>
-                                        <div className="text-[11px] text-muted-foreground">{api.type} • Sync: {api.lastSync}</div>
+                                        <div className="text-[11px] text-muted-foreground">{api.type} • Sync: {api.lastSync ? new Date(api.lastSync).toLocaleString() : 'Nunca'}</div>
                                     </div>
                                 </div>
-                                <Badge variant={api.status === "Connected" ? "outline" : "secondary"} className={api.status === "Connected" ? "text-emerald-500 border-emerald-500/30" : "text-amber-500"}>
-                                    {api.status}
+                                <Badge className={getStatusColorClass(api.status)}>
+                                    {mapStatus(api.status)}
                                 </Badge>
                             </div>
                         ))}
                     </CardContent>
                     <CardFooter>
-                        <Dialog open={isApiDialogOpen} onOpenChange={setIsApiDialogOpen}>
+                        <Dialog open={isApiDialogOpen} onOpenChange={(open) => {
+                            setIsApiDialogOpen(open)
+                            if (open) {
+                                setApiForm({ 
+                                    platform: "shopify", 
+                                    config: connections.find(c => c.platform === "shopify")?.config || {} 
+                                })
+                            }
+                        }}>
                             <DialogTrigger asChild>
                                 <Button variant="outline" className="w-full">
                                     <Key className="mr-2 h-4 w-4" />
@@ -154,30 +226,76 @@ export default function SettingsPage() {
                                 <div className="grid gap-4 py-4">
                                     <div className="space-y-2">
                                         <Label>Plataforma Origen</Label>
-                                        <Select value={apiForm.platform} onValueChange={(v) => setApiForm({ ...apiForm, platform: v })}>
+                                        <Select value={apiForm.platform} onValueChange={(v) => {
+                                            setApiForm({ 
+                                                platform: v, 
+                                                config: connections.find(c => c.platform === v)?.config || {} 
+                                            })
+                                        }}>
                                             <SelectTrigger>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="shopify">Shopify (Admin API)</SelectItem>
+                                                <SelectItem value="shopify">Shopify (Admin API / Webhooks)</SelectItem>
                                                 <SelectItem value="meta">Meta Ads (Graph API)</SelectItem>
+                                                <SelectItem value="google">Google Ads API</SelectItem>
                                                 <SelectItem value="dropy">Dropy Logistics</SelectItem>
-                                                <SelectItem value="n8n">n8n Automations</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Token (Bearer / Secret Hash)</Label>
-                                        <Input
-                                            type="password"
-                                            placeholder="sk_test_..."
-                                            value={apiForm.token}
-                                            onChange={(e) => setApiForm({ ...apiForm, token: e.target.value })}
-                                        />
-                                    </div>
+
+                                    {apiForm.platform === 'shopify' && (
+                                        <>
+                                            <div className="space-y-2">
+                                                <Label>Shopify Domain</Label>
+                                                <Input placeholder="tienda.myshopify.com" value={apiForm.config.domain || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, domain: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Admin API Access Token (shpat_...)</Label>
+                                                <Input type="password" placeholder="shpat_..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {apiForm.platform === 'meta' && (
+                                        <>
+                                            <div className="space-y-2">
+                                                <Label>Ad Account ID (act_...)</Label>
+                                                <Input placeholder="act_123456789" value={apiForm.config.adAccountId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, adAccountId: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>System User Access Token</Label>
+                                                <Input type="password" placeholder="EAAB..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {apiForm.platform === 'google' && (
+                                        <>
+                                            <div className="space-y-2">
+                                                <Label>Customer ID (123-456-7890)</Label>
+                                                <Input placeholder="123-456-7890" value={apiForm.config.customerId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, customerId: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Developer Token</Label>
+                                                <Input type="password" placeholder="..." value={apiForm.config.developerToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, developerToken: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Refresh Token</Label>
+                                                <Input type="password" placeholder="1//0g..." value={apiForm.config.refreshToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, refreshToken: e.target.value } })} />
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {apiForm.platform === 'dropy' && (
+                                        <div className="space-y-2">
+                                            <Label>API Key Dropy</Label>
+                                            <Input type="password" placeholder="Key Dropy..." value={apiForm.config.apiKey || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, apiKey: e.target.value } })} />
+                                        </div>
+                                    )}
                                 </div>
                                 <DialogFooter>
-                                    <Button type="button" onClick={handleSaveTokens}>Guardar y Probar Conexión</Button>
+                                    <Button type="button" onClick={handleSaveTokens} disabled={isSaving}>{isSaving ? "Guardando..." : "Guardar y Probar Conexión"}</Button>
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
@@ -303,10 +421,10 @@ export default function SettingsPage() {
                                     <TableRow key={u.id}>
                                         <TableCell className="font-medium">{u.name}</TableCell>
                                         <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                                        <TableCell><Badge variant="outline">{u.role}</Badge></TableCell>
+                                        <TableCell><Badge variant="outline">{mapStatus(u.role)}</Badge></TableCell>
                                         <TableCell>
-                                            <Badge variant={u.status === "Activo" ? "default" : "secondary"} className={u.status === "Activo" ? "bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 border-emerald-500/30" : ""}>
-                                                {u.status}
+                                            <Badge className={getStatusColorClass(u.status)}>
+                                                {mapStatus(u.status)}
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right">
@@ -326,7 +444,7 @@ export default function SettingsPage() {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <Activity className="h-5 w-5 text-chart-2" />
-                            Event Logs (n8n Webhooks)
+                            System Event Logs
                         </CardTitle>
                         <CardDescription>Últimos eventos recibidos en tiempo real.</CardDescription>
                     </CardHeader>
@@ -342,21 +460,45 @@ export default function SettingsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {recentLogs.map((log) => (
-                                    <TableRow key={log.id}>
-                                        <TableCell className="font-mono text-xs text-muted-foreground">{log.id}</TableCell>
-                                        <TableCell>
-                                            <Badge variant="outline">{log.source}</Badge>
-                                        </TableCell>
-                                        <TableCell className="font-mono text-xs text-primary">{log.event}</TableCell>
-                                        <TableCell className="text-sm">{log.timestamp}</TableCell>
-                                        <TableCell className="text-right">
-                                            <span className={`text-xs font-mono font-medium px-2 py-1 rounded bg-background ${log.status === "200 OK" ? "text-emerald-500" : "text-destructive"}`}>
-                                                {log.status}
-                                            </span>
-                                        </TableCell>
+                                {isLoadingLogs ? (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground animate-pulse">Cargando logs...</TableCell>
                                     </TableRow>
-                                ))}
+                                ) : (
+                                    [
+                                        { name: "Shopify", source: "Shopify" },
+                                        { name: "Meta Ads", source: "Meta" },
+                                        { name: "Dropy", source: "Dropy" },
+                                        { name: "Google Ads", source: "Google" },
+                                    ].map((slot) => {
+                                        const log = recentLogs.find(l => l.source === slot.source)
+                                        return (
+                                            <TableRow key={slot.name}>
+                                                <TableCell className="font-mono text-xs text-muted-foreground">
+                                                    {log ? `${log.id.substring(0, 8)}...` : "-"}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant="outline">{slot.name}</Badge>
+                                                </TableCell>
+                                                <TableCell className="font-mono text-xs text-primary">
+                                                    {log ? log.event : "-"}
+                                                </TableCell>
+                                                <TableCell className="text-sm">
+                                                    {log ? new Date(log.createdAt).toLocaleString() : "-"}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {log ? (
+                                                        <span className={`text-xs font-mono font-medium px-2 py-1 rounded bg-background ${log.status.includes('200') || log.status.includes('OK') ? "text-emerald-500" : "text-destructive"}`}>
+                                                            {log.status}
+                                                        </span>
+                                                    ) : (
+                                                        <Badge variant="secondary" className="bg-muted text-muted-foreground font-medium">Inactivo</Badge>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        )
+                                    })
+                                )}
                             </TableBody>
                         </Table>
                     </CardContent>

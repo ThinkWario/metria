@@ -1,10 +1,16 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { fetchAPI } from "@/lib/api"
+import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
+import { UnconfiguredState } from "@/components/ui/unconfigured-state"
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from "recharts"
 import { Package, Truck, CheckCircle2, XOctagon } from "lucide-react"
+import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 
 const deliveryData = [
     { name: "Entregado", value: 65, color: "var(--color-emerald-500)" },
@@ -21,6 +27,28 @@ const recentShipments = [
 ]
 
 export default function LogisticsPage() {
+    const { integrations } = useWorkspaceConfig()
+    const [shipments, setShipments] = useState<any[]>(recentShipments)
+    const [summary, setSummary] = useState<any>(null)
+
+    useEffect(() => {
+        const loadData = async () => {
+            try {
+                const [shipmentsRes, summaryRes] = await Promise.all([
+                    fetchAPI('/dropy/shipments'),
+                    fetchAPI('/dropy/summary')
+                ])
+                if (shipmentsRes.data) setShipments(shipmentsRes.data)
+                setSummary(summaryRes)
+            } catch (e) {
+                console.error('Failed to load logistics data', e)
+            }
+        }
+        loadData()
+    }, [])
+
+    if (!integrations.dropy) return <UnconfiguredState integration="Dropy" />
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
@@ -133,9 +161,8 @@ export default function LogisticsPage() {
                                             <div className="text-xs text-muted-foreground">{ship.city}</div>
                                         </TableCell>
                                         <TableCell>
-                                            <Badge variant={ship.status === "Entregado" ? "default" : ship.status === "Devuelto" ? "destructive" : ship.status === "En Tránsito" ? "secondary" : "outline"}
-                                                className={ship.status === "Entregado" ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30" : ship.status === "En Tránsito" ? "bg-blue-500/20 text-blue-500 border-blue-500/30" : ""}>
-                                                {ship.status}
+                                            <Badge className={getStatusColorClass(ship.status)}>
+                                                {mapStatus(ship.status)}
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right font-medium">{ship.value}</TableCell>

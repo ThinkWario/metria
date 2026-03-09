@@ -1,5 +1,12 @@
 "use client"
 
+import { useEffect, useState, useCallback } from "react"
+import { fetchAPI } from "@/lib/api"
+import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
+import { useDateRangeStore } from "@/store/useDateRangeStore"
+import { format } from "date-fns"
+import { UnconfiguredState } from "@/components/ui/unconfigured-state"
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
     BarChart,
@@ -39,16 +46,6 @@ const metrics = [
     },
 ]
 
-const chartData = [
-    { name: "Lun", ventas: 4000, ads: 1200 },
-    { name: "Mar", ventas: 3000, ads: 1398 },
-    { name: "Mie", ventas: 2000, ads: 9800 },
-    { name: "Jue", ventas: 2780, ads: 3908 },
-    { name: "Vie", ventas: 1890, ads: 4800 },
-    { name: "Sab", ventas: 2390, ads: 3800 },
-    { name: "Dom", ventas: 3490, ads: 4300 },
-]
-
 // Inline custom tooltip for dark/light compatibility
 function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
     if (!active || !payload || payload.length === 0) return null
@@ -67,6 +64,87 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 }
 
 export default function DashboardPage() {
+    const { integrations, isLoading: configLoading } = useWorkspaceConfig()
+    const { date } = useDateRangeStore()
+    const [dailyMetrics, setDailyMetrics] = useState<any>(null)
+    const [chartDataState, setChartDataState] = useState<any[]>([])
+    const [isLoading, setIsLoading] = useState(true)
+
+    const loadDashboard = useCallback(async () => {
+        setIsLoading(true)
+        try {
+            const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
+            const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
+            const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7'
+
+            const [summary, rangeRaw] = await Promise.all([
+                fetchAPI(`/metrics/summary?${rangeParams}`),
+                fetchAPI(`/metrics/range?${rangeParams}`)
+            ])
+            setDailyMetrics(summary)
+
+            const rangeArray: any[] = Array.isArray(rangeRaw)
+                ? rangeRaw
+                : Array.isArray(rangeRaw?.data) ? rangeRaw.data : []
+
+            const formattedChart = rangeArray.map((day: any) => ({
+                name: new Date(day.date).toLocaleDateString('es-ES', { weekday: 'short' }),
+                ventas: Number(day.totalRevenue),
+                ads: Number(day.totalAdSpend)
+            }))
+            setChartDataState(formattedChart)
+        } catch (error) {
+            console.error("Failed to load dashboard metrics", error)
+            setChartDataState([])
+        } finally {
+            setIsLoading(false)
+        }
+    }, [date])
+
+    useEffect(() => {
+        loadDashboard()
+        // Auto-refresh every 30 seconds for near real-time data
+        const interval = setInterval(loadDashboard, 30_000)
+        return () => clearInterval(interval)
+    }, [loadDashboard])
+
+
+    const metrics = [
+        {
+            title: "Ingresos (Bruto)",
+            value: dailyMetrics ? `$${Number(dailyMetrics.netProfit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00",
+            change: "+12.5%",
+            trend: "up",
+            icon: DollarSign,
+        },
+        {
+            title: "ROAS General",
+            value: dailyMetrics && Number(dailyMetrics.metaAdSpend || 0) + Number(dailyMetrics.googleAdSpend || 0) > 0
+                ? `${(Number(dailyMetrics.totalRevenue) / (Number(dailyMetrics.metaAdSpend || 0) + Number(dailyMetrics.googleAdSpend || 0))).toFixed(2)}x`
+                : "0.00x",
+            change: "+0.4x",
+            trend: "up",
+            icon: Target,
+        },
+        {
+            title: "Margen Operativo",
+            value: dailyMetrics && Number(dailyMetrics.totalRevenue) > 0
+                ? `${((Number(dailyMetrics.netProfit) / Number(dailyMetrics.totalRevenue)) * 100).toFixed(1)}%`
+                : "0.0%",
+            change: "-1.2%",
+            trend: "down",
+            icon: Percent,
+        },
+    ]
+
+    if (isLoading || configLoading) {
+        return <div className="p-8 text-center text-muted-foreground animate-pulse">Cargando métricas en tiempo real...</div>
+    }
+
+    if (!integrations.shopify) {
+        return <UnconfiguredState integration="Shopify, Meta & Dropy" />
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
@@ -99,14 +177,14 @@ export default function DashboardPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="md:col-span-1 lg:col-span-4 bg-card/30 backdrop-blur-xl border border-border/50 hidden md:block">
                     <CardHeader>
-                        <CardTitle>Ventas vs. Inversión (Ads)</CardTitle>
+                        <CardTitle>Ventas vs. Inversión Publicitaria</CardTitle>
                         <CardDescription>Rendimiento de los últimos 7 días</CardDescription>
                     </CardHeader>
                     <CardContent className="pl-2">
                         <div className="h-[300px] w-full min-h-[300px]">
                             <ResponsiveContainer width="100%" height={300}>
-                                <BarChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.1} />
+                                <BarChart data={chartDataState}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.25} />
                                     <XAxis
                                         dataKey="name"
                                         fontSize={12}
@@ -141,8 +219,8 @@ export default function DashboardPage() {
                     <CardContent>
                         <div className="h-[300px] w-full min-h-[300px]">
                             <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.1} />
+                                <LineChart data={chartDataState}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.25} />
                                     <XAxis
                                         dataKey="name"
                                         fontSize={12}
