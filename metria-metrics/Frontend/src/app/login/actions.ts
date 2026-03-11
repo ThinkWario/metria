@@ -29,7 +29,7 @@ export async function login(formData: FormData) {
 
         // Set a session cookie for Next.js middleware protection
         const cookieStore = await cookies()
-        cookieStore.set("metria_session", "authenticated", {
+        cookieStore.set("metria_session", data.token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             maxAge: 60 * 60 * 24 * 7, // 1 week

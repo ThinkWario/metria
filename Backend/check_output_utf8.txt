@@ -1,0 +1,74 @@
+﻿
+=== AdSpend Table ===
+Total records: 3
+Latest 5 records: [
+  {
+    "date": "2026-03-10T00:00:00.000Z",
+    "platform": "META",
+    "campaignName": "Ganadores Ventas",
+    "spend": "1216789"
+  },
+  {
+    "date": "2026-03-10T00:00:00.000Z",
+    "platform": "META",
+    "campaignName": "Cat├ílogo Dellanatura Abierto",
+    "spend": "71846"
+  },
+  {
+    "date": "2026-03-10T00:00:00.000Z",
+    "platform": "META",
+    "campaignName": "Trafico perfil IG",
+    "spend": "10085"
+  }
+]
+Date range: 2026-03-10T00:00:00.000Z to 2026-03-10T00:00:00.000Z
+Total spend: 1298720
+
+=== DailyMetric Table ===
+Total records: 95
+Latest 10 daily metrics:
+  2026-03-10 | Revenue: 0 | MetaAds: 1298720 | GoogleAds: 0 | NetProfit: -1298720
+  2026-03-09 | Revenue: 189868 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 189868
+  2026-03-08 | Revenue: 152821 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 152821
+  2026-03-07 | Revenue: 158050 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 158050
+  2026-03-06 | Revenue: 24550 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 24550
+  2026-03-05 | Revenue: 22381 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 22381
+  2026-03-04 | Revenue: 119671 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 119671
+  2026-03-03 | Revenue: 150060 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 150060
+  2026-03-02 | Revenue: 68570 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 68570
+  2026-03-01 | Revenue: 297921 | MetaAds: 0 | GoogleAds: 0 | NetProfit: 297921
+
+=== Simulating /metrics/range ===
+DailyMetric records in range: 26
+AdSpend grouped dates in range: 1
+MetaSpend map: {
+  "2026-03-10": 1298720
+}
+
+Chart data that frontend would receive:
+  2026-02-08 | ventas: 99860 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-09 | ventas: 149360 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-11 | ventas: 13800 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-12 | ventas: 18891 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-14 | ventas: 95650 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-16 | ventas: 64236 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-17 | ventas: 212350 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-18 | ventas: 42050 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-19 | ventas: 78800 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-20 | ventas: 72590 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-21 | ventas: 112750 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-22 | ventas: 49250 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-23 | ventas: 88835 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-24 | ventas: 111681 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-26 | ventas: 14390 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-02-28 | ventas: 231495 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-01 | ventas: 297921 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-02 | ventas: 68570 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-03 | ventas: 150060 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-04 | ventas: 119671 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-05 | ventas: 22381 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-06 | ventas: 24550 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-07 | ventas: 158050 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-08 | ventas: 152821 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-09 | ventas: 189868 | ads(meta+google): 0+0=0 | roas: 0.00
+  2026-03-10 | ventas: 0 | ads(meta+google): 1298720+0=1298720 | roas: 0.00

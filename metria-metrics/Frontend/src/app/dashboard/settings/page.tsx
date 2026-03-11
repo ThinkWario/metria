@@ -13,8 +13,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Activity, Unplug, ShieldCheck, Database, Key, Trash2, UserPlus, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
 import { useEffect } from "react"
-import { getGlobalSettings, updateGlobalSettings, getIntegrations, updateIntegration, getSystemLogs } from "@/lib/api"
+import { getGlobalSettings, updateGlobalSettings, getIntegrations, updateIntegration, getSystemLogs, fetchAPI } from "@/lib/api"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
+import { useUserStore } from "@/store/useUserStore"
 
 // Table structure for system event logs
 
@@ -25,6 +26,7 @@ const initialUsers = [
 ]
 
 export default function SettingsPage() {
+    const { user } = useUserStore()
     const [connections, setConnections] = useState<Record<string, any>[]>([])
     const [users, setUsers] = useState(initialUsers)
     const [recentLogs, setRecentLogs] = useState<any[]>([])
@@ -56,7 +58,7 @@ export default function SettingsPage() {
                 const basePlatforms = [
                     { id: "shopify", platform: "shopify", name: "Shopify Store", status: "Disconnected", type: "Webhook", lastSync: null },
                     { id: "meta", platform: "meta", name: "Meta Ads API", status: "Disconnected", type: "REST API", lastSync: null },
-                    { id: "dropy", platform: "dropy", name: "Dropy Logistics", status: "Disconnected", type: "REST API", lastSync: null },
+                    { id: "dropi", platform: "dropi", name: "Dropi Logistics", status: "Disconnected", type: "REST API", lastSync: null },
                     { id: "google", platform: "google", name: "Google Ads API", status: "Disconnected", type: "REST API", lastSync: null },
                 ]
 
@@ -109,7 +111,7 @@ export default function SettingsPage() {
             const platformNames: Record<string, string> = {
                 shopify: "Shopify Store",
                 meta: "Meta Ads",
-                dropy: "Dropy Logistics",
+                dropi: "Dropi Logistics",
                 google: "Google Ads"
             }
 
@@ -128,11 +130,26 @@ export default function SettingsPage() {
             // Trigger global event so useWorkspaceConfig can refetch 
             window.dispatchEvent(new Event('integrations-updated'))
 
-            toast.success("Tokens Actualizados", {
-                description: `Se guardó y validó la conexión con ${platformNames[apiForm.platform]}.`
+            toast.success("Tokens Guardados", {
+                description: `Conexión con ${platformNames[apiForm.platform]} establecida. Descargando historial de datos...`
             })
+
             setIsApiDialogOpen(false)
+
+            // Background Auto-sync
+            const currentPlatform = apiForm.platform;
             setApiForm({ platform: "shopify", config: {} })
+
+            if (currentPlatform === 'meta') {
+                fetchAPI('/meta/sync', { method: 'POST' })
+                    .then(() => toast.success("Sincronización Meta Completada", { description: "Tus campañas y métricas históricas ya están disponibles en el dashboard." }))
+                    .catch(() => toast.warning("Sincronización Meta Retrasada", { description: "Los permisos de token podrían demorar en activarse." }))
+            } else if (currentPlatform === 'shopify') {
+                fetchAPI('/shopify/sync', { method: 'POST' })
+                    .then(() => toast.success("Sincronización Shopify Completada", { description: "Tus órdenes y métricas de rentabilidad ya están calculadas." }))
+                    .catch(() => toast.warning("Sincronización Shopify Lenta", { description: "El catálogo es muy grande, revisa en unos minutos." }))
+            }
+
         } catch (err: any) {
             toast.error("Error", { description: err.message || "Ocurrió un error guardando las claves de integración" })
         } finally {
@@ -204,9 +221,9 @@ export default function SettingsPage() {
                         <Dialog open={isApiDialogOpen} onOpenChange={(open) => {
                             setIsApiDialogOpen(open)
                             if (open) {
-                                setApiForm({ 
-                                    platform: "shopify", 
-                                    config: connections.find(c => c.platform === "shopify")?.config || {} 
+                                setApiForm({
+                                    platform: "shopify",
+                                    config: connections.find(c => c.platform === "shopify")?.config || {}
                                 })
                             }
                         }}>
@@ -227,9 +244,9 @@ export default function SettingsPage() {
                                     <div className="space-y-2">
                                         <Label>Plataforma Origen</Label>
                                         <Select value={apiForm.platform} onValueChange={(v) => {
-                                            setApiForm({ 
-                                                platform: v, 
-                                                config: connections.find(c => c.platform === v)?.config || {} 
+                                            setApiForm({
+                                                platform: v,
+                                                config: connections.find(c => c.platform === v)?.config || {}
                                             })
                                         }}>
                                             <SelectTrigger>
@@ -239,7 +256,7 @@ export default function SettingsPage() {
                                                 <SelectItem value="shopify">Shopify (Admin API / Webhooks)</SelectItem>
                                                 <SelectItem value="meta">Meta Ads (Graph API)</SelectItem>
                                                 <SelectItem value="google">Google Ads API</SelectItem>
-                                                <SelectItem value="dropy">Dropy Logistics</SelectItem>
+                                                <SelectItem value="dropi">Dropi Logistics</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -281,16 +298,41 @@ export default function SettingsPage() {
                                                 <Input type="password" placeholder="..." value={apiForm.config.developerToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, developerToken: e.target.value } })} />
                                             </div>
                                             <div className="space-y-2">
+                                                <Label>OAuth Client ID</Label>
+                                                <Input type="text" placeholder="Tu Client ID de Google Cloud..." value={apiForm.config.clientId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, clientId: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>OAuth Client Secret</Label>
+                                                <Input type="password" placeholder="Tu Client Secret..." value={apiForm.config.clientSecret || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, clientSecret: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
                                                 <Label>Refresh Token</Label>
                                                 <Input type="password" placeholder="1//0g..." value={apiForm.config.refreshToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, refreshToken: e.target.value } })} />
                                             </div>
                                         </>
                                     )}
 
-                                    {apiForm.platform === 'dropy' && (
-                                        <div className="space-y-2">
-                                            <Label>API Key Dropy</Label>
-                                            <Input type="password" placeholder="Key Dropy..." value={apiForm.config.apiKey || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, apiKey: e.target.value } })} />
+                                    {apiForm.platform === 'dropi' && (
+                                        <div className="space-y-4">
+                                            <div className="space-y-2">
+                                                <Label>API Key Dropi</Label>
+                                                <Input type="password" placeholder="Key Dropi..." value={apiForm.config.apiKey || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, apiKey: e.target.value } })} />
+                                            </div>
+
+                                            <div className="pt-2 border-t border-border/50">
+                                                <Label className="text-primary font-medium">Webhook URL de Sincronización</Label>
+                                                <p className="text-xs text-muted-foreground mt-1 mb-2">
+                                                    Copia este enlace y configúralo en el panel de Dropi para recibir estados de paquetería automáticamente.
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <code className="flex-1 p-2 rounded bg-muted text-[10px] break-all border border-border/50 select-all">
+                                                        https://tu-dominio.com/api/dropi/webhooks/status?workspaceId={user?.workspaceId || ''}
+                                                    </code>
+                                                </div>
+                                                <p className="text-[10px] text-muted-foreground mt-2">
+                                                    (Reemplaza &quot;tu-dominio.com&quot; por el dominio real de tu API en producción)
+                                                </p>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -468,7 +510,7 @@ export default function SettingsPage() {
                                     [
                                         { name: "Shopify", source: "Shopify" },
                                         { name: "Meta Ads", source: "Meta" },
-                                        { name: "Dropy", source: "Dropy" },
+                                        { name: "Dropi", source: "Dropi" },
                                         { name: "Google Ads", source: "Google" },
                                     ].map((slot) => {
                                         const log = recentLogs.find(l => l.source === slot.source)

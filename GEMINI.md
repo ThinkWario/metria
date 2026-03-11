@@ -1,157 +1,52 @@
-# Metria - E-commerce Metrics Dashboard
+## Workflow Orchestration
 
-## Arquitectura del Sistema
+### 1. Plan Node Default
+- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
+- If something goes sideways, STOP and re-plan immediately - don't keep pushing
+- Use plan mode for verification steps, not just building
+- Write detailed specs upfront to reduce ambiguity
 
-Metria es una plataforma centralizada para el cálculo de utilidad neta (Profit) en tiempo real, integrando fuentes de e-commerce y logística. Su arquitectura incluye:
-- **Middleware/Automations**: n8n para la orquestación de webhooks (Shopify, Meta, Dropy) y agente IA (Valentina).
-- **Backend**: API REST con Node.js (Express) + PostgreSQL para consolidación de datos y cálculos rápidos.
-- **Frontend**: Aplicación web de Dashboard con Next.js 15 y Recharts para visualización en tiempo real.
+### 2. Subagent Strategy
+- Use subagents liberally to keep main context window clean
+- Offload research, exploration, and parallel analysis to subagents
+- For complex problems, throw more compute at it via subagents
+- One task per subagent for focused execution
 
-## Stack Tecnológico
+### 3. Self-Improvement Loop
+- After ANY correction from the user: update `tasks/lessons.md` with the pattern
+- Write rules for yourself that prevent the same mistake
+- Ruthlessly iterate on these lessons until mistake rate drops
+- Review lessons at session start for relevant project
 
-### Backend (Node.js/Express)
-- **Framework**: Express.js (Node.js)
-- **Base de datos**: PostgreSQL 15
-- **ORM**: Prisma ORM
-- **Cache**: Redis (para cálculos pesados de ROAS/Profit)
-- **Container**: Docker + Docker Compose
-- **Gestión dependencias**: pnpm
-- **Puerto**: 4000
+### 4. Verification Before Done
+- Never mark a task complete without proving it works
+- Diff behavior between main and your changes when relevant
+- Ask yourself: "Would a staff engineer approve this?"
+- Run tests, check logs, demonstrate correctness
 
-### Frontend (Next.js)
-- **Framework**: Next.js 15 (App Router)
-- **React**: 19.0
-- **Visualización**: Recharts / Chart.js
-- **Estilos**: Tailwind CSS + Shadcn/ui
-- **Lenguaje**: TypeScript estricto
-- **Puerto**: 3000
+### 5. Demand Elegance (Balanced)
+- For non-trivial changes: pause and ask "is there a more elegant way?"
+- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
+- Skip this for simple, obvious fixes - don't over-engineer
+- Challenge your own work before presenting it
 
-### Middleware (n8n)
-- **Plataforma**: n8n (Self-hosted via Docker)
-- **Integraciones**: Meta Ads API, Shopify Webhooks, Dropy API, WhatsApp API.
+### 6. Autonomous Bug Fixing
+- When given a bug report: just fix it. Don't ask for hand-holding
+- Point at logs, errors, failing tests - then resolve them
+- Zero context switching required from the user
+- Go fix failing CI tests without being told how
 
-## Estructura del Proyecto
+## Task Management
 
-drofit-clone/
-├── Backend/           # API Express + Prisma + PostgreSQL
-├── Frontend/          # Next.js 15 Dashboard App
-└── n8n/
-    ├── workflows/     # JSON exportados de flujos n8n
-    └── docker/        # Configuración de contenedores n8n
+1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
+2. **Verify Plan**: Check in before starting implementation
+3. **Track Progress**: Mark items complete as you go
+4. **Explain Changes**: High-level summary at each step
+5. **Document Results**: Add review section to `tasks/todo.md`
+6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
 
+## Core Principles
 
-## Modelo de Datos
-
-### Entidades Principales
-- **Order**: Pedidos de Shopify (order_id, revenue, date, status, customer_id)
-- **AdSpend**: Gasto publicitario de Meta Ads (campaign_id, spend, date, impressions, clicks)
-- **Shipment**: Logística de Dropy (tracking_id, order_id, shipping_cost, delivery_status)
-- **DailyMetric**: Tabla consolidada para lecturas rápidas (date, total_revenue, total_ad_spend, total_shipping, net_profit)
-
-### Relaciones
-- Order ↔ Shipment (One-to-One via order_id)
-- DailyMetric consolida (Order, AdSpend, Shipment) agrupados por fecha.
-
-## API Endpoints
-
-- `GET /health` - Health check + DB/Redis connectivity
-- `POST /webhooks/shopify` - Ingreso de nuevas órdenes
-- `POST /webhooks/dropy` - Actualización de estados de envío
-- `GET /api/metrics/daily` - Obtiene el profit y gastos del día actual
-- `GET /api/metrics/range` - Obtiene métricas filtradas por rango de fechas
-- `GET /api/ia/valentina-context` - Endpoint dedicado para que el agente IA consulte ventas en tiempo real
-
-## Comandos de Desarrollo
-
-### Backend
-```bash
-cd Backend
-make start        # Iniciar Docker Compose (DB + Redis + API)
-make stop         # Detener containers
-npx prisma push   # Sincronizar esquema de base de datos
-make seed         # Poblar datos de prueba (mock Shopify/Meta)
-make logs         # Ver logs del backend
-Frontend
-Bash
-cd Frontend
-pnpm install      # Instalar dependencias
-pnpm dev          # Servidor de desarrollo
-pnpm build        # Build de producción
-pnpm lint         # Ejecutar Linter
-URLs del Sistema
-Backend API: http://localhost:4000
-
-Frontend Web: http://localhost:3000
-
-n8n Instancia: http://localhost:5678
-
-Base de Datos (Admin): localhost:5432
-
-Base de Datos
-Configuración Docker
-Usuario: drofit_user
-
-Password: drofit_password
-
-Database: drofit_metrics_db
-
-Puerto: 5432
-
-Migraciones (Prisma)
-Ubicación: Backend/prisma/schema.prisma
-
-Comando crear/aplicar: npx prisma migrate dev --name init
-
-Funcionalidades Implementadas
-✅ Integración de Webhooks de Shopify para captura de ventas al instante.
-
-✅ Extracción diaria de Ad Spend desde Meta Ads API.
-
-✅ Cruce de costos logísticos desde Dropy.
-
-✅ Dashboard en tiempo real con cálculo automático de Utilidad Neta (Profit).
-
-✅ Endpoint exclusivo para que la IA (Valentina) pueda leer el estado de un pedido o las ventas del día.
-
-✅ Alertas de margen de contribución bajo (Traffic Lights).
-
-Patrones de Desarrollo
-Backend
-Arquitectura: Arquitectura Hexagonal / Controller-Service-Repository
-
-Data Fetching: Event-Driven (basado en Webhooks) para evitar cuellos de botella.
-
-Caching: Uso de Redis para métricas del dashboard (evita saturar PostgreSQL con querys SUM/GROUP BY constantes).
-
-Frontend
-Routing: Next.js App Router
-
-State Management: Zustand para estado global (filtros de fechas).
-
-Styling: Tailwind CSS + Componentes modulares.
-
-Middleware (n8n)
-Error Handling: Nodos de "Error Trigger" para notificar fallos de API por WhatsApp o Slack.
-
-Normalización: Nodos de código (JavaScript) para estandarizar monedas y husos horarios (America/Santiago).
-
-Consideraciones de Desarrollo
-Docker obligatorio para levantar los servicios de BD, Redis y n8n.
-
-TypeScript strict en Frontend y Backend.
-
-El huso horario oficial del sistema es America/Santiago (-03:00). Todas las fechas ISO deben guardarse con este offset.
-
-Cálculo de Profit: La ecuación central del sistema es siempre Ventas - Gasto Ads - Costo Producto/Envío.
-
-API REST es la única fuente de verdad. n8n no debe escribir directamente en PostgreSQL, debe llamar a los endpoints del Backend.
-
-Comandos Útiles
-Bash
-# Desarrollo completo
-cd Backend && make start    # Iniciar infraestructura
-cd n8n && docker-compose up -d # Iniciar flujos de automatización
-cd Frontend && pnpm dev     # Iniciar dashboard
-
-# Ver logs de la base de datos
-docker logs -f drofit_postgres
+- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
+- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
+- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.

@@ -102,7 +102,7 @@ export function AdminSidebar() {
                                     </Avatar>
                                     <div className="grid flex-1 text-left text-sm leading-tight">
                                         <span className="truncate font-semibold uppercase text-destructive">Super Admin</span>
-                                        <span className="truncate text-xs text-muted-foreground">Master Access</span>
+                                        <span className="truncate text-xs text-muted-foreground">Admin Maestro</span>
                                     </div>
                                     <ChevronUp className="ml-auto size-4" />
                                 </SidebarMenuButton>

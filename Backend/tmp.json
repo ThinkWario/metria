@@ -1,0 +1,112 @@
+[
+  {
+    "id": "006ae91e-a898-46f6-a3a0-6eb852ca53c9",
+    "workspaceId": "workspace-default",
+    "orderId": "#1043",
+    "shopifyId": "7200344867089",
+    "customerName": "fiona esquivel",
+    "customerEmail": "fionabril@gmail.com",
+    "totalPrice": "17361",
+    "currency": "CLP",
+    "financialStatus": "paid",
+    "fulfillmentStatus": "fulfilled",
+    "lineItems": [
+      {
+        "sku": "COS0166",
+        "title": "Coesam, Crema Doble Acción Rosa Mosqueta",
+        "quantity": 1
+      },
+      {
+        "sku": "DEA0018",
+        "title": "Dellanatura, Datiles sin Carozo",
+        "quantity": 1
+      }
+    ],
+    "createdAt": "2025-12-01T15:12:29.000Z",
+    "updatedAt": "2025-12-01T20:05:26.000Z"
+  },
+  {
+    "id": "0085e455-be06-4dff-9e61-4f11229abfa1",
+    "workspaceId": "workspace-default",
+    "orderId": "#1134",
+    "shopifyId": "7329159512337",
+    "customerName": "Dani Zuzarte",
+    "customerEmail": "danielazuzartepsi@gmail.com",
+    "totalPrice": "24890",
+    "currency": "CLP",
+    "financialStatus": "paid",
+    "fulfillmentStatus": "fulfilled",
+    "lineItems": [
+      {
+        "sku": "74830159810174",
+        "title": "Oatly X6",
+        "quantity": 1
+      }
+    ],
+    "createdAt": "2026-02-01T16:25:46.000Z",
+    "updatedAt": "2026-02-01T17:42:42.000Z"
+  },
+  {
+    "id": "01bb5d5b-42fb-45dd-bce5-f49008e0bd2f",
+    "workspaceId": "workspace-default",
+    "orderId": "#1193",
+    "shopifyId": "7388013658385",
+    "customerName": "María Ignacia Echavarría",
+    "customerEmail": "miechavarriad@gmail.com",
+    "totalPrice": "45480",
+    "currency": "CLP",
+    "financialStatus": "refunded",
+    "fulfillmentStatus": null,
+    "lineItems": [
+      {
+        "sku": "ALI0416",
+        "title": "Astral, Proteína Sabor Cacao",
+        "quantity": 1
+      }
+    ],
+    "createdAt": "2026-03-03T16:49:02.000Z",
+    "updatedAt": "2026-03-03T17:09:54.000Z"
+  },
+  {
+    "id": "01e811a5-166b-4930-a6bd-8f637cf515c7",
+    "workspaceId": "workspace-default",
+    "orderId": "#1031",
+    "shopifyId": "7184104718609",
+    "customerName": "Diego Fernandez",
+    "customerEmail": "dafv57@gmail.com",
+    "totalPrice": "45890",
+    "currency": "CLP",
+    "financialStatus": "paid",
+    "fulfillmentStatus": "fulfilled",
+    "lineItems": [
+      {
+        "sku": "ALI0416",
+        "title": "Astral, Proteína cacao",
+        "quantity": 1
+      }
+    ],
+    "createdAt": "2025-11-26T15:36:16.000Z",
+    "updatedAt": "2025-11-26T16:03:01.000Z"
+  },
+  {
+    "id": "02d11a0e-9b1a-424c-9d6f-704c8a8b4e06",
+    "workspaceId": "workspace-default",
+    "orderId": "#1188",
+    "shopifyId": "7385545867537",
+    "customerName": "Danai Baldu",
+    "customerEmail": "danai.bbm@gmail.com",
+    "totalPrice": "24890",
+    "currency": "CLP",
+    "financialStatus": "paid",
+    "fulfillmentStatus": "fulfilled",
+    "lineItems": [
+      {
+        "sku": "74830159810174",
+        "title": "Oatly X6",
+        "quantity": 1
+      }
+    ],
+    "createdAt": "2026-03-02T12:05:11.000Z",
+    "updatedAt": "2026-03-02T14:30:04.000Z"
+  }
+]

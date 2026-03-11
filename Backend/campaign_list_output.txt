@@ -1,0 +1,5 @@
+Found 3 unique campaigns.
+
+ID: 120235270271750498 | Name: Catálogo Dellanatura Abierto | Spend: $143692.00
+ID: 120240722407310498 | Name: Trafico perfil IG | Spend: $20170.00
+ID: 120221146099340498 | Name: Ganadores Ventas | Spend: $2433622.00

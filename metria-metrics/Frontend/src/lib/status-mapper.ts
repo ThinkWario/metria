@@ -35,7 +35,7 @@ export const mapStatus = (status: string | null | undefined): string => {
     "partial": "Parcial",
     "restocked": "Reabastecido",
 
-    // Logistics Statuses (Dropy/Custom)
+    // Logistics Statuses (Dropi/Custom)
     "Entregado": "Entregado",
     "En Tránsito": "En Tránsito",
     "Devuelto": "Devuelto",

@@ -1,0 +1,10 @@
+src/routes/meta.ts(5,31): error TS2307: Cannot find module 'date-fns-tz' or its corresponding type declarations.
+src/routes/metrics.ts(6,49): error TS2307: Cannot find module 'date-fns-tz' or its corresponding type declarations.
+src/routes/settings.ts(24,22): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/routes/settings.ts(52,22): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/routes/settings.ts(71,22): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/routes/shopify.ts(7,31): error TS2307: Cannot find module 'date-fns-tz' or its corresponding type declarations.
+src/tmp-deep-check.ts(12,9): error TS2322: Type 'string' is not assignable to type 'string[]'.

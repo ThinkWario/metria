@@ -1,0 +1,149 @@
+import { Router } from 'express'
+import { prisma } from '../lib/prisma'
+import jwt from 'jsonwebtoken'
+import 'dotenv/config'
+import { authenticate, AuthRequest } from '../middleware/auth'
+
+const router = Router()
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
+
+// GET /api/users/me — Return authenticated user profile
+router.get('/me', authenticate, async (req: AuthRequest, res) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: req.user!.id },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                role: true,
+                workspaceId: true,
+                workspace: { select: { name: true, logoUrl: true } },
+                preferences: true,
+            },
+        })
+
+        if (!user) return res.status(404).json({ error: 'User not found' })
+
+        res.json(user)
+    } catch (error) {
+        console.error('Get profile error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+// PUT /api/users/me — Update user profile (name, phone)
+router.put('/me', authenticate, async (req: AuthRequest, res) => {
+    try {
+        const { name, phone } = req.body
+
+        const updated = await prisma.user.update({
+            where: { id: req.user!.id },
+            data: {
+                ...(name !== undefined && { name }),
+                ...(phone !== undefined && { phone }),
+            },
+            select: { id: true, name: true, email: true, phone: true, role: true },
+        })
+
+        // Re-issue token with updated name so sidebar/header reflect changes immediately
+        const newToken = jwt.sign(
+            { id: updated.id, email: updated.email, name: updated.name, role: updated.role, workspaceId: req.user!.workspaceId },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        )
+
+        res.json({ user: updated, token: newToken })
+    } catch (error) {
+        console.error('Update profile error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+// PUT /api/users/me/password — Change password (requires current password)
+router.put('/me/password', authenticate, async (req: AuthRequest, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ error: 'Current and new passwords are required' })
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({ error: 'New password must be at least 6 characters' })
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: req.user!.id } })
+        if (!user) return res.status(404).json({ error: 'User not found' })
+
+        if (user.passwordHash !== currentPassword) {
+            return res.status(401).json({ error: 'Current password is incorrect' })
+        }
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { passwordHash: newPassword },
+        })
+
+        res.json({ message: 'Password updated successfully' })
+    } catch (error) {
+        console.error('Change password error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+// GET /api/users/me/preferences — Get user preferences (auto-create if absent)
+router.get('/me/preferences', authenticate, async (req: AuthRequest, res) => {
+    try {
+        let prefs = await prisma.userPreference.findUnique({
+            where: { userId: req.user!.id },
+        })
+
+        if (!prefs) {
+            prefs = await prisma.userPreference.create({
+                data: { userId: req.user!.id },
+            })
+        }
+
+        res.json(prefs)
+    } catch (error) {
+        console.error('Get preferences error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+// PUT /api/users/me/preferences — Update user preferences
+router.put('/me/preferences', authenticate, async (req: AuthRequest, res) => {
+    try {
+        const { theme, compactMode, emailReports, alertMarginLow, alertStockout, defaultDateRange } = req.body
+
+        const prefs = await prisma.userPreference.upsert({
+            where: { userId: req.user!.id },
+            update: {
+                ...(theme !== undefined && { theme }),
+                ...(compactMode !== undefined && { compactMode }),
+                ...(emailReports !== undefined && { emailReports }),
+                ...(alertMarginLow !== undefined && { alertMarginLow }),
+                ...(alertStockout !== undefined && { alertStockout }),
+                ...(defaultDateRange !== undefined && { defaultDateRange }),
+            },
+            create: {
+                userId: req.user!.id,
+                ...(theme !== undefined && { theme }),
+                ...(compactMode !== undefined && { compactMode }),
+                ...(emailReports !== undefined && { emailReports }),
+                ...(alertMarginLow !== undefined && { alertMarginLow }),
+                ...(alertStockout !== undefined && { alertStockout }),
+                ...(defaultDateRange !== undefined && { defaultDateRange }),
+            },
+        })
+
+        res.json(prefs)
+    } catch (error) {
+        console.error('Update preferences error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+export default router

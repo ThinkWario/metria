@@ -9,7 +9,7 @@ function buildMap(raw: { platform: string; status: string }[]): IntegrationMap {
     const map: IntegrationMap = {
         shopify: false,
         meta: false,
-        dropy: false,
+        dropi: false,
         google: false,
     }
     for (const item of raw) {
@@ -24,7 +24,7 @@ describe('useWorkspaceConfig (logic)', () => {
         expect(buildMap([])).toEqual({
             shopify: false,
             meta: false,
-            dropy: false,
+            dropi: false,
             google: false,
         })
     })
@@ -36,18 +36,18 @@ describe('useWorkspaceConfig (logic)', () => {
         ])
         expect(result.shopify).toBe(true)
         expect(result.meta).toBe(false)
-        expect(result.dropy).toBe(false)
+        expect(result.dropi).toBe(false)
         expect(result.google).toBe(false)
     })
 
     it('identifies Active statuses', () => {
         const result = buildMap([
             { platform: 'shopify', status: 'Active' },
-            { platform: 'dropy', status: 'Active' }
+            { platform: 'dropi', status: 'Active' }
         ])
         expect(result.shopify).toBe(true)
         expect(result.meta).toBe(false)
-        expect(result.dropy).toBe(true)
+        expect(result.dropi).toBe(true)
     })
 
     it('handles case-insensitivity in platform names', () => {

@@ -6,7 +6,7 @@ import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { useDateRangeStore } from "@/store/useDateRangeStore"
 import { format } from "date-fns"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
-import { getCurrencySymbol } from "@/lib/formatting"
+import { formatCurrency, getCurrencySymbol } from "@/lib/formatting"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -219,7 +219,7 @@ export default function FinancesPage() {
                         <DollarSign className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{getCurrencySymbol(globalSettings.currency)}{financeSummary ? Number(financeSummary.totalRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "0.00"}</div>
+                        <div className="text-2xl font-bold">{financeSummary ? formatCurrency(financeSummary.totalRevenue) : "$0"}</div>
                         <p className="text-xs text-muted-foreground mt-1">Shopify Sales TTV</p>
                     </CardContent>
                 </Card>
@@ -229,18 +229,18 @@ export default function FinancesPage() {
                         <img src="/meta-logo.svg" alt="Meta" className="h-4 w-4 opacity-70 grayscale" onError={(e) => { e.currentTarget.style.display = 'none' }} />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-chart-2">-{getCurrencySymbol(globalSettings.currency)}{financeSummary ? Number(financeSummary.metaAdSpend || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "0.00"}</div>
+                        <div className="text-2xl font-bold text-chart-2">{financeSummary ? `-${formatCurrency(financeSummary.metaAdSpend)}` : "-$0"}</div>
                         <p className="text-xs text-muted-foreground mt-1">Meta Ads API</p>
                     </CardContent>
                 </Card>
                 <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
                         <CardTitle className="text-sm font-medium text-muted-foreground">COGS & Envíos</CardTitle>
-                        <img src="/dropy-logo.svg" alt="Dropy" className="h-4 w-4 opacity-70 grayscale" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                        <img src="/dropi-logo.svg" alt="Dropi" className="h-4 w-4 opacity-70 grayscale" onError={(e) => { e.currentTarget.style.display = 'none' }} />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-chart-3">-{getCurrencySymbol(globalSettings.currency)}{financeSummary ? (Number(financeSummary.totalCogs || 0) + Number(financeSummary.totalShipping || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "0.00"}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Dropy + Costo Prod.</p>
+                        <div className="text-2xl font-bold text-chart-3">{financeSummary ? `-${formatCurrency(Number(financeSummary.totalCogs || 0) + Number(financeSummary.totalShipping || 0))}` : "-$0"}</div>
+                        <p className="text-xs text-muted-foreground mt-1">Dropi + Costo Prod.</p>
                     </CardContent>
                 </Card>
                 <Card className="bg-primary/5 backdrop-blur-xl border border-primary/20 shadow-[0_0_15px_rgba(var(--color-primary),0.1)]">
@@ -249,7 +249,7 @@ export default function FinancesPage() {
                         <DollarSign className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{getCurrencySymbol(globalSettings.currency)}{financeSummary ? Number(financeSummary.netProfit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "0.00"}</div>
+                        <div className="text-2xl font-bold">{financeSummary ? formatCurrency(financeSummary.netProfit) : "$0"}</div>
                         <Badge variant="outline" className="mt-1 bg-primary/10 text-primary border-primary/20">
                             {financeSummary && Number(financeSummary.totalRevenue) > 0 ? ((Number(financeSummary.netProfit) / Number(financeSummary.totalRevenue)) * 100).toFixed(1) : "0"}% Margen Op.
                         </Badge>
@@ -293,8 +293,8 @@ export default function FinancesPage() {
                                             <div className="text-[10px] font-mono text-muted-foreground uppercase">{alert.sku}</div>
                                         </TableCell>
                                         <TableCell className="px-4 py-3">
-                                            <div className="text-sm font-medium">{getCurrencySymbol(globalSettings.currency)}{alert.price}</div>
-                                            <div className="text-[10px] text-muted-foreground font-medium">Costo: {getCurrencySymbol(globalSettings.currency)}{alert.cost}</div>
+                                            <div className="text-sm font-medium">{formatCurrency(alert.price)}</div>
+                                            <div className="text-[10px] text-muted-foreground font-medium">Costo: {formatCurrency(alert.cost)}</div>
                                         </TableCell>
                                         <TableCell className="text-right px-4 py-3">
                                             <Badge variant="destructive" className="font-mono text-[11px] px-2 py-0 h-6">
@@ -322,7 +322,7 @@ export default function FinancesPage() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-normal text-muted-foreground border border-border/50 px-2 py-1 rounded-md bg-background/50">
-                                        Total: {getCurrencySymbol(globalSettings.currency)}{fixedCosts.reduce((sum, c) => sum + Number(c.amount), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        Total: {formatCurrency(fixedCosts.reduce((sum, c) => sum + Number(c.amount), 0))}
                                     </span>
                                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openFixedCostModal()}>
                                         <Plus className="h-4 w-4" />
@@ -345,7 +345,7 @@ export default function FinancesPage() {
                                         <TableRow key={cost.id}>
                                             <TableCell className="font-medium">{cost.name}</TableCell>
                                             <TableCell><Badge variant="secondary" className="font-normal">{cost.category}</Badge></TableCell>
-                                            <TableCell className="text-right font-mono">{getCurrencySymbol(globalSettings.currency)}{Number(cost.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                            <TableCell className="text-right font-mono">{formatCurrency(cost.amount)}</TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex justify-end gap-1">
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openFixedCostModal(cost)}>
@@ -372,7 +372,7 @@ export default function FinancesPage() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-normal text-muted-foreground border border-border/50 px-2 py-1 rounded-md bg-background/50">
-                                        Total: {getCurrencySymbol(globalSettings.currency)}{Number(financeSummary?.totalTaxAndFees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        Total: {formatCurrency(financeSummary?.totalTaxAndFees || 0)}
                                     </span>
                                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openCustomFeeModal()}>
                                         <Plus className="h-4 w-4" />
@@ -389,7 +389,7 @@ export default function FinancesPage() {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <div className="flex items-center gap-2 border border-border/50 rounded-md px-3 py-1 bg-background/50">
-                                            <span className="font-mono text-sm">{globalSettings?.gatewayPercent}% + {getCurrencySymbol(globalSettings.currency)}{globalSettings?.gatewayFixed}</span>
+                                            <span className="font-mono text-sm">{globalSettings?.gatewayPercent}% + {formatCurrency(globalSettings?.gatewayFixed)}</span>
                                         </div>
                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsGatewayModalOpen(true)}>
                                             <Edit2 className="h-3 w-3" />
@@ -418,7 +418,7 @@ export default function FinancesPage() {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <div className="flex items-center gap-2 border border-border/50 rounded-md px-3 py-1 bg-background/50">
-                                                <span className="font-mono text-sm">{fee.type === 'percent' ? `${fee.amount}%` : `${getCurrencySymbol(globalSettings.currency)}${Number(fee.amount).toFixed(2)}`}</span>
+                                                <span className="font-mono text-sm">{fee.type === 'percent' ? `${fee.amount}%` : formatCurrency(fee.amount)}</span>
                                             </div>
                                             <div className="flex gap-1 justify-end">
                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openCustomFeeModal(fee)}>

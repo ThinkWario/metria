@@ -8,13 +8,24 @@ export function getCurrencySymbol(currency?: string): string {
     return '$'
 }
 
+export function formatNumber(value: number | string, decimals = 2, hideZeroDecimals = true): string {
+    const num = Number(value)
+    if (isNaN(num)) return "0"
+    
+    return num.toLocaleString('es-ES', {
+        minimumFractionDigits: (hideZeroDecimals && num % 1 === 0) ? 0 : decimals,
+        maximumFractionDigits: decimals,
+        useGrouping: true
+    })
+}
+
 export function formatCurrency(amount: number | string, currency?: string): string {
     const symbol = getCurrencySymbol(currency)
-    return `${symbol}${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    return `${symbol}${formatNumber(amount)}`
 }
 
 export function formatPercent(value: number | string, decimals = 1): string {
-    return `${Number(value).toFixed(decimals)}%`
+    return `${formatNumber(value, decimals)}%`
 }
 
 /** Decode JWT payload WITHOUT validating the signature — read-only for display purposes */

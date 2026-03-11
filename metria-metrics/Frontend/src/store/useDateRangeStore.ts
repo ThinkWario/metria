@@ -1,6 +1,8 @@
 import { create } from 'zustand'
-import { addDays } from 'date-fns'
+import { startOfMonth } from 'date-fns'
 import { DateRange } from 'react-day-picker'
+
+const today = new Date()
 
 interface DateRangeState {
     date: DateRange
@@ -9,8 +11,8 @@ interface DateRangeState {
 
 export const useDateRangeStore = create<DateRangeState>((set) => ({
     date: {
-        from: undefined,
-        to: undefined,
+        from: startOfMonth(today),
+        to: today,
     },
     setDate: (date) => set({ date: date || { from: undefined, to: undefined } }),
 }))

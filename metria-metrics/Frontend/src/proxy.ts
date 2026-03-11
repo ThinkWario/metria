@@ -37,7 +37,7 @@ export function proxy(request: NextRequest) {
         }
 
         // ── Redirect away from login ─────────────────────────────────────────
-        if (pathname === '/login') {
+        if (pathname === '/login' || pathname === '/') {
             const dest = payload?.role === 'SUPER_ADMIN' ? '/admin/workspaces' : '/dashboard'
             return NextResponse.redirect(new URL(dest, request.url))
         }

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  test_postgres:
+    image: postgres:15-alpine
+    container_name: metria_test_postgres
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: metria_test_db
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d metria_test_db"]
+      interval: 1s
+      timeout: 5s
+      retries: 10

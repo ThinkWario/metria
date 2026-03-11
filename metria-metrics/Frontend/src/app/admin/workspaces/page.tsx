@@ -230,7 +230,7 @@ export default function AdminWorkspacesPage() {
                                 <div className="flex flex-wrap gap-2">
                                     <IntegrationIndicator platform="Shopify" integrations={ws.integrations} />
                                     <IntegrationIndicator platform="Meta" integrations={ws.integrations} />
-                                    <IntegrationIndicator platform="Dropy" integrations={ws.integrations} />
+                                    <IntegrationIndicator platform="Dropi" integrations={ws.integrations} />
                                     <IntegrationIndicator platform="Google" integrations={ws.integrations} />
                                 </div>
 

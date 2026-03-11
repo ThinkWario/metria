@@ -1,0 +1,51 @@
+{
+  "total_registros": 32,
+  "desde": "2026-02-08T00:00:00.000Z",
+  "hasta": "2026-03-10T00:00:00.000Z",
+  "gasto_total": "3007564",
+  "campanas_activas": 4,
+  "uiltimos_registros": [
+    {
+      "id": "6cadc130-30a1-498d-811e-205ceb399afe",
+      "workspaceId": "workspace-default",
+      "platform": "META",
+      "campaignId": "120221146099340498",
+      "campaignName": "Ganadores Ventas",
+      "spend": "1216780",
+      "impressions": 660236,
+      "clicks": 11888,
+      "conversions": 180,
+      "conversionValue": "5789697",
+      "date": "2026-03-10T00:00:00.000Z",
+      "createdAt": "2026-03-10T13:40:14.453Z"
+    },
+    {
+      "id": "3332ece9-fa5f-4399-abbe-f617d29a78a2",
+      "workspaceId": "workspace-default",
+      "platform": "META",
+      "campaignId": "120235270271750498",
+      "campaignName": "Catálogo Dellanatura Abierto",
+      "spend": "71846",
+      "impressions": 21967,
+      "clicks": 719,
+      "conversions": 8,
+      "conversionValue": "194971",
+      "date": "2026-03-10T00:00:00.000Z",
+      "createdAt": "2026-03-10T13:40:14.479Z"
+    },
+    {
+      "id": "d92c6b53-f14f-490c-adcf-424cbf6fa7e9",
+      "workspaceId": "workspace-default",
+      "platform": "META",
+      "campaignId": "120240722407310498",
+      "campaignName": "Trafico perfil IG",
+      "spend": "10084",
+      "impressions": 6379,
+      "clicks": 183,
+      "conversions": 0,
+      "conversionValue": "0",
+      "date": "2026-03-10T00:00:00.000Z",
+      "createdAt": "2026-03-10T13:40:14.491Z"
+    }
+  ]
+}

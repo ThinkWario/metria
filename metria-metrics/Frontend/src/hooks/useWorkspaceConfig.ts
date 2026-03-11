@@ -10,11 +10,6 @@ export function useWorkspaceConfig() {
 
     useEffect(() => {
         fetchIntegrations()
-
-        // Re-fetch on custom event (e.g., after saving integrations in settings)
-        const handleUpdate = () => useWorkspaceStore.getState().fetchIntegrations(true)
-        window.addEventListener('integrations-updated', handleUpdate)
-        return () => window.removeEventListener('integrations-updated', handleUpdate)
     }, [fetchIntegrations])
 
     return { integrations, isLoading }

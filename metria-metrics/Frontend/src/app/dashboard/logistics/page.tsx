@@ -1,8 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { fetchAPI } from "@/lib/api"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
+import { useDateRangeStore } from "@/store/useDateRangeStore"
+import { format } from "date-fns"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,35 +30,42 @@ const recentShipments = [
 
 export default function LogisticsPage() {
     const { integrations } = useWorkspaceConfig()
+    const { date } = useDateRangeStore()
     const [shipments, setShipments] = useState<any[]>(recentShipments)
     const [summary, setSummary] = useState<any>(null)
 
-    useEffect(() => {
-        const loadData = async () => {
-            try {
-                const [shipmentsRes, summaryRes] = await Promise.all([
-                    fetchAPI('/dropy/shipments'),
-                    fetchAPI('/dropy/summary')
-                ])
-                if (shipmentsRes.data) setShipments(shipmentsRes.data)
-                setSummary(summaryRes)
-            } catch (e) {
-                console.error('Failed to load logistics data', e)
-            }
-        }
-        loadData()
-    }, [])
+    const loadData = useCallback(async () => {
+        try {
+            const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
+            const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
+            const rangeParams = fromStr && toStr ? `?from=${fromStr}&to=${toStr}` : ''
 
-    if (!integrations.dropy) return <UnconfiguredState integration="Dropy" />
+            const [shipmentsRes, summaryRes] = await Promise.all([
+                fetchAPI(`/dropi/shipments${rangeParams}`),
+                fetchAPI(`/dropi/summary${rangeParams}`)
+            ])
+            if (shipmentsRes.data) setShipments(shipmentsRes.data)
+            setSummary(summaryRes)
+        } catch (e) {
+            console.error('Failed to load logistics data', e)
+        }
+    }, [date])
+
+    useEffect(() => {
+        // eslint-disable-next-line
+        loadData()
+    }, [loadData])
+
+    if (!integrations.dropi) return <UnconfiguredState integration="Dropi" />
 
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
                 <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
                     Logística & Operaciones
-                    <Badge className="bg-slate-700 hover:bg-slate-800 text-white border-transparent">Dropy API Live</Badge>
+                    <Badge className="bg-slate-700 hover:bg-slate-800 text-white border-transparent">Dropi API Live</Badge>
                 </h1>
-                <p className="text-muted-foreground">Monitoreo de guías, efectividad de entrega y conciliación de recaudos Dropy.</p>
+                <p className="text-muted-foreground">Monitoreo de guías, efectividad de entrega y conciliación de recaudos Dropi.</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-4">
@@ -66,7 +75,7 @@ export default function LogisticsPage() {
                         <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-emerald-500">65.0%</div>
+                        <div className="text-2xl font-bold text-emerald-500">{summary?.deliveryRate?.toFixed(1) || '0.0'}%</div>
                         <p className="text-xs text-muted-foreground mt-1">Crítico para modelo Contra Entrega</p>
                     </CardContent>
                 </Card>
@@ -76,7 +85,7 @@ export default function LogisticsPage() {
                         <XOctagon className="h-4 w-4 text-destructive" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-destructive">10.0%</div>
+                        <div className="text-2xl font-bold text-destructive">{summary?.returnRate?.toFixed(1) || '0.0'}%</div>
                         <p className="text-xs text-muted-foreground mt-1">Órdenes que generan costo hundido</p>
                     </CardContent>
                 </Card>
@@ -86,7 +95,7 @@ export default function LogisticsPage() {
                         <Truck className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">25</div>
+                        <div className="text-2xl font-bold">{summary?.activeGuides || 0}</div>
                         <p className="text-xs text-muted-foreground mt-1">En tránsito + Pendientes</p>
                     </CardContent>
                 </Card>
@@ -96,8 +105,8 @@ export default function LogisticsPage() {
                         <Package className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">$1,450.00</div>
-                        <p className="text-xs text-muted-foreground mt-1">En billetera Dropy</p>
+                        <div className="text-2xl font-bold">${summary?.totalCollected?.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) || '0'}</div>
+                        <p className="text-xs text-muted-foreground mt-1">En billetera Dropi</p>
                     </CardContent>
                 </Card>
             </div>
@@ -114,7 +123,14 @@ export default function LogisticsPage() {
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                     <Pie
-                                        data={deliveryData}
+                                        data={
+                                            summary?.breakdown ? [
+                                                { name: "Entregado", value: summary.breakdown.delivered, color: "var(--color-emerald-500)" },
+                                                { name: "En Tránsito", value: summary.breakdown.inTransit, color: "var(--color-blue-500)" },
+                                                { name: "Devuelto", value: summary.breakdown.returned, color: "var(--color-destructive)" },
+                                                { name: "Pendiente", value: summary.breakdown.pending, color: "var(--color-muted)" }
+                                            ] : deliveryData
+                                        }
                                         cx="50%"
                                         cy="50%"
                                         innerRadius={60}
@@ -145,7 +161,7 @@ export default function LogisticsPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Guía Dropy</TableHead>
+                                    <TableHead>Guía Dropi</TableHead>
                                     <TableHead>Cliente / Destino</TableHead>
                                     <TableHead>Estado</TableHead>
                                     <TableHead className="text-right">Recaudo</TableHead>
@@ -153,11 +169,11 @@ export default function LogisticsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {recentShipments.map((ship) => (
-                                    <TableRow key={ship.guide}>
-                                        <TableCell className="font-mono text-xs font-medium text-primary cursor-pointer hover:underline">{ship.guide}</TableCell>
+                                {shipments.map((ship) => (
+                                    <TableRow key={ship.guideId || ship.guide}>
+                                        <TableCell className="font-mono text-xs font-medium text-primary cursor-pointer hover:underline">{ship.guideId || ship.guide}</TableCell>
                                         <TableCell>
-                                            <div className="font-medium">{ship.client}</div>
+                                            <div className="font-medium">{ship.clientName || ship.client}</div>
                                             <div className="text-xs text-muted-foreground">{ship.city}</div>
                                         </TableCell>
                                         <TableCell>
@@ -165,8 +181,12 @@ export default function LogisticsPage() {
                                                 {mapStatus(ship.status)}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="text-right font-medium">{ship.value}</TableCell>
-                                        <TableCell className="text-right text-muted-foreground text-xs">{ship.fee}</TableCell>
+                                        <TableCell className="text-right font-medium">
+                                            {ship.collectedValue ? `$${Number(ship.collectedValue).toLocaleString('es-CL', { minimumFractionDigits: 0 })}` : (ship.value || '-')}
+                                        </TableCell>
+                                        <TableCell className="text-right text-muted-foreground text-xs">
+                                            {ship.shippingFee ? `$${Number(ship.shippingFee).toLocaleString('es-CL', { minimumFractionDigits: 0 })}` : (ship.fee || '-')}
+                                        </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>

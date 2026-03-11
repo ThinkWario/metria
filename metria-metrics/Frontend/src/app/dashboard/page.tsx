@@ -4,10 +4,13 @@ import { useEffect, useState, useCallback } from "react"
 import { fetchAPI } from "@/lib/api"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { useDateRangeStore } from "@/store/useDateRangeStore"
+import { useCampaignStore } from "@/store/useCampaignStore"
 import { format } from "date-fns"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
+import { formatCurrency, formatNumber, formatPercent } from "@/lib/formatting"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import {
     BarChart,
     Bar,
@@ -19,32 +22,7 @@ import {
     LineChart,
     Line
 } from "recharts"
-import { TrendingUp, TrendingDown, DollarSign, Target, Percent } from "lucide-react"
-
-// Mock Data
-const metrics = [
-    {
-        title: "Profit Neto Hoy",
-        value: "$12,450",
-        change: "+15%",
-        trend: "up",
-        icon: DollarSign,
-    },
-    {
-        title: "ROAS General",
-        value: "3.2x",
-        change: "+0.5x",
-        trend: "up",
-        icon: Target,
-    },
-    {
-        title: "Margen de Contribución",
-        value: "22%",
-        change: "-2%",
-        trend: "down",
-        icon: Percent,
-    },
-]
+import { TrendingUp, TrendingDown, DollarSign, Target, Percent, FilterX } from "lucide-react"
 
 // Inline custom tooltip for dark/light compatibility
 function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
@@ -56,7 +34,9 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
                 <div key={i} className="flex items-center gap-2 text-sm">
                     <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
                     <span className="text-muted-foreground capitalize">{entry.name}:</span>
-                    <span className="font-semibold">${entry.value.toLocaleString()}</span>
+                    <span className="font-semibold">
+                        {entry.name === 'ROAS' ? `${formatNumber(entry.value)}x` : formatCurrency(entry.value)}
+                    </span>
                 </div>
             ))}
         </div>
@@ -66,6 +46,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 export default function DashboardPage() {
     const { integrations, isLoading: configLoading } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
+    const { disabledCampaignIds, clearFilters } = useCampaignStore()
     const [dailyMetrics, setDailyMetrics] = useState<any>(null)
     const [chartDataState, setChartDataState] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
@@ -75,7 +56,8 @@ export default function DashboardPage() {
         try {
             const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
             const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
-            const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7'
+            const exclusions = disabledCampaignIds.length > 0 ? `&excludeCampaigns=${disabledCampaignIds.join(',')}` : ''
+            const rangeParams = (fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7') + exclusions
 
             const [summary, rangeRaw] = await Promise.all([
                 fetchAPI(`/metrics/summary?${rangeParams}`),
@@ -87,11 +69,17 @@ export default function DashboardPage() {
                 ? rangeRaw
                 : Array.isArray(rangeRaw?.data) ? rangeRaw.data : []
 
-            const formattedChart = rangeArray.map((day: any) => ({
-                name: new Date(day.date).toLocaleDateString('es-ES', { weekday: 'short' }),
-                ventas: Number(day.totalRevenue),
-                ads: Number(day.totalAdSpend)
-            }))
+            const formattedChart = rangeArray.map((day: any) => {
+                const ventas = Number(day.totalRevenue)
+                const ads = Number(day.metaAdSpend) + Number(day.googleAdSpend)
+                const roas = ads > 0 ? ventas / ads : 0
+                return {
+                    name: new Date(day.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
+                    ventas,
+                    ads,
+                    roas: Number(roas.toFixed(2))
+                }
+            })
             setChartDataState(formattedChart)
         } catch (error) {
             console.error("Failed to load dashboard metrics", error)
@@ -99,12 +87,11 @@ export default function DashboardPage() {
         } finally {
             setIsLoading(false)
         }
-    }, [date])
+    }, [date, disabledCampaignIds])
 
     useEffect(() => {
         loadDashboard()
-        // Auto-refresh every 30 seconds for near real-time data
-        const interval = setInterval(loadDashboard, 30_000)
+        const interval = setInterval(loadDashboard, 60_000)
         return () => clearInterval(interval)
     }, [loadDashboard])
 
@@ -112,7 +99,7 @@ export default function DashboardPage() {
     const metrics = [
         {
             title: "Ingresos (Bruto)",
-            value: dailyMetrics ? `$${Number(dailyMetrics.netProfit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00",
+            value: dailyMetrics ? formatCurrency(dailyMetrics.totalRevenue) : "$0",
             change: "+12.5%",
             trend: "up",
             icon: DollarSign,
@@ -120,18 +107,18 @@ export default function DashboardPage() {
         {
             title: "ROAS General",
             value: dailyMetrics && Number(dailyMetrics.metaAdSpend || 0) + Number(dailyMetrics.googleAdSpend || 0) > 0
-                ? `${(Number(dailyMetrics.totalRevenue) / (Number(dailyMetrics.metaAdSpend || 0) + Number(dailyMetrics.googleAdSpend || 0))).toFixed(2)}x`
-                : "0.00x",
-            change: "+0.4x",
+                ? `${formatNumber(Number(dailyMetrics.totalRevenue) / (Number(dailyMetrics.metaAdSpend || 0) + Number(dailyMetrics.googleAdSpend || 0)))}x`
+                : "0,00x",
+            change: "+0,4x",
             trend: "up",
             icon: Target,
         },
         {
             title: "Margen Operativo",
             value: dailyMetrics && Number(dailyMetrics.totalRevenue) > 0
-                ? `${((Number(dailyMetrics.netProfit) / Number(dailyMetrics.totalRevenue)) * 100).toFixed(1)}%`
-                : "0.0%",
-            change: "-1.2%",
+                ? formatPercent((Number(dailyMetrics.netProfit) / Number(dailyMetrics.totalRevenue)) * 100)
+                : "0,0%",
+            change: "-1,2%",
             trend: "down",
             icon: Percent,
         },
@@ -142,13 +129,22 @@ export default function DashboardPage() {
     }
 
     if (!integrations.shopify) {
-        return <UnconfiguredState integration="Shopify, Meta & Dropy" />
+        return <UnconfiguredState integration="Shopify, Meta & Dropi" />
     }
 
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold tracking-tight">Centro de Control</h1>
+                <div className="flex items-center justify-between">
+                    <h1 className="text-3xl font-bold tracking-tight">Centro de Control</h1>
+                    {disabledCampaignIds.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-amber-500 border-amber-500/30 animate-pulse">
+                                {disabledCampaignIds.length} campañas filtradas
+                            </Badge>
+                        </div>
+                    )}
+                </div>
                 <p className="text-muted-foreground">Monitoreo en tiempo real de rentabilidad y operaciones.</p>
             </div>
 
@@ -197,14 +193,14 @@ export default function DashboardPage() {
                                         tickLine={false}
                                         axisLine={false}
                                         tick={{ fill: "currentColor", opacity: 0.6 }}
-                                        tickFormatter={(value) => `$${value}`}
+                                        tickFormatter={(value) => formatCurrency(value)}
                                     />
                                     <RechartsTooltip
                                         content={<CustomTooltip />}
                                         cursor={{ fill: "currentColor", opacity: 0.05 }}
                                     />
-                                    <Bar dataKey="ventas" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
-                                    <Bar dataKey="ads" fill="var(--color-chart-2)" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="ventas" fill="var(--color-primary)" radius={[4, 4, 0, 0]} name="Ventas" />
+                                    <Bar dataKey="ads" fill="var(--color-chart-2)" radius={[4, 4, 0, 0]} name="Ads" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -228,15 +224,25 @@ export default function DashboardPage() {
                                         axisLine={false}
                                         tick={{ fill: "currentColor", opacity: 0.6 }}
                                     />
+                                    <YAxis
+                                        fontSize={12}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tick={{ fill: "currentColor", opacity: 0.6 }}
+                                        tickFormatter={(value) => `${value}x`}
+                                        domain={[0, 'auto']}
+                                    />
                                     <RechartsTooltip content={<CustomTooltip />} />
                                     <Line
                                         type="monotone"
-                                        dataKey="ventas"
+                                        dataKey="roas"
+                                        name="ROAS"
                                         stroke="var(--color-primary)"
                                         strokeWidth={3}
                                         dot={{ r: 4, fill: "var(--color-primary)" }}
                                         activeDot={{ r: 6 }}
                                     />
+
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>

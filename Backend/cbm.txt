@@ -1,0 +1,12 @@
+﻿Workspace: TechNova Solutions ecefe80f-ccd5-48aa-ad3a-3ddd17bf72e3
+  Total Orders DB: 0
+  Total Meta Conversions DB: 0
+  Total Meta Spend DB: 0
+Workspace: Global Matrix Corp c95f4f42-81fa-4adf-860f-649f160ba498
+  Total Orders DB: 0
+  Total Meta Conversions DB: 0
+  Total Meta Spend DB: 0
+Workspace: Metria Demo Store workspace-default
+  Total Orders DB: 207
+  Total Meta Conversions DB: 179
+  Total Meta Spend DB: 1278894

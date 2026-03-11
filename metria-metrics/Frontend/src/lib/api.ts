@@ -82,6 +82,8 @@ export const forceChangePassword = (newPassword: string, tempToken: string) => f
 
 // Integration extra helpers
 export const syncShopifyOrders = () => fetchAPI('/shopify/sync', { method: 'POST' })
-export const getCustomersLtv = () => fetchAPI('/metrics/customers-ltv')
-export const getReturns = () => fetchAPI('/metrics/returns')
+export const getCustomersLtv = (from?: string, to?: string) => 
+    fetchAPI(`/metrics/customers-ltv${from && to ? `?from=${from}&to=${to}` : ''}`)
+export const getReturns = (from?: string, to?: string) => 
+    fetchAPI(`/metrics/returns${from && to ? `?from=${from}&to=${to}` : ''}`)
 export const getSystemLogs = () => fetchAPI('/logs')

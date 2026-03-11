@@ -1,0 +1,59 @@
+{
+  "fixedCosts": [
+    {
+      "id": "b04b9cb8-0ec7-4416-a1cb-70e527cab161",
+      "workspaceId": "workspace-default",
+      "name": "Shopify Plan",
+      "amount": "39",
+      "category": "Suscripción",
+      "isActive": true,
+      "createdAt": "2026-03-08T00:12:06.617Z",
+      "updatedAt": "2026-03-08T00:12:06.617Z"
+    },
+    {
+      "id": "e9c346bd-f249-4e39-9409-6ccabe21cf6d",
+      "workspaceId": "workspace-default",
+      "name": "Dominio (Anual / 12)",
+      "amount": "1.5",
+      "category": "Infraestructura",
+      "isActive": true,
+      "createdAt": "2026-03-08T00:12:06.625Z",
+      "updatedAt": "2026-03-08T00:12:06.625Z"
+    },
+    {
+      "id": "695184bc-ba54-44d0-a37a-8147e16148f1",
+      "workspaceId": "workspace-default",
+      "name": "Herramienta Email",
+      "amount": "25",
+      "category": "Marketing",
+      "isActive": true,
+      "createdAt": "2026-03-08T00:12:06.631Z",
+      "updatedAt": "2026-03-08T00:12:06.631Z"
+    },
+    {
+      "id": "5eba1088-565e-447c-8a53-adb92625f873",
+      "workspaceId": "workspace-default",
+      "name": "Sueldo Asistente",
+      "amount": "400",
+      "category": "Nómina",
+      "isActive": true,
+      "createdAt": "2026-03-08T00:12:06.635Z",
+      "updatedAt": "2026-03-08T00:12:06.635Z"
+    }
+  ],
+  "settings": {
+    "id": "56f44a59-d22f-4ba3-a7cf-edca274cd3b0",
+    "workspaceId": "workspace-default",
+    "timezone": "santiago",
+    "currency": "clp",
+    "strictAttribution": false,
+    "taxRate": "0",
+    "gatewayPercent": "0",
+    "gatewayFixed": "0",
+    "customFees": [],
+    "updatedAt": "2026-03-08T21:52:37.195Z"
+  },
+  "summary": {
+    "totalFixedCosts": 465.5
+  }
+}

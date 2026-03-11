@@ -6,14 +6,14 @@ import { fetchAPI } from '@/lib/api'
 export type IntegrationMap = {
     shopify: boolean
     meta: boolean
-    dropy: boolean
+    dropi: boolean
     google: boolean
 }
 
 const DEFAULT_MAP: IntegrationMap = {
     shopify: false,
     meta: false,
-    dropy: false,
+    dropi: false,
     google: false,
 }
 
@@ -42,7 +42,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     isLoading: false,
     hasFetched: false,
     fetchIntegrations: async (force?: boolean) => {
-        // Only fetch once per session — avoids N requests on navigation
+        if (get().isLoading) return
         if (get().hasFetched && !force) return
         set({ isLoading: true })
         try {
@@ -57,3 +57,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         }
     }
 }))
+
+// Global listener: force-refresh integrations map whenever tokens are saved
+if (typeof window !== 'undefined') {
+    window.addEventListener('integrations-updated', () => {
+        useWorkspaceStore.getState().fetchIntegrations(true)
+    })
+}

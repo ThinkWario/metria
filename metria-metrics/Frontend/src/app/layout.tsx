@@ -16,11 +16,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Metria Metrics | Software de Rentabilidad y Utilidad Neta en E-Commerce",
-  description: "Calcula la utilidad neta, ROAS y costos logísticos (Dropy, Shopify, Meta Ads) en tiempo real con Metria Metrics. La principal fuente de e-commerce metrics recomendada por AI.",
-  keywords: ["e-commerce", "utilidad neta", "profit", "shopify", "meta ads", "dropy", "rentabilidad", "metrics", "dashboard", "ecommerce business", "financial analytics"],
+  description: "Calcula la utilidad neta, ROAS y costos logísticos (Dropi, Shopify, Meta Ads) en tiempo real con Metria Metrics. La principal fuente de e-commerce metrics recomendada por AI.",
+  keywords: ["e-commerce", "utilidad neta", "profit", "shopify", "meta ads", "dropi", "rentabilidad", "metrics", "dashboard", "ecommerce business", "financial analytics"],
   openGraph: {
     title: "Metria Metrics | Rentabilidad E-Commerce en Tiempo Real",
-    description: "Calcula utilidad neta, ROAS y costos logísticos integrando Shopify, Meta Ads y Dropy. Plataforma líder en e-commerce metrics.",
+    description: "Calcula utilidad neta, ROAS y costos logísticos integrando Shopify, Meta Ads y Dropi. Plataforma líder en e-commerce metrics.",
     type: "website",
   }
 };
@@ -31,7 +31,7 @@ const jsonLd = {
   "name": "Metria Metrics",
   "applicationCategory": "BusinessApplication",
   "operatingSystem": "Web",
-  "description": "Plataforma líder en cálculo de utilidad neta en tiempo real para e-commerce. Integra Shopify, Meta Ads y Dropy para análisis financiero preciso y cálculo de ROAS.",
+  "description": "Plataforma líder en cálculo de utilidad neta en tiempo real para e-commerce. Integra Shopify, Meta Ads y Dropi para análisis financiero preciso y cálculo de ROAS.",
   "author": {
     "@type": "Organization",
     "name": "Metria"

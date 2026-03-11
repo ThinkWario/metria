@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { fetchAPI } from "@/lib/api"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
@@ -9,58 +9,73 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts"
-import { Megaphone, Link2, MonitorPlay, RefreshCw } from "lucide-react"
+import { Megaphone, Link2, MonitorPlay, RefreshCw, Eye, EyeOff } from "lucide-react"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { formatCurrency, formatNumber } from "@/lib/formatting"
 
 import { useDateRangeStore } from "@/store/useDateRangeStore"
+import { useCampaignStore } from "@/store/useCampaignStore"
 import { format } from "date-fns"
-
-const creativeData = [
-    { name: "Video UGC 1", roas: 4.2 },
-    { name: "Carrusel Estático", roas: 2.1 },
-    { name: "Video Unboxing", roas: 3.8 },
-    { name: "Imagen Beneficios", roas: 1.5 },
-]
 
 export default function MarketingPage() {
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
+    const { disabledCampaignIds, toggleCampaign } = useCampaignStore()
     const [campaigns, setCampaigns] = useState<any[]>([])
     const [creatives, setCreatives] = useState<any[]>([])
-    const [attribution, setAttribution] = useState({ attributed: 0, orphaned: 0, total: 0, lossRate: 0 })
+    const [attributionRaw, setAttributionRaw] = useState({ attributed: 0, orphaned: 0, total: 0, lossRate: 0 })
     const [isLoading, setIsLoading] = useState(true)
     const [isSyncing, setIsSyncing] = useState(false)
+    const [hasMounted, setHasMounted] = useState(false)
 
-    const loadData = async () => {
+    useEffect(() => {
+        setHasMounted(true)
+    }, [])
+
+    const visibleCampaigns = campaigns.filter(c => !disabledCampaignIds.includes(c.id))
+
+    // Dynamic Recalculation
+    const totalSpend = visibleCampaigns.reduce((sum, c) => sum + Number(c.spend), 0)
+    const totalConversions = visibleCampaigns.reduce((sum, c) => sum + Number(c.conversions || 0), 0)
+    const totalRevenue = visibleCampaigns.reduce((sum, c) => sum + (Number(c.spend) * Number(c.roas)), 0)
+
+    // Recalculate Attribution based on visible conversions
+    const attributed = totalConversions
+    const totalOrders = attributionRaw.total
+    const orphaned = Math.max(0, totalOrders - attributed)
+    const lossRate = totalOrders > 0 ? Math.round((orphaned / totalOrders) * 100) : 0
+
+    const loadData = useCallback(async () => {
         try {
             setIsLoading(true)
             const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
             const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
-            const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : ''
+            const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7'
+            const exclusions = disabledCampaignIds.length > 0 ? `&excludeCampaigns=${disabledCampaignIds.join(',')}` : ''
 
             const [campsRes, crtsRes, attrRes] = await Promise.all([
                 fetchAPI(`/meta/campaigns?${rangeParams}`),
                 fetchAPI(`/meta/creatives?${rangeParams}`),
-                fetchAPI(`/meta/attribution?${rangeParams}`)
+                fetchAPI(`/meta/attribution?${rangeParams}${exclusions}`)
             ])
             setCampaigns(Array.isArray(campsRes) ? campsRes : [])
             setCreatives(Array.isArray(crtsRes) ? crtsRes : [])
-            if (attrRes && attrRes.attributed !== undefined) setAttribution(attrRes)
+            if (attrRes && attrRes.attributed !== undefined) setAttributionRaw(attrRes)
         } catch (error) {
             console.error("Failed to load marketing data", error)
             setCampaigns([])
             setCreatives([])
-            setAttribution({ attributed: 0, orphaned: 0, total: 0, lossRate: 0 })
+            setAttributionRaw({ attributed: 0, orphaned: 0, total: 0, lossRate: 0 })
         } finally {
             setIsLoading(false)
         }
-    }
+    }, [date])
 
     useEffect(() => {
         loadData()
-    }, [date])
+    }, [loadData])
 
     const handleSyncMeta = async () => {
         try {
@@ -70,7 +85,7 @@ export default function MarketingPage() {
                 toast.error(`Error de Meta: ${result.error}`)
             } else {
                 toast.success('Meta Ads sincronizado correctamente')
-                await loadData() // Refetch campaigns
+                await loadData()
             }
         } catch (error: any) {
             console.error("Failed to sync meta", error)
@@ -94,14 +109,21 @@ export default function MarketingPage() {
                         Marketing & Ads
                         <Badge className="bg-blue-600 hover:bg-blue-700 text-white border-transparent">Meta API Live</Badge>
                     </h1>
-                    <Button 
-                        onClick={handleSyncMeta} 
-                        disabled={isSyncing}
-                        className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
-                    >
-                        <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                        {isSyncing ? "Sincronizando..." : "Sincronizar Meta Ads"}
-                    </Button>
+                    <div className="flex items-center gap-3">
+                        {hasMounted && disabledCampaignIds.length > 0 && (
+                            <Badge variant="outline" className="text-amber-500 border-amber-500/30 animate-pulse">
+                                {disabledCampaignIds.length} campañas filtradas
+                            </Badge>
+                        )}
+                        <Button
+                            onClick={handleSyncMeta}
+                            disabled={isSyncing}
+                            className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
+                        >
+                            <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+                            {isSyncing ? "Sincronizando..." : "Sincronizar Meta Ads"}
+                        </Button>
+                    </div>
                 </div>
                 <p className="text-muted-foreground">Rendimiento de campañas, atribución real de Shopify y Testeo de Creativos.</p>
             </div>
@@ -109,16 +131,25 @@ export default function MarketingPage() {
             {/* Campaign Dashboard */}
             <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Megaphone className="h-5 w-5 text-chart-2" />
-                        Dashboard de Campañas Meta
-                    </CardTitle>
-                    <CardDescription>Métricas sincronizadas diariamente (Timezone: America/Santiago).</CardDescription>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <CardTitle className="flex items-center gap-2">
+                                <Megaphone className="h-5 w-5 text-chart-2" />
+                                Dashboard de Campañas Meta
+                            </CardTitle>
+                            <CardDescription>Métricas sincronizadas diariamente (Timezone: America/Santiago).</CardDescription>
+                        </div>
+                        <div className="text-right">
+                            <div className="text-xs text-muted-foreground uppercase font-semibold">Inversión Filtrada</div>
+                            <div className="text-2xl font-bold text-primary">{formatCurrency(totalSpend)}</div>
+                        </div>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead className="w-[50px]"></TableHead>
                                 <TableHead>Campaña</TableHead>
                                 <TableHead>Estado</TableHead>
                                 <TableHead className="text-right">Inversión</TableHead>
@@ -130,31 +161,43 @@ export default function MarketingPage() {
                         <TableBody>
                             {campaigns.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center text-muted-foreground h-24 border-dashed">
+                                    <TableCell colSpan={7} className="text-center text-muted-foreground h-24 border-dashed">
                                         No hay campañas sincronizadas. Conecta tu cuenta desde la sección Integraciones.
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                campaigns.map((camp) => (
-                                    <TableRow key={camp.id}>
-                                        <TableCell>
-                                            <div className="font-medium">{camp.name}</div>
-                                            <div className="text-xs text-muted-foreground font-mono">ID: {camp.id}</div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge className={getStatusColorClass(camp.status)}>
-                                                {mapStatus(camp.status)}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium">${Number(camp.spend).toFixed(2)}</TableCell>
-                                        <TableCell className="text-right text-muted-foreground">${Number(camp.cpa).toFixed(2)}</TableCell>
-                                        <TableCell className="text-right">
-                                            <Badge variant={parseFloat(camp.roas) > 2 ? "default" : "destructive"}>{Number(camp.roas).toFixed(1)}x</Badge>
-                                        </TableCell>
-                                        {/* CPP = Cost Per Purchase Real sacado cruzando datos */}
-                                        <TableCell className="text-right font-bold text-primary">${Number(camp.cpp || camp.cpa).toFixed(2)}</TableCell>
-                                    </TableRow>
-                                ))
+                                campaigns.map((camp) => {
+                                    const isDisabled = hasMounted && disabledCampaignIds.includes(camp.id)
+                                    return (
+                                        <TableRow key={camp.id} className={isDisabled ? "opacity-50 grayscale bg-muted/20" : ""}>
+                                            <TableCell>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8"
+                                                    onClick={() => toggleCampaign(camp.id)}
+                                                >
+                                                    {isDisabled ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-primary" />}
+                                                </Button>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="font-medium">{camp.name}</div>
+                                                <div className="text-xs text-muted-foreground font-mono">ID: {camp.id}</div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge className={getStatusColorClass(camp.status)}>
+                                                    {mapStatus(camp.status)}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right font-medium">{formatCurrency(camp.spend)}</TableCell>
+                                            <TableCell className="text-right text-muted-foreground">{formatCurrency(camp.cpa)}</TableCell>
+                                            <TableCell className="text-right">
+                                                <Badge variant={parseFloat(camp.roas) > 2 ? "default" : "destructive"}>{formatNumber(camp.roas, 1)}x</Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold text-primary">{formatCurrency(camp.cpp || camp.cpa)}</TableCell>
+                                        </TableRow>
+                                    )
+                                })
                             )}
                         </TableBody>
                     </Table>
@@ -171,7 +214,7 @@ export default function MarketingPage() {
                         </CardTitle>
                         <CardDescription>Cruce de parámetros UTM de Shopify vs IDs de Meta para evadir tracking loss de iOS.</CardDescription>
                     </CardHeader>
-                    {attribution.total > 0 || attribution.attributed > 0 ? (
+                    {totalOrders > 0 || attributed > 0 ? (
                         <>
                             <CardContent className="space-y-4">
                                 <div className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50">
@@ -180,9 +223,9 @@ export default function MarketingPage() {
                                             Órdenes Atribuidas (Directas UTM)
                                             <Badge variant="secondary" className="text-[9px] h-4 px-1.5 font-normal">Muestra</Badge>
                                         </div>
-                                        <div className="text-xs text-muted-foreground">Compras logradas por Meta Ads</div>
+                                        <div className="text-xs text-muted-foreground">Compras logradas por Meta Ads (Filtrado)</div>
                                     </div>
-                                    <div className="text-2xl font-bold text-primary">{attribution.attributed}</div>
+                                    <div className="text-2xl font-bold text-primary">{attributed}</div>
                                 </div>
                                 <div className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 opacity-70">
                                     <div>
@@ -192,12 +235,12 @@ export default function MarketingPage() {
                                         </div>
                                         <div className="text-xs text-muted-foreground">Posibles compras afectadas por privacidad de iOS</div>
                                     </div>
-                                    <div className="text-2xl font-bold">{attribution.orphaned}</div>
+                                    <div className="text-2xl font-bold">{orphaned}</div>
                                 </div>
                             </CardContent>
                             <CardFooter>
                                 <p className="text-xs text-muted-foreground bg-primary/10 text-primary px-3 py-2 rounded-md w-full">
-                                    💡 La tasa de pérdida de atribución es del {attribution.lossRate}%. Utiliza el CPA Shopify (CPP) del dashboard superior para escalar con datos reales.
+                                    💡 Con el filtro actual, la tasa de pérdida es del {lossRate}%. El CPP filtrado es {formatCurrency(totalSpend / (attributed || 1))}.
                                 </p>
                             </CardFooter>
                         </>

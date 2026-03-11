@@ -9,6 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from "recharts"
 import { MousePointerClick, Target, TrendingUp, Search, Loader2 } from "lucide-react"
 import { fetchAPI } from "@/lib/api"
+import { formatCurrency, formatNumber } from "@/lib/formatting"
+
+import { useDateRangeStore } from "@/store/useDateRangeStore"
+import { format } from "date-fns"
 
 const performanceData = [
     { date: "01 Mar", spend: 120, conversions: 15, cpa: 8 },
@@ -21,6 +25,7 @@ const performanceData = [
 
 export default function GoogleAdsPage() {
     const { integrations } = useWorkspaceConfig()
+    const { date } = useDateRangeStore()
     const [campaigns, setCampaigns] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
 
@@ -28,7 +33,11 @@ export default function GoogleAdsPage() {
         if (!integrations.google) return
         const loadCampaigns = async () => {
             try {
-                const data = await fetchAPI('/google/campaigns')
+                const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
+                const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
+                const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : ''
+                
+                const data = await fetchAPI(`/google/campaigns?${rangeParams}`)
                 setCampaigns(data || [])
             } catch (error) {
                 console.error("Failed to load Google campaigns:", error)
@@ -37,7 +46,7 @@ export default function GoogleAdsPage() {
             }
         }
         loadCampaigns()
-    }, [integrations.google])
+    }, [integrations.google, date])
 
     if (!integrations.google) return <UnconfiguredState integration="Google Ads" />
 
@@ -93,10 +102,10 @@ export default function GoogleAdsPage() {
                                             {camp.status}
                                         </Badge>
                                     </TableCell>
-                                    <TableCell className="text-right font-medium">${Number(camp.spend).toFixed(2)}</TableCell>
-                                    <TableCell className="text-right text-muted-foreground">${Number(camp.cpa).toFixed(2)}</TableCell>
+                                    <TableCell className="text-right font-medium">{formatCurrency(camp.spend)}</TableCell>
+                                    <TableCell className="text-right text-muted-foreground">{formatCurrency(camp.cpa)}</TableCell>
                                     <TableCell className="text-right">
-                                        <Badge variant={parseFloat(camp.roas) > 2 ? "default" : "destructive"}>{Number(camp.roas).toFixed(2)}x</Badge>
+                                        <Badge variant={parseFloat(camp.roas) > 2 ? "default" : "destructive"}>{formatNumber(camp.roas)}x</Badge>
                                     </TableCell>
                                 </TableRow>
                             )))}
@@ -153,7 +162,7 @@ export default function GoogleAdsPage() {
                             </div>
                             <div className="text-right">
                                 <div className="text-sm font-bold text-primary">12 Conv.</div>
-                                <div className="text-xs text-muted-foreground">CPA: $2.10</div>
+                                <div className="text-xs text-muted-foreground">CPA: {formatCurrency(2.10)}</div>
                             </div>
                         </div>
                         <div className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 hover:bg-background/80 transition-colors">
@@ -165,7 +174,7 @@ export default function GoogleAdsPage() {
                             </div>
                             <div className="text-right">
                                 <div className="text-sm font-bold text-primary">8 Conv.</div>
-                                <div className="text-xs text-muted-foreground">CPA: $15.40</div>
+                                <div className="text-xs text-muted-foreground">CPA: {formatCurrency(15.40)}</div>
                             </div>
                         </div>
                         <div className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 hover:bg-background/80 transition-colors opacity-70">
@@ -177,7 +186,7 @@ export default function GoogleAdsPage() {
                             </div>
                             <div className="text-right">
                                 <div className="text-sm font-bold">3 Conv.</div>
-                                <div className="text-xs text-muted-foreground">CPA: $8.90</div>
+                                <div className="text-xs text-muted-foreground">CPA: {formatCurrency(8.90)}</div>
                             </div>
                         </div>
                     </CardContent>
