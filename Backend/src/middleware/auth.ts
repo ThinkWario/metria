@@ -10,6 +10,7 @@ export interface AuthRequest extends Request {
         email: string
         role: string
         workspaceId?: string | null
+        isImpersonating?: boolean
     }
 }
 
@@ -25,7 +26,7 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
 
         req.user = decoded
         // Ensure workspaceId is at least null if missing
-        if (req.user && !req.user.workspaceId) req.user.workspaceId = null
+        if (req.user && req.user.workspaceId === undefined) req.user.workspaceId = null
         next()
     } catch (error) {
         return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' })

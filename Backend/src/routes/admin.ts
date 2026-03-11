@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import jwt from 'jsonwebtoken'
 import { requireSuperAdmin } from '../middleware/adminAuth'
 import 'dotenv/config'
-
+import bcrypt from 'bcrypt'
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
 
@@ -72,6 +72,7 @@ router.post('/workspaces', async (req, res) => {
         }
 
         const tempPassword = 'ChangeMe2026!'
+        const hashedTempPassword = await bcrypt.hash(tempPassword, 10)
 
         // Create Workspace and User transactionally
         const workspace = await prisma.$transaction(async (tx) => {
@@ -82,7 +83,7 @@ router.post('/workspaces', async (req, res) => {
             await tx.user.create({
                 data: {
                     email: adminEmail,
-                    passwordHash: tempPassword,
+                    passwordHash: hashedTempPassword,
                     name: 'Admin',
                     role: 'ADMIN',
                     workspaceId: newWorkspace.id,
@@ -166,6 +167,40 @@ router.post('/workspaces/impersonate', async (req, res) => {
     }
 })
 
+// Stop impersonating and return to true SUPER_ADMIN context
+router.post('/workspaces/impersonate/stop', async (req, res) => {
+    try {
+        const userReq = (req as any).user // the super admin calling this
+
+        if (!userReq.isImpersonating) {
+            return res.status(400).json({ error: 'You are not currenty impersonating a workspace' })
+        }
+
+        const realUser = await prisma.user.findUnique({ where: { id: userReq.id } })
+
+        if (!realUser) {
+            return res.status(404).json({ error: 'User not found' })
+        }
+
+        const token = jwt.sign(
+            {
+                id: realUser.id,
+                email: realUser.email,
+                name: realUser.name,
+                role: realUser.role,
+                workspaceId: realUser.workspaceId,
+            },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        )
+
+        res.status(200).json({ token })
+    } catch (error) {
+        console.error('Error stopping impersonation:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
 
 // --- Users Management ---
 
@@ -193,11 +228,12 @@ router.post('/users/:id/reset-password', async (req, res) => {
         // We use a simple generic password for demo purposes. 
         // In a real app this might be randomly generated and emailed.
         const genericPassword = 'ChangeMe2026!'
+        const hashedGenericPassword = await bcrypt.hash(genericPassword, 10)
 
         const updated = await prisma.user.update({
             where: { id },
             data: {
-                passwordHash: genericPassword,
+                passwordHash: hashedGenericPassword,
                 mustChangePassword: true
             },
             select: { id: true, email: true, mustChangePassword: true }

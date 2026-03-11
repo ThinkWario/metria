@@ -118,7 +118,7 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
                     where: { id: existing.id },
                     data: {
                         metaAdSpend: spend,
-                        netProfit: Number(existing.totalRevenue) - spend - Number(existing.googleAdSpend) - Number(existing.totalShipping) - Number(existing.totalCogs)
+                        netProfit: Number(existing.totalRevenue) - spend - Number(existing.googleAdSpend) - Number(existing.tiktokAdSpend || 0) - Number(existing.totalShipping) - Number(existing.totalCogs)
                     }
                 })
             } else {
@@ -129,6 +129,7 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
                         totalRevenue: 0,
                         metaAdSpend: spend,
                         googleAdSpend: 0,
+                        tiktokAdSpend: 0,
                         totalShipping: 0,
                         totalCogs: 0,
                         netProfit: -spend,

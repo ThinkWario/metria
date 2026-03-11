@@ -97,6 +97,7 @@ export default function LoginPage() {
                                 />
                             </div>
                         </CardContent>
+                        <br />
                         <CardFooter>
                             <Button
                                 type="submit"

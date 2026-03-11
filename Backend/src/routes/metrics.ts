@@ -1,11 +1,14 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { requireRole } from '../middleware/roleAuth'
 import { cacheMiddleware, invalidateWorkspaceCache, CACHE_TTL } from '../middleware/cache'
 import { subDays } from 'date-fns'
 import { getTodayStr, getStartOfDay, getEndOfDay } from '../lib/dateUtils'
 
 const router = Router()
+router.use(requireRole(['SUPER_ADMIN', 'ADMIN', 'VIEWER']))
+
 const TIMEZONE = 'America/Santiago'
 
 // 1. GET /api/metrics/summary?from=...&to=...
@@ -28,7 +31,7 @@ router.get('/summary', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async 
             endZone = getEndOfDay(todayStr)
         }
 
-        const [metrics, fixedCosts, settings, orders, filteredMetaSpend, filteredGoogleSpend] = await Promise.all([
+        const [metrics, fixedCosts, settings, orders, filteredMetaSpend, filteredGoogleSpend, filteredTiktokSpend] = await Promise.all([
             prisma.dailyMetric.findMany({
                 where: {
                     workspaceId,
@@ -69,6 +72,17 @@ router.get('/summary', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async 
                     date: { gte: startZone, lte: endZone },
                     campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
                 }
+            }),
+            // Filtered TikTok AdSpend
+            prisma.adSpend.groupBy({
+                by: ['date'],
+                _sum: { spend: true },
+                where: {
+                    workspaceId,
+                    platform: 'TIKTOK',
+                    date: { gte: startZone, lte: endZone },
+                    campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
+                }
             })
         ])
 
@@ -79,6 +93,7 @@ router.get('/summary', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async 
         // Total spending from filtered queries
         const totalMetaSpend = filteredMetaSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
         const totalGoogleSpend = filteredGoogleSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
+        const totalTiktokSpend = filteredTiktokSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
 
         let taxesAndFees = 0
         if (settings) {
@@ -105,12 +120,13 @@ router.get('/summary', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async 
         })
 
         // Recalculate netProfit with filteredMetaSpend & filteredGoogleSpend
-        const netProfit = summary.totalRevenue - totalMetaSpend - totalGoogleSpend - summary.totalShipping - summary.totalCogs - totalFixedCosts - taxesAndFees
+        const netProfit = summary.totalRevenue - totalMetaSpend - totalGoogleSpend - totalTiktokSpend - summary.totalShipping - summary.totalCogs - totalFixedCosts - taxesAndFees
 
         const finalSummary = {
             ...summary,
             metaAdSpend: totalMetaSpend,
             googleAdSpend: totalGoogleSpend,
+            tiktokAdSpend: totalTiktokSpend,
             netProfit: netProfit,
             totalFixedCosts,
             totalTaxAndFees: taxesAndFees
@@ -151,7 +167,7 @@ router.get('/range', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), async (req
             endDate = getEndOfDay(todayStr)
         }
 
-        const [metrics, filteredMetaAdSpend, filteredGoogleAdSpend] = await Promise.all([
+        const [metrics, filteredMetaAdSpend, filteredGoogleAdSpend, filteredTiktokAdSpend] = await Promise.all([
             prisma.dailyMetric.findMany({
                 where: {
                     workspaceId,
@@ -169,12 +185,23 @@ router.get('/range', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), async (req
                     campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
                 }
             }),
+            // Filtered Google AdSpend
             prisma.adSpend.groupBy({
                 by: ['date'],
                 _sum: { spend: true },
                 where: {
                     workspaceId,
                     platform: 'GOOGLE',
+                    date: { gte: startDate, lte: endDate },
+                    campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
+                }
+            }),
+            prisma.adSpend.groupBy({
+                by: ['date'],
+                _sum: { spend: true },
+                where: {
+                    workspaceId,
+                    platform: 'TIKTOK',
                     date: { gte: startDate, lte: endDate },
                     campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
                 }
@@ -188,6 +215,12 @@ router.get('/range', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), async (req
         }, {} as Record<string, number>)
 
         const googleSpendMap = filteredGoogleAdSpend.reduce((acc, s) => {
+            const dateStr = s.date.toISOString().split('T')[0]
+            acc[dateStr] = Number(s._sum.spend || 0)
+            return acc
+        }, {} as Record<string, number>)
+
+        const tiktokSpendMap = filteredTiktokAdSpend.reduce((acc, s) => {
             const dateStr = s.date.toISOString().split('T')[0]
             acc[dateStr] = Number(s._sum.spend || 0)
             return acc
@@ -208,14 +241,16 @@ router.get('/range', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), async (req
             const m = metricsMap[dateStr]
             const metaSpend = metaSpendMap[dateStr] || 0
             const googleSpend = googleSpendMap[dateStr] || 0
+            const tiktokSpend = tiktokSpendMap[dateStr] || 0
 
             if (m) {
-                const profit = Number(m.totalRevenue) - metaSpend - googleSpend - Number(m.totalShipping) - Number(m.totalCogs)
+                const profit = Number(m.totalRevenue) - metaSpend - googleSpend - tiktokSpend - Number(m.totalShipping) - Number(m.totalCogs)
                 mappedMetrics.push({
                     ...m,
                     totalRevenue: Number(m.totalRevenue),
                     metaAdSpend: metaSpend,
                     googleAdSpend: googleSpend,
+                    tiktokAdSpend: tiktokSpend,
                     totalShipping: Number(m.totalShipping),
                     totalCogs: Number(m.totalCogs),
                     netProfit: profit,
@@ -228,9 +263,10 @@ router.get('/range', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), async (req
                     totalRevenue: 0,
                     metaAdSpend: metaSpend,
                     googleAdSpend: googleSpend,
+                    tiktokAdSpend: tiktokSpend,
                     totalShipping: 0,
                     totalCogs: 0,
-                    netProfit: -(metaSpend + googleSpend),
+                    netProfit: -(metaSpend + googleSpend + tiktokSpend),
                 })
             }
 
@@ -271,8 +307,8 @@ router.get('/finances', authenticate, async (req: AuthRequest, res) => {
     }
 })
 
-// 3.1 POST /api/metrics/finances/fixed-costs
-router.post('/finances/fixed-costs', authenticate, async (req: AuthRequest, res) => {
+// 3.1 POST /api/metrics/finances/fixed-costs (Admin only)
+router.post('/finances/fixed-costs', requireRole(['SUPER_ADMIN', 'ADMIN']), async (req: AuthRequest, res: any) => {
     try {
         const workspaceId = req.user?.workspaceId
         if (!workspaceId) return res.status(400).json({ error: 'Workspace required' })
@@ -296,8 +332,8 @@ router.post('/finances/fixed-costs', authenticate, async (req: AuthRequest, res)
     }
 })
 
-// 3.2 DELETE /api/metrics/finances/fixed-costs/:id
-router.delete('/finances/fixed-costs/:id', authenticate, async (req: AuthRequest, res) => {
+// 3.2 DELETE /api/metrics/finances/fixed-costs/:id (Admin only)
+router.delete('/finances/fixed-costs/:id', requireRole(['SUPER_ADMIN', 'ADMIN']), async (req: AuthRequest, res: any) => {
     try {
         const workspaceId = req.user?.workspaceId
         if (!workspaceId) return res.status(400).json({ error: 'Workspace required' })

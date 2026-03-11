@@ -24,25 +24,37 @@ import {
     ChevronUp,
     User2,
     LogOut,
-    MousePointerClick
+    MousePointerClick,
+    ShieldAlert,
+    Smartphone
 } from "lucide-react"
 import Link from "next/link"
 import { ModeToggle } from "@/components/mode-toggle"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { logout } from "@/app/login/actions"
+import { stopImpersonating } from "@/lib/api"
+import { toast } from "sonner"
 import { useUserStore } from "@/store/useUserStore"
 import { ProfileDialog } from "@/components/user/profile-dialog"
 import { PreferencesDialog } from "@/components/user/preferences-dialog"
 
-const menuItems = [
+type MenuItem = {
+    title: string
+    icon: any
+    url: string
+    roles?: string[] // If not specified, available to all
+}
+
+const menuItems: MenuItem[] = [
     { title: "Centro de Control", icon: BarChart3, url: "/dashboard" },
-    { title: "Finanzas E-commerce", icon: Wallet, url: "/dashboard/finances" },
-    { title: "Canales de Venta", icon: ShoppingBag, url: "/dashboard/sales" },
-    { title: "Marketing & Ads", icon: Megaphone, url: "/dashboard/marketing" },
-    { title: "Google Ads (Beta)", icon: MousePointerClick, url: "/dashboard/google-ads" },
+    { title: "Finanzas E-commerce", icon: Wallet, url: "/dashboard/finances", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "Canales de Venta", icon: ShoppingBag, url: "/dashboard/sales", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "Marketing & Ads", icon: Megaphone, url: "/dashboard/marketing", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "Google Ads (Beta)", icon: MousePointerClick, url: "/dashboard/google-ads", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "TikTok Ads", icon: Smartphone, url: "/dashboard/tiktok-ads", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
     { title: "Logística & Operaciones", icon: Package, url: "/dashboard/logistics" },
-    { title: "Configuración Técnica", icon: Settings, url: "/dashboard/settings" },
+    { title: "Configuración Técnica", icon: Settings, url: "/dashboard/settings", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
 ]
 
 export function AppSidebar() {
@@ -62,6 +74,25 @@ export function AppSidebar() {
     const userName = getDisplayName()
     const userEmail = user?.email || ""
     const userInitials = getInitials()
+    const userRole = user?.role || "USER"
+
+    const filteredMenuItems = menuItems.filter(item => {
+        if (!item.roles) return true;
+        return item.roles.includes(userRole);
+    });
+
+    const handleStopImpersonating = async () => {
+        try {
+            const res = await stopImpersonating()
+            localStorage.setItem('metria_token', res.token)
+            toast.success("Volviendo a Centro de Control...")
+            setTimeout(() => {
+                window.location.href = '/admin/workspaces'
+            }, 800)
+        } catch (error) {
+            toast.error("Error saliendo de impersonación")
+        }
+    }
 
     return (
         <>
@@ -80,13 +111,19 @@ export function AppSidebar() {
                         )}
                         {!isCollapsed && <ModeToggle />}
                     </div>
+                    {!isCollapsed && user?.isImpersonating && (
+                        <div className="mx-4 mt-2 mb-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center gap-2 justify-center shadow-inner">
+                            <ShieldAlert className="w-4 h-4 animate-pulse" />
+                            <span className="text-[10px] uppercase font-black tracking-widest">Impersonando</span>
+                        </div>
+                    )}
                 </SidebarHeader>
                 <SidebarContent>
                     <SidebarGroup>
                         <SidebarGroupLabel className="text-muted-foreground">Módulos</SidebarGroupLabel>
                         <SidebarGroupContent>
                             <SidebarMenu>
-                                {menuItems.map((item) => (
+                                {filteredMenuItems.map((item) => (
                                     <SidebarMenuItem key={item.title}>
                                         <SidebarMenuButton asChild tooltip={item.title} className="hover:bg-primary/10 transition-colors">
                                             <Link href={item.url} className="flex items-center gap-3">
@@ -132,6 +169,18 @@ export function AppSidebar() {
                                         align="end"
                                         sideOffset={4}
                                     >
+                                        {user?.isImpersonating && (
+                                            <>
+                                                <DropdownMenuItem
+                                                    className="gap-2 cursor-pointer focus:bg-amber-500/20 text-amber-500 focus:text-amber-500 transition-colors font-black uppercase tracking-widest text-[10px]"
+                                                    onClick={handleStopImpersonating}
+                                                >
+                                                    <ShieldAlert className="size-4" />
+                                                    <span>Salir Impersonación</span>
+                                                </DropdownMenuItem>
+                                                <DropdownMenuSeparator />
+                                            </>
+                                        )}
                                         <DropdownMenuItem
                                             className="gap-2 cursor-pointer focus:bg-primary/10 transition-colors"
                                             onClick={() => setProfileOpen(true)}

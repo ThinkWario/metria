@@ -4,11 +4,17 @@ import { useEffect, useState } from "react"
 import { fetchAPI } from "@/lib/api"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { useDateRangeStore } from "@/store/useDateRangeStore"
+import { useCampaignStore } from "@/store/useCampaignStore"
+import { useUserStore } from "@/store/useUserStore"
+import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
 import { formatCurrency, getCurrencySymbol } from "@/lib/formatting"
+import { useSmartSkeleton } from "@/hooks/useSmartSkeleton"
+import { TiltCard } from "@/components/ui/tilt-card"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
@@ -17,12 +23,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { DollarSign, AlertTriangle, TrendingDown, Settings2, Edit2, Plus, Trash2 } from "lucide-react"
+import { DollarSign, AlertTriangle, TrendingDown, TrendingUp, Settings2, Edit2, Plus, Trash2, Truck } from "lucide-react"
 import { toast } from "sonner"
 
 export default function FinancesPage() {
+    const router = useRouter()
+    const { user } = useUserStore()
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
+    const { disabledCampaignIds } = useCampaignStore()
     const [fixedCosts, setFixedCosts] = useState<any[]>([])
     const [financeSummary, setFinanceSummary] = useState<any>(null)
     const [globalSettings, setGlobalSettings] = useState<any>({
@@ -60,7 +69,8 @@ export default function FinancesPage() {
         try {
             const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
             const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
-            const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7'
+            const exclusions = disabledCampaignIds.length > 0 ? `&excludeCampaigns=${disabledCampaignIds.join(',')}` : ''
+            const rangeParams = (fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7') + exclusions
 
             const [summaryRes, financesRes, performanceRes] = await Promise.all([
                 fetchAPI(`/metrics/summary?${rangeParams}`),
@@ -98,8 +108,12 @@ export default function FinancesPage() {
     }
 
     useEffect(() => {
+        if (user?.role === "OPERATOR") {
+            router.push("/dashboard/logistics")
+            return
+        }
         loadData()
-    }, [date])
+    }, [date, user?.role, router, disabledCampaignIds])
 
     const handleSaveGlobalSetting = async (payload: any) => {
         try {
@@ -203,58 +217,97 @@ export default function FinancesPage() {
         setIsFixedCostModalOpen(true)
     }
 
+    const { showSkeleton, fadeIn } = useSmartSkeleton(isLoading, 200)
+
+    if (user?.role === "OPERATOR") return null
     if (!integrations.shopify) return <UnconfiguredState integration="Shopify & Meta Ads" />
 
+    const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN"
+
+    if (showSkeleton) {
+        return (
+            <div className="space-y-6 animate-in fade-in-0 duration-300">
+                <div className="flex flex-col gap-2">
+                    <Skeleton className="h-9 w-56 rounded-lg" />
+                    <Skeleton className="h-4 w-96 rounded-md" />
+                </div>
+                <div className="grid gap-4 md:grid-cols-4">
+                    {[0, 1, 2, 3].map((i) => (
+                        <div key={i} className="flex flex-col gap-4 rounded-xl border border-border/50 bg-card/30 backdrop-blur-xl p-6">
+                            <div className="flex justify-between items-center"><Skeleton className="h-4 w-28 rounded" /><Skeleton className="h-4 w-4 rounded-full" /></div>
+                            <Skeleton className="h-8 w-32 rounded-md" />
+                            <Skeleton className="h-3 w-20 rounded" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )
+    }
+
+    if (isLoading) return null
+
     return (
-        <div className="space-y-6">
+        <div className="space-y-6" style={{ opacity: fadeIn ? 1 : 0, transition: 'opacity 350ms cubic-bezier(0.23, 1, 0.32, 1)' }}>
             <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold tracking-tight">Finanzas E-commerce</h1>
+                <div className="flex items-center gap-3">
+                    <h1 className="text-3xl font-bold tracking-tight">Finanzas E-commerce</h1>
+                    {disabledCampaignIds.length > 0 && (
+                        <Badge variant="outline" className="text-amber-500 border-amber-500/30 animate-pulse">
+                            {disabledCampaignIds.length} campañas filtradas
+                        </Badge>
+                    )}
+                </div>
                 <p className="text-muted-foreground">Control avanzado de utilidad neta, costos fijos y salud del margen.</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-4">
-                <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Ingresos (Bruto)</CardTitle>
-                        <DollarSign className="h-4 w-4 text-primary" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{financeSummary ? formatCurrency(financeSummary.totalRevenue) : "$0"}</div>
+                <TiltCard tiltIntensity="subtle">
+                    <div className="flex flex-row items-center justify-between pb-0 px-6">
+                        <span className="text-sm font-medium text-muted-foreground">Ingresos (Bruto)</span>
+                        <DollarSign className="h-4 w-4 text-emerald-500" />
+                    </div>
+                    <div className="px-6 pb-2">
+                        <div className="text-2xl font-bold tabular-nums">{financeSummary ? formatCurrency(financeSummary.totalRevenue) : "$0"}</div>
                         <p className="text-xs text-muted-foreground mt-1">Shopify Sales TTV</p>
-                    </CardContent>
-                </Card>
-                <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Inversión Publicitaria</CardTitle>
-                        <img src="/meta-logo.svg" alt="Meta" className="h-4 w-4 opacity-70 grayscale" onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-chart-2">{financeSummary ? `-${formatCurrency(financeSummary.metaAdSpend)}` : "-$0"}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Meta Ads API</p>
-                    </CardContent>
-                </Card>
-                <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">COGS & Envíos</CardTitle>
-                        <img src="/dropi-logo.svg" alt="Dropi" className="h-4 w-4 opacity-70 grayscale" onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-chart-3">{financeSummary ? `-${formatCurrency(Number(financeSummary.totalCogs || 0) + Number(financeSummary.totalShipping || 0))}` : "-$0"}</div>
+                    </div>
+                </TiltCard>
+                <TiltCard tiltIntensity="subtle">
+                    <div className="flex flex-row items-center justify-between pb-0 px-6">
+                        <span className="text-sm font-medium text-muted-foreground">Inversión Publicitaria</span>
+                        <TrendingUp className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <div className="px-6 pb-2">
+                        <div className="text-2xl font-bold tabular-nums text-gray-200">{financeSummary ? formatCurrency(-Math.abs(Number(financeSummary.metaAdSpend || 0) + Number(financeSummary.googleAdSpend || 0) + Number(financeSummary.tiktokAdSpend || 0))) : "$0"}</div>
+                        <p className="text-xs text-muted-foreground mt-1">Meta, Google & TikTok Ads</p>
+                    </div>
+                </TiltCard>
+                <TiltCard tiltIntensity="subtle">
+                    <div className="flex flex-row items-center justify-between pb-0 px-6">
+                        <span className="text-sm font-medium text-muted-foreground">COGS & Envíos</span>
+                        <Truck className="h-4 w-4 text-amber-500" />
+                    </div>
+                    <div className="px-6 pb-2">
+                        <div className="text-2xl font-bold tabular-nums text-gray-200">{financeSummary ? formatCurrency(-Math.abs(Number(financeSummary.totalCogs || 0) + Number(financeSummary.totalShipping || 0))) : "$0"}</div>
                         <p className="text-xs text-muted-foreground mt-1">Dropi + Costo Prod.</p>
-                    </CardContent>
-                </Card>
-                <Card className="bg-primary/5 backdrop-blur-xl border border-primary/20 shadow-[0_0_15px_rgba(var(--color-primary),0.1)]">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-sm font-bold text-primary">Utilidad Neta (Profit)</CardTitle>
+                    </div>
+                </TiltCard>
+                <TiltCard tiltIntensity="subtle" className="bg-primary/5 border-primary/20 shadow-[0_0_15px_rgba(var(--color-primary),0.1)]">
+                    <div className="flex flex-row items-center justify-between pb-0 px-6">
+                        <span className="text-sm font-bold text-primary">Utilidad Neta (Profit)</span>
                         <DollarSign className="h-4 w-4 text-primary" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{financeSummary ? formatCurrency(financeSummary.netProfit) : "$0"}</div>
-                        <Badge variant="outline" className="mt-1 bg-primary/10 text-primary border-primary/20">
+                    </div>
+                    <div className="px-6 pb-2">
+                        <div className="text-2xl font-bold tabular-nums">
+                            {financeSummary 
+                                ? <span className={(Number(financeSummary.netProfit) >= 0) ? 'text-emerald-400' : 'text-rose-500'}>{formatCurrency(financeSummary.netProfit)}</span> 
+                                : "$0"
+                            }
+                        </div>
+                        <Badge variant="outline" className={`mt-1 bg-background shadow-sm ${financeSummary && Number(financeSummary.netProfit) >= 0 ? 'text-emerald-400 border-emerald-500/30' : 'text-rose-500 border-rose-500/30'}`}>
                             {financeSummary && Number(financeSummary.totalRevenue) > 0 ? ((Number(financeSummary.netProfit) / Number(financeSummary.totalRevenue)) * 100).toFixed(1) : "0"}% Margen Op.
                         </Badge>
-                    </CardContent>
-                </Card>
+                    </div>
+                </TiltCard>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -324,9 +377,11 @@ export default function FinancesPage() {
                                     <span className="text-sm font-normal text-muted-foreground border border-border/50 px-2 py-1 rounded-md bg-background/50">
                                         Total: {formatCurrency(fixedCosts.reduce((sum, c) => sum + Number(c.amount), 0))}
                                     </span>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openFixedCostModal()}>
-                                        <Plus className="h-4 w-4" />
-                                    </Button>
+                                    {canEdit && (
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openFixedCostModal()}>
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    )}
                                 </div>
                             </CardTitle>
                         </CardHeader>
@@ -337,7 +392,7 @@ export default function FinancesPage() {
                                         <TableHead>Concepto</TableHead>
                                         <TableHead>Categoría</TableHead>
                                         <TableHead className="text-right">Monto</TableHead>
-                                        <TableHead className="w-[50px]"></TableHead>
+                                        {canEdit && <TableHead className="w-[50px]"></TableHead>}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -346,16 +401,18 @@ export default function FinancesPage() {
                                             <TableCell className="font-medium">{cost.name}</TableCell>
                                             <TableCell><Badge variant="secondary" className="font-normal">{cost.category}</Badge></TableCell>
                                             <TableCell className="text-right font-mono">{formatCurrency(cost.amount)}</TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="flex justify-end gap-1">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openFixedCostModal(cost)}>
-                                                        <Edit2 className="h-3 w-3" />
-                                                    </Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteFixedCost(cost.id, cost.name)}>
-                                                        <Trash2 className="h-3 w-3" />
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
+                                            {canEdit && (
+                                                <TableCell className="text-right">
+                                                    <div className="flex justify-end gap-1">
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openFixedCostModal(cost)}>
+                                                            <Edit2 className="h-3 w-3" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteFixedCost(cost.id, cost.name)}>
+                                                            <Trash2 className="h-3 w-3" />
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -374,9 +431,11 @@ export default function FinancesPage() {
                                     <span className="text-sm font-normal text-muted-foreground border border-border/50 px-2 py-1 rounded-md bg-background/50">
                                         Total: {formatCurrency(financeSummary?.totalTaxAndFees || 0)}
                                     </span>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openCustomFeeModal()}>
-                                        <Plus className="h-4 w-4" />
-                                    </Button>
+                                    {canEdit && (
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openCustomFeeModal()}>
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    )}
                                 </div>
                             </CardTitle>
                         </CardHeader>
@@ -391,9 +450,11 @@ export default function FinancesPage() {
                                         <div className="flex items-center gap-2 border border-border/50 rounded-md px-3 py-1 bg-background/50">
                                             <span className="font-mono text-sm">{globalSettings?.gatewayPercent}% + {formatCurrency(globalSettings?.gatewayFixed)}</span>
                                         </div>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsGatewayModalOpen(true)}>
-                                            <Edit2 className="h-3 w-3" />
-                                        </Button>
+                                        {canEdit && (
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsGatewayModalOpen(true)}>
+                                                <Edit2 className="h-3 w-3" />
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-between">
@@ -405,9 +466,11 @@ export default function FinancesPage() {
                                         <div className="flex items-center gap-2 border border-border/50 rounded-md px-3 py-1 bg-background/50">
                                             <span className="font-mono text-sm">{globalSettings?.taxRate}%</span>
                                         </div>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsTaxModalOpen(true)}>
-                                            <Edit2 className="h-3 w-3" />
-                                        </Button>
+                                        {canEdit && (
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsTaxModalOpen(true)}>
+                                                <Edit2 className="h-3 w-3" />
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
                                 {globalSettings?.customFees?.map((fee: any) => (
@@ -420,14 +483,16 @@ export default function FinancesPage() {
                                             <div className="flex items-center gap-2 border border-border/50 rounded-md px-3 py-1 bg-background/50">
                                                 <span className="font-mono text-sm">{fee.type === 'percent' ? `${fee.amount}%` : formatCurrency(fee.amount)}</span>
                                             </div>
-                                            <div className="flex gap-1 justify-end">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openCustomFeeModal(fee)}>
-                                                    <Edit2 className="h-3 w-3" />
-                                                </Button>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteCustomFee(fee.id, fee.name)}>
-                                                    <Trash2 className="h-3 w-3" />
-                                                </Button>
-                                            </div>
+                                            {canEdit && (
+                                                <div className="flex gap-1 justify-end">
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openCustomFeeModal(fee)}>
+                                                        <Edit2 className="h-3 w-3" />
+                                                    </Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteCustomFee(fee.id, fee.name)}>
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ))}

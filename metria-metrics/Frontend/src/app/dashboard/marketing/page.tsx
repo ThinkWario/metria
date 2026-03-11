@@ -14,12 +14,19 @@ import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { formatCurrency, formatNumber } from "@/lib/formatting"
+import { useUserStore } from "@/store/useUserStore"
+import { useRouter } from "next/navigation"
 
 import { useDateRangeStore } from "@/store/useDateRangeStore"
 import { useCampaignStore } from "@/store/useCampaignStore"
+import { useSmartSkeleton } from "@/hooks/useSmartSkeleton"
+import { Skeleton } from "@/components/ui/skeleton"
 import { format } from "date-fns"
 
 export default function MarketingPage() {
+    const router = useRouter()
+    const { user } = useUserStore()
+    const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN"
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
     const { disabledCampaignIds, toggleCampaign } = useCampaignStore()
@@ -74,8 +81,12 @@ export default function MarketingPage() {
     }, [date])
 
     useEffect(() => {
+        if (user?.role === "OPERATOR") {
+            router.push("/dashboard/logistics")
+            return
+        }
         loadData()
-    }, [loadData])
+    }, [loadData, user?.role, router])
 
     const handleSyncMeta = async () => {
         try {
@@ -95,14 +106,35 @@ export default function MarketingPage() {
         }
     }
 
-    if (isLoading) {
-        return <div className="p-8 text-center text-muted-foreground animate-pulse">Sincronizando con Meta Ads API...</div>
+    const { showSkeleton, fadeIn } = useSmartSkeleton(isLoading, 200)
+
+    if (showSkeleton) {
+        return (
+            <div className="space-y-6 animate-in fade-in-0 duration-300">
+                <div className="flex flex-col gap-2">
+                    <Skeleton className="h-9 w-52 rounded-lg" />
+                    <Skeleton className="h-4 w-96 rounded-md" />
+                </div>
+                <div className="rounded-xl border border-border/50 bg-card/30 backdrop-blur-xl p-6 space-y-4">
+                    <div className="flex justify-between items-center">
+                        <Skeleton className="h-6 w-56 rounded" />
+                        <Skeleton className="h-8 w-32 rounded-md" />
+                    </div>
+                    {[0, 1, 2].map((i) => (
+                        <Skeleton key={i} className="h-12 w-full rounded-md" />
+                    ))}
+                </div>
+            </div>
+        )
     }
 
+    if (isLoading) return null
+
+    if (user?.role === "OPERATOR") return null
     if (!integrations.meta) return <UnconfiguredState integration="Meta Ads" />
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6" style={{ opacity: fadeIn ? 1 : 0, transition: 'opacity 350ms cubic-bezier(0.23, 1, 0.32, 1)' }}>
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                     <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
@@ -115,14 +147,16 @@ export default function MarketingPage() {
                                 {disabledCampaignIds.length} campañas filtradas
                             </Badge>
                         )}
-                        <Button
-                            onClick={handleSyncMeta}
-                            disabled={isSyncing}
-                            className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
-                        >
-                            <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
-                            {isSyncing ? "Sincronizando..." : "Sincronizar Meta Ads"}
-                        </Button>
+                        {canEdit && (
+                            <Button
+                                onClick={handleSyncMeta}
+                                disabled={isSyncing}
+                                className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
+                            >
+                                <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+                                {isSyncing ? "Sincronizando..." : "Sincronizar Meta Ads"}
+                            </Button>
+                        )}
                     </div>
                 </div>
                 <p className="text-muted-foreground">Rendimiento de campañas, atribución real de Shopify y Testeo de Creativos.</p>

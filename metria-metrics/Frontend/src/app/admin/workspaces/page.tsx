@@ -232,6 +232,7 @@ export default function AdminWorkspacesPage() {
                                     <IntegrationIndicator platform="Meta" integrations={ws.integrations} />
                                     <IntegrationIndicator platform="Dropi" integrations={ws.integrations} />
                                     <IntegrationIndicator platform="Google" integrations={ws.integrations} />
+                                    <IntegrationIndicator platform="TikTok" integrations={ws.integrations} />
                                 </div>
 
                                 <div className="flex items-center gap-6 pt-2">

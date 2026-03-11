@@ -199,6 +199,7 @@ model DailyMetric {
   totalRevenue  Decimal   @default(0) @map("total_revenue") @db.Decimal(10, 2)
   metaAdSpend   Decimal   @default(0) @map("meta_ad_spend") @db.Decimal(10, 2)
   googleAdSpend Decimal   @default(0) @map("google_ad_spend") @db.Decimal(10, 2)
+  tiktokAdSpend Decimal   @default(0) @map("tiktok_ad_spend") @db.Decimal(10, 2)
   totalShipping Decimal   @default(0) @map("total_shipping") @db.Decimal(10, 2)
   totalCogs     Decimal   @default(0) @map("total_cogs") @db.Decimal(10, 2)
   netProfit     Decimal   @default(0) @map("net_profit") @db.Decimal(10, 2)

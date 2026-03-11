@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Activity, Unplug, ShieldCheck, Database, Key, Trash2, UserPlus, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
 import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { getGlobalSettings, updateGlobalSettings, getIntegrations, updateIntegration, getSystemLogs, fetchAPI } from "@/lib/api"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { useUserStore } from "@/store/useUserStore"
@@ -26,7 +27,9 @@ const initialUsers = [
 ]
 
 export default function SettingsPage() {
+    const router = useRouter()
     const { user } = useUserStore()
+    const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN"
     const [connections, setConnections] = useState<Record<string, any>[]>([])
     const [users, setUsers] = useState(initialUsers)
     const [recentLogs, setRecentLogs] = useState<any[]>([])
@@ -60,6 +63,7 @@ export default function SettingsPage() {
                     { id: "meta", platform: "meta", name: "Meta Ads API", status: "Disconnected", type: "REST API", lastSync: null },
                     { id: "dropi", platform: "dropi", name: "Dropi Logistics", status: "Disconnected", type: "REST API", lastSync: null },
                     { id: "google", platform: "google", name: "Google Ads API", status: "Disconnected", type: "REST API", lastSync: null },
+                    { id: "tiktok", platform: "tiktok", name: "TikTok Ads API", status: "Disconnected", type: "REST API", lastSync: null },
                 ]
 
                 if (integrationsData && Array.isArray(integrationsData)) {
@@ -87,9 +91,14 @@ export default function SettingsPage() {
             }
         }
 
+        if (user?.role === "OPERATOR") {
+            router.push("/dashboard/logistics")
+            return
+        }
+
         loadSettings()
         loadLogs()
-    }, [])
+    }, [user?.role, router])
 
     const handleSaveSettings = async () => {
         setIsSaving(true)
@@ -112,7 +121,8 @@ export default function SettingsPage() {
                 shopify: "Shopify Store",
                 meta: "Meta Ads",
                 dropi: "Dropi Logistics",
-                google: "Google Ads"
+                google: "Google Ads",
+                tiktok: "TikTok Ads"
             }
 
             const updated = await updateIntegration({
@@ -182,6 +192,8 @@ export default function SettingsPage() {
         toast.success("Invitación Enviada", { description: "Se ha despachado el correo de acceso." })
     }
 
+    if (user?.role === "OPERATOR") return null
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
@@ -219,6 +231,7 @@ export default function SettingsPage() {
                     </CardContent>
                     <CardFooter>
                         <Dialog open={isApiDialogOpen} onOpenChange={(open) => {
+                            if (!canEdit) return;
                             setIsApiDialogOpen(open)
                             if (open) {
                                 setApiForm({
@@ -228,10 +241,12 @@ export default function SettingsPage() {
                             }
                         }}>
                             <DialogTrigger asChild>
-                                <Button variant="outline" className="w-full">
-                                    <Key className="mr-2 h-4 w-4" />
-                                    Actualizar Tokens de Acceso
-                                </Button>
+                                {canEdit && (
+                                    <Button variant="outline" className="w-full">
+                                        <Key className="mr-2 h-4 w-4" />
+                                        Actualizar Tokens de Acceso
+                                    </Button>
+                                )}
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-[425px]">
                                 <DialogHeader>
@@ -256,6 +271,7 @@ export default function SettingsPage() {
                                                 <SelectItem value="shopify">Shopify (Admin API / Webhooks)</SelectItem>
                                                 <SelectItem value="meta">Meta Ads (Graph API)</SelectItem>
                                                 <SelectItem value="google">Google Ads API</SelectItem>
+                                                <SelectItem value="tiktok">TikTok Ads API</SelectItem>
                                                 <SelectItem value="dropi">Dropi Logistics</SelectItem>
                                             </SelectContent>
                                         </Select>
@@ -283,6 +299,19 @@ export default function SettingsPage() {
                                             <div className="space-y-2">
                                                 <Label>System User Access Token</Label>
                                                 <Input type="password" placeholder="EAAB..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {apiForm.platform === 'tiktok' && (
+                                        <>
+                                            <div className="space-y-2">
+                                                <Label>Advertiser ID</Label>
+                                                <Input placeholder="Ej. 123456789" value={apiForm.config.adAccountId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, adAccountId: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Access Token</Label>
+                                                <Input type="password" placeholder="Token de acceso..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
                                             </div>
                                         </>
                                     )}
@@ -393,9 +422,11 @@ export default function SettingsPage() {
                             </div>
                         </CardContent>
                         <CardFooter>
-                            <Button className="w-full" onClick={handleSaveSettings} disabled={isSaving}>
-                                {isSaving ? "Guardando..." : "Guardar Entorno"}
-                            </Button>
+                            {canEdit && (
+                                <Button className="w-full" onClick={handleSaveSettings} disabled={isSaving}>
+                                    {isSaving ? "Guardando..." : "Guardar Entorno"}
+                                </Button>
+                            )}
                         </CardFooter>
                     </Card>
                 </div>
@@ -410,11 +441,12 @@ export default function SettingsPage() {
                             </CardTitle>
                             <CardDescription>Invita y gestiona el acceso de tu equipo al dashboard.</CardDescription>
                         </div>
-                        <Dialog open={newUserOpen} onOpenChange={setNewUserOpen}>
-                            <DialogTrigger asChild>
-                                <Button variant="secondary" size="sm">Invitar Usuario</Button>
-                            </DialogTrigger>
-                            <DialogContent>
+                        {canEdit && (
+                            <Dialog open={newUserOpen} onOpenChange={setNewUserOpen}>
+                                <DialogTrigger asChild>
+                                    <Button variant="secondary" size="sm">Invitar Usuario</Button>
+                                </DialogTrigger>
+                                <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Invitar al equipo</DialogTitle>
                                 </DialogHeader>
@@ -446,6 +478,7 @@ export default function SettingsPage() {
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
+                        )}
                     </CardHeader>
                     <CardContent>
                         <Table>
@@ -455,7 +488,7 @@ export default function SettingsPage() {
                                     <TableHead>Email</TableHead>
                                     <TableHead>Rol</TableHead>
                                     <TableHead>Estado</TableHead>
-                                    <TableHead className="w-[80px] text-right">Acción</TableHead>
+                                    {canEdit && <TableHead className="w-[80px] text-right">Acción</TableHead>}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -469,11 +502,13 @@ export default function SettingsPage() {
                                                 {mapStatus(u.status)}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="text-right">
-                                            <Button variant="ghost" size="icon" onClick={() => handleRemoveUser(u.id)} disabled={u.role === "Admin" && users.length === 1}>
-                                                <Trash2 className="h-4 w-4 text-destructive" />
-                                            </Button>
-                                        </TableCell>
+                                        {canEdit && (
+                                            <TableCell className="text-right">
+                                                <Button variant="ghost" size="icon" onClick={() => handleRemoveUser(u.id)} disabled={u.role === "Admin" && users.length === 1}>
+                                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                                </Button>
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -512,6 +547,7 @@ export default function SettingsPage() {
                                         { name: "Meta Ads", source: "Meta" },
                                         { name: "Dropi", source: "Dropi" },
                                         { name: "Google Ads", source: "Google" },
+                                        { name: "TikTok Ads", source: "TikTok" },
                                     ].map((slot) => {
                                         const log = recentLogs.find(l => l.source === slot.source)
                                         return (

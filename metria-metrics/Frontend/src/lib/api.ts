@@ -65,6 +65,7 @@ export const impersonateWorkspace = (targetWorkspaceId: string) => fetchAPI('/ad
     method: 'POST',
     body: JSON.stringify({ targetWorkspaceId })
 })
+export const stopImpersonating = () => fetchAPI('/admin/workspaces/impersonate/stop', { method: 'POST' })
 export const getAdminUsers = (workspaceId?: string) => fetchAPI(`/admin/users${workspaceId ? `?workspaceId=${workspaceId}` : ''}`)
 export const resetUserPassword = (id: string) => fetchAPI(`/admin/users/${id}/reset-password`, { method: 'POST' })
 export const getAdminSettings = () => fetchAPI('/admin/settings')

@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import { prisma } from '../lib/prisma'
 import 'dotenv/config'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import bcrypt from 'bcrypt'
 
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
@@ -25,8 +26,8 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' })
         }
 
-        // Not using bcrypt for simplicity in this demo, standard text compare
-        if (user.passwordHash !== password) {
+        const isMatch = await bcrypt.compare(password, user.passwordHash)
+        if (!isMatch) {
             return res.status(401).json({ error: 'Invalid credentials' })
         }
 
@@ -83,10 +84,12 @@ router.post('/force-change-password', authenticate, async (req: AuthRequest, res
         const user = await prisma.user.findUnique({ where: { id: userReq.id } })
         if (!user) return res.status(404).json({ error: 'User not found' })
 
+        const hashed = await bcrypt.hash(newPassword, 10)
+
         await prisma.user.update({
             where: { id: user.id },
             data: {
-                passwordHash: newPassword,
+                passwordHash: hashed,
                 mustChangePassword: false
             }
         })

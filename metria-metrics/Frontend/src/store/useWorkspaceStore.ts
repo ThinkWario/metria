@@ -8,6 +8,7 @@ export type IntegrationMap = {
     meta: boolean
     dropi: boolean
     google: boolean
+    tiktok: boolean
 }
 
 const DEFAULT_MAP: IntegrationMap = {
@@ -15,6 +16,7 @@ const DEFAULT_MAP: IntegrationMap = {
     meta: false,
     dropi: false,
     google: false,
+    tiktok: false,
 }
 
 function isConnected(status: string): boolean {

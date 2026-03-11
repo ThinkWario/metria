@@ -7,13 +7,14 @@ import {
     getIntegrations,
     updateIntegration
 } from '../controllers/settingsController'
+import { requireRole } from '../middleware/roleAuth'
 
 const router = Router()
 
-router.get('/global', authenticate, getGlobalSettings)
-router.post('/global', authenticate, updateGlobalSettings)
-router.get('/integrations', authenticate, getIntegrations)
-router.post('/integrations', authenticate, updateIntegration)
+router.get('/global', requireRole(['SUPER_ADMIN', 'ADMIN', 'VIEWER']), getGlobalSettings)
+router.post('/global', requireRole(['SUPER_ADMIN', 'ADMIN']), updateGlobalSettings)
+router.get('/integrations', requireRole(['SUPER_ADMIN', 'ADMIN', 'VIEWER']), getIntegrations)
+router.post('/integrations', requireRole(['SUPER_ADMIN', 'ADMIN']), updateIntegration)
 
 // --- Workspace Logo ---
 
@@ -32,11 +33,8 @@ router.get('/logo', authenticate, async (req: AuthRequest, res) => {
 })
 
 // POST /api/settings/logo — Upload workspace logo (ADMIN only, base64 data URL)
-router.post('/logo', authenticate, async (req: AuthRequest, res) => {
+router.post('/logo', requireRole(['SUPER_ADMIN', 'ADMIN']), async (req: AuthRequest, res: any) => {
     try {
-        if (req.user!.role !== 'ADMIN' && req.user!.role !== 'SUPER_ADMIN') {
-            return res.status(403).json({ error: 'Only ADMIN users can upload the workspace logo' })
-        }
 
         const { logoUrl } = req.body
         if (!logoUrl || typeof logoUrl !== 'string') {
@@ -61,11 +59,8 @@ router.post('/logo', authenticate, async (req: AuthRequest, res) => {
 })
 
 // DELETE /api/settings/logo — Remove workspace logo (ADMIN only)
-router.delete('/logo', authenticate, async (req: AuthRequest, res) => {
+router.delete('/logo', requireRole(['SUPER_ADMIN', 'ADMIN']), async (req: AuthRequest, res: any) => {
     try {
-        if (req.user!.role !== 'ADMIN' && req.user!.role !== 'SUPER_ADMIN') {
-            return res.status(403).json({ error: 'Only ADMIN users can remove the workspace logo' })
-        }
 
         await prisma.workspace.update({
             where: { id: req.user!.workspaceId as string },

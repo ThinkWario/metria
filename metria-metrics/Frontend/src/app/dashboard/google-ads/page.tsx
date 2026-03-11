@@ -12,6 +12,8 @@ import { fetchAPI } from "@/lib/api"
 import { formatCurrency, formatNumber } from "@/lib/formatting"
 
 import { useDateRangeStore } from "@/store/useDateRangeStore"
+import { useUserStore } from "@/store/useUserStore"
+import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 
 const performanceData = [
@@ -24,12 +26,18 @@ const performanceData = [
 ]
 
 export default function GoogleAdsPage() {
+    const router = useRouter()
+    const { user } = useUserStore()
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
     const [campaigns, setCampaigns] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
+        if (user?.role === "OPERATOR") {
+            router.push("/dashboard/logistics")
+            return
+        }
         if (!integrations.google) return
         const loadCampaigns = async () => {
             try {
@@ -46,8 +54,9 @@ export default function GoogleAdsPage() {
             }
         }
         loadCampaigns()
-    }, [integrations.google, date])
+    }, [integrations.google, date, user?.role, router])
 
+    if (user?.role === "OPERATOR") return null
     if (!integrations.google) return <UnconfiguredState integration="Google Ads" />
 
     return (

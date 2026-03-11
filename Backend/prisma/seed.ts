@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcrypt'
 
 const prisma = new PrismaClient()
 
@@ -18,24 +19,26 @@ async function main() {
     console.log('Created workspace:', defaultWorkspace.id)
 
     // 0.5. Create Super Admin User
+    const superAdminPassword = await bcrypt.hash('masterkey', 10)
     await prisma.user.upsert({
         where: { email: 'superadmin@metria.ai' },
         update: {},
         create: {
             email: 'superadmin@metria.ai',
-            passwordHash: 'masterkey',
+            passwordHash: superAdminPassword,
             name: 'Master Account',
             role: 'SUPER_ADMIN',
         }
     })
 
     // 1. Create Default Admin User linked to Workspace
+    const adminPassword = await bcrypt.hash('metria2025', 10)
     await prisma.user.upsert({
         where: { email: 'admin@metria.com' },
         update: { workspaceId: defaultWorkspace.id },
         create: {
             email: 'admin@metria.com',
-            passwordHash: 'metria2025', // Mock clear text password
+            passwordHash: adminPassword,
             name: 'Admin Dashboard',
             role: 'ADMIN',
             workspaceId: defaultWorkspace.id

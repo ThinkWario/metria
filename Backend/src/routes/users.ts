@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import jwt from 'jsonwebtoken'
 import 'dotenv/config'
 import { authenticate, AuthRequest } from '../middleware/auth'
-
+import bcrypt from 'bcrypt'
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
 
@@ -26,7 +26,10 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
 
         if (!user) return res.status(404).json({ error: 'User not found' })
 
-        res.json(user)
+        res.json({
+            ...user,
+            isImpersonating: !!req.user!.isImpersonating
+        })
     } catch (error) {
         console.error('Get profile error:', error)
         res.status(500).json({ error: 'Internal server error' })
@@ -77,13 +80,16 @@ router.put('/me/password', authenticate, async (req: AuthRequest, res) => {
         const user = await prisma.user.findUnique({ where: { id: req.user!.id } })
         if (!user) return res.status(404).json({ error: 'User not found' })
 
-        if (user.passwordHash !== currentPassword) {
+        const isMatch = await bcrypt.compare(currentPassword, user.passwordHash)
+        if (!isMatch) {
             return res.status(401).json({ error: 'Current password is incorrect' })
         }
 
+        const hashed = await bcrypt.hash(newPassword, 10)
+
         await prisma.user.update({
             where: { id: user.id },
-            data: { passwordHash: newPassword },
+            data: { passwordHash: hashed },
         })
 
         res.json({ message: 'Password updated successfully' })

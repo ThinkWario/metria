@@ -11,6 +11,7 @@ export interface UserProfile {
     role: string
     workspaceId: string | null
     workspace: { name: string; logoUrl: string | null } | null
+    isImpersonating?: boolean
 }
 
 export interface UserPreferences {

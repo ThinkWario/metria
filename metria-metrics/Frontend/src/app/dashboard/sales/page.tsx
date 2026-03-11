@@ -5,6 +5,8 @@ import { fetchAPI, syncShopifyOrders, getCustomersLtv, getReturns } from "@/lib/
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { useDateRangeStore } from "@/store/useDateRangeStore"
 import { useCampaignStore } from "@/store/useCampaignStore"
+import { useUserStore } from "@/store/useUserStore"
+import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -23,6 +25,9 @@ import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 // No mocks down here anymore
 
 export default function SalesPage() {
+    const router = useRouter()
+    const { user } = useUserStore()
+    const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN"
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
     const { disabledCampaignIds } = useCampaignStore()
@@ -68,8 +73,12 @@ export default function SalesPage() {
     }, [date, page, disabledCampaignIds])
 
     useEffect(() => {
+        if (user?.role === "OPERATOR") {
+            router.push("/dashboard/logistics")
+            return
+        }
         loadData()
-    }, [loadData])
+    }, [loadData, user?.role, router])
 
     const handleSync = async () => {
         setIsSyncing(true)
@@ -93,6 +102,7 @@ export default function SalesPage() {
         .sort((a, b) => Number(b.sales) - Number(a.sales))
         .slice(0, 5)
 
+    if (user?.role === "OPERATOR") return null
     if (!integrations.shopify) return <UnconfiguredState integration="Shopify" />
 
     return (
@@ -113,16 +123,18 @@ export default function SalesPage() {
                     </div>
                     <p className="text-muted-foreground">Listado de órdenes, análisis de SKU y métricas de retención de Shopify.</p>
                 </div>
-                <Button onClick={handleSync} disabled={isSyncing} className="w-full sm:w-auto">
-                    {isSyncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
-                    {isSyncing ? "Sincronizando Shopify..." : "Sincronizar Datos"}
-                </Button>
+                {canEdit && (
+                    <Button onClick={handleSync} disabled={isSyncing} className="w-full sm:w-auto">
+                        {isSyncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
+                        {isSyncing ? "Sincronizando Shopify..." : "Sincronizar Datos"}
+                    </Button>
+                )}
             </div>
 
             <Tabs defaultValue="orders" className="space-y-4">
                 <TabsList className="bg-card/50 backdrop-blur-md border border-border/50">
                     <TabsTrigger value="orders" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <ShoppingCart className="w-4 h-4 mr-2" />
+                        <ShoppingCart className="w-4 h-4 mr-2 text-blue-500" />
                         Órdenes
                     </TabsTrigger>
                     <TabsTrigger value="top-products" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
@@ -130,15 +142,15 @@ export default function SalesPage() {
                         Los más vendidos
                     </TabsTrigger>
                     <TabsTrigger value="sku" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <HandCoins className="w-4 h-4 mr-2" />
+                        <HandCoins className="w-4 h-4 mr-2 text-emerald-500" />
                         Rendimiento SKU
                     </TabsTrigger>
                     <TabsTrigger value="customers" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <UserCheck className="w-4 h-4 mr-2" />
+                        <UserCheck className="w-4 h-4 mr-2 text-purple-500" />
                         Clientes (LTV)
                     </TabsTrigger>
                     <TabsTrigger value="returns" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <RefreshCcw className="w-4 h-4 mr-2" />
+                        <RefreshCcw className="w-4 h-4 mr-2 text-rose-500" />
                         Reembolsos
                     </TabsTrigger>
                 </TabsList>

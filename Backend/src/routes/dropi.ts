@@ -63,6 +63,7 @@ router.post('/webhooks/status', async (req, res) => {
                         totalRevenue: 0,
                         metaAdSpend: 0,
                         googleAdSpend: 0,
+                        tiktokAdSpend: 0,
                         totalShipping: fee,
                         totalCogs: 0,
                         netProfit: -fee

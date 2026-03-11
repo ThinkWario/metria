@@ -9,6 +9,7 @@ import authRoutes from './routes/auth'
 import shopifyRoutes from './routes/shopify'
 import metaRoutes from './routes/meta'
 import googleRoutes from './routes/google'
+import tiktokRoutes from './routes/tiktok'
 import dropiRoutes from './routes/dropi'
 import metricsRoutes from './routes/metrics'
 import valentinaRoutes from './routes/valentina'
@@ -36,6 +37,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/shopify', shopifyRoutes) // Includes /webhooks/shopify internally
 app.use('/api/meta', metaRoutes)
 app.use('/api/google', googleRoutes)
+app.use('/api/tiktok', tiktokRoutes)
 app.use('/api/dropi', dropiRoutes) // Includes /webhooks/status
 app.use('/api/metrics', metricsRoutes)
 app.use('/api/ia', valentinaRoutes)
