@@ -31,6 +31,8 @@ app.use(compression())
 
 // Raw body parser exclusively for Shopify webhooks (needed for HMAC sig)
 app.use('/webhooks/shopify', express.raw({ type: 'application/json' }))
+app.use('/api/webhooks/whatsapp', express.raw({ type: 'application/json' }))
+app.use('/api/webhooks/instagram', express.raw({ type: 'application/json' }))
 
 // Standard JSON body parser for everything else
 app.use(express.json())
