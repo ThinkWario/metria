@@ -40,8 +40,11 @@ export function ConversationList({ conversations, selectedId, loading, onSelect 
           {conversations.map(conv => (
             <li
               key={conv.id}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelect(conv.id)}
-              className={`flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-muted/40 border-b transition-colors ${
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onSelect(conv.id) }}
+              className={`flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-muted/40 border-b transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 selectedId === conv.id ? 'bg-muted/60' : ''
               }`}
             >

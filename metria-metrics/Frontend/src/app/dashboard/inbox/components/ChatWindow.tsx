@@ -33,7 +33,7 @@ export function ChatWindow({ conversation, messages, loading, onSend }: Props) {
 
   if (!conversation) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm border-r">
+      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
         Selecciona una conversación
       </div>
     )
