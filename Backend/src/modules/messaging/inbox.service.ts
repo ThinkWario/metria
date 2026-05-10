@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma'
 import { getIO } from '../../lib/socket'
 
 export interface GetConversationsOpts {
-  status?: string
+  status?: 'OPEN' | 'PENDING' | 'CLOSED'
   channelId?: string
   limit?: number
   cursor?: string
@@ -64,7 +64,7 @@ export async function sendMessage(
       senderType: 'AGENT',
       senderId: userId,
       content,
-      status: 'SENT'
+      status: 'PENDING'
     }
   })
 
@@ -73,27 +73,43 @@ export async function sendMessage(
     data: { lastMessageAt: new Date(), messageCount: { increment: 1 } }
   })
 
+  if (!contact.phone) {
+    throw new Error(`Contact ${contact.id} has no identifier — cannot send outbound message`)
+  }
+
+  if (!channel.config || typeof channel.config !== 'object' || Array.isArray(channel.config)) {
+    throw new Error(`Channel ${channel.id} has invalid config`)
+  }
+
   const config = channel.config as Record<string, string>
 
-  switch (channel.platform) {
-    case 'WHATSAPP': {
-      const { sendWhatsAppMessage } = await import('./channels/whatsapp.service')
-      await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, contact.phone!, content)
-      break
+  try {
+    switch (channel.platform) {
+      case 'WHATSAPP': {
+        const { sendWhatsAppMessage } = await import('./channels/whatsapp.service')
+        await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, contact.phone!, content)
+        break
+      }
+      case 'INSTAGRAM': {
+        const { sendInstagramMessage } = await import('./channels/instagram.service')
+        // contact.phone stores platform-specific IDs (ig_<userId> for Instagram)
+        await sendInstagramMessage(config.pageAccessToken, contact.phone!, content)
+        break
+      }
+      case 'TELEGRAM': {
+        const { sendTelegramMessage } = await import('./channels/telegram.service')
+        await sendTelegramMessage(config.botToken, contact.phone!, content)
+        break
+      }
+      default:
+        throw new Error(`Unsupported platform for outbound: ${channel.platform}`)
     }
-    case 'INSTAGRAM': {
-      const { sendInstagramMessage } = await import('./channels/instagram.service')
-      await sendInstagramMessage(config.pageAccessToken, contact.phone!, content)
-      break
-    }
-    case 'TELEGRAM': {
-      const { sendTelegramMessage } = await import('./channels/telegram.service')
-      await sendTelegramMessage(config.botToken, contact.phone!, content)
-      break
-    }
-    default:
-      throw new Error(`Unsupported platform for outbound: ${channel.platform}`)
+  } catch (dispatchError) {
+    await prisma.message.update({ where: { id: message.id }, data: { status: 'FAILED' } })
+    throw dispatchError
   }
+
+  await prisma.message.update({ where: { id: message.id }, data: { status: 'SENT' } })
 
   getIO()
     .to(`workspace:${workspaceId}`)

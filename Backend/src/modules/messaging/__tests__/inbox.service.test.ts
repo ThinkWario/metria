@@ -7,7 +7,7 @@ vi.mock('../../../lib/prisma', () => ({
       findFirst: vi.fn(),
       update: vi.fn()
     },
-    message: { findMany: vi.fn(), create: vi.fn() },
+    message: { findMany: vi.fn(), create: vi.fn(), update: vi.fn().mockResolvedValue({}) },
     channel: { findUnique: vi.fn() },
     contact: { findUnique: vi.fn() }
   }
