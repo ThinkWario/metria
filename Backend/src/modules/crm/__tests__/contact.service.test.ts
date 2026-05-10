@@ -65,7 +65,7 @@ describe('updateContact', () => {
     vi.mocked(prisma.contact.findFirst).mockResolvedValue({ id: CONTACT_ID } as any)
     vi.mocked(prisma.contact.update).mockResolvedValue({ id: CONTACT_ID, status: 'CUSTOMER' } as any)
     await updateContact(WS, CONTACT_ID, { status: 'CUSTOMER' })
-    expect(prisma.contact.update).toHaveBeenCalledWith({ where: { id: CONTACT_ID }, data: { status: 'CUSTOMER' } })
+    expect(prisma.contact.update).toHaveBeenCalledWith({ where: { id: CONTACT_ID, workspaceId: WS }, data: { status: 'CUSTOMER' } })
   })
 })
 
@@ -95,6 +95,13 @@ describe('removeTag', () => {
   it('throws if tag not found', async () => {
     vi.mocked(prisma.contactTag.findFirst).mockResolvedValue(null)
     await expect(removeTag(WS, CONTACT_ID, 'tag-1')).rejects.toThrow('Tag not found')
+  })
+
+  it('deletes tag when found', async () => {
+    vi.mocked(prisma.contactTag.findFirst).mockResolvedValue({ id: 'tag-1', contactId: CONTACT_ID } as any)
+    vi.mocked(prisma.contactTag.delete).mockResolvedValue({} as any)
+    await removeTag(WS, CONTACT_ID, 'tag-1')
+    expect(prisma.contactTag.delete).toHaveBeenCalledWith({ where: { id: 'tag-1' } })
   })
 })
 

@@ -20,7 +20,7 @@ export async function listContacts(workspaceId: string, opts: ListContactsOpts =
           { phone: { contains: search, mode: 'insensitive' } }
         ]
       }),
-      ...(cursor && { id: { lt: cursor } })
+      ...(cursor && { createdAt: { lt: new Date(cursor) } })
     },
     include: {
       tags: true,
@@ -64,7 +64,7 @@ export async function updateContact(
 ) {
   const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
   if (!contact) throw new Error('Contact not found')
-  return prisma.contact.update({ where: { id: contactId }, data })
+  return prisma.contact.update({ where: { id: contactId, workspaceId }, data })
 }
 
 export async function addNote(workspaceId: string, contactId: string, userId: string, content: string) {
@@ -118,7 +118,7 @@ export async function calculateHealthScore(workspaceId: string, contactId: strin
   }
 
   await prisma.contactHealthScore.create({ data: { contactId, score, factors } })
-  await prisma.contact.update({ where: { id: contactId }, data: { healthScore: score } })
+  await prisma.contact.update({ where: { id: contactId, workspaceId }, data: { healthScore: score } })
 
   return { score, factors }
 }
