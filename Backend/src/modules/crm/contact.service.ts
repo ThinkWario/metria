@@ -1,0 +1,124 @@
+import { prisma } from '../../lib/prisma'
+
+export interface ListContactsOpts {
+  search?: string
+  status?: string
+  limit?: number
+  cursor?: string
+}
+
+export async function listContacts(workspaceId: string, opts: ListContactsOpts = {}) {
+  const { search, status, limit = 50, cursor } = opts
+  return prisma.contact.findMany({
+    where: {
+      workspaceId,
+      ...(status && { status }),
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } }
+        ]
+      }),
+      ...(cursor && { id: { lt: cursor } })
+    },
+    include: {
+      tags: true,
+      _count: { select: { conversations: true, deals: true, tickets: true } }
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit
+  })
+}
+
+export async function getContact(workspaceId: string, contactId: string) {
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId },
+    include: {
+      tags: true,
+      contactNotes: { orderBy: { createdAt: 'desc' }, take: 20 },
+      deals: {
+        include: {
+          stage: { select: { id: true, name: true, color: true, isWon: true, isLost: true } },
+          pipeline: { select: { id: true, name: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      },
+      tickets: { orderBy: { createdAt: 'desc' }, take: 20 },
+      conversations: {
+        include: { channel: { select: { platform: true, name: true } } },
+        orderBy: { lastMessageAt: 'desc' },
+        take: 10
+      },
+      healthScores: { orderBy: { calculatedAt: 'desc' }, take: 1 }
+    }
+  })
+  if (!contact) throw new Error('Contact not found')
+  return contact
+}
+
+export async function updateContact(
+  workspaceId: string,
+  contactId: string,
+  data: { status?: string; ltv?: number; shopifyCustomerId?: string }
+) {
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
+  if (!contact) throw new Error('Contact not found')
+  return prisma.contact.update({ where: { id: contactId }, data })
+}
+
+export async function addNote(workspaceId: string, contactId: string, userId: string, content: string) {
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
+  if (!contact) throw new Error('Contact not found')
+  return prisma.contactNote.create({ data: { workspaceId, contactId, userId, content } })
+}
+
+export async function addTag(workspaceId: string, contactId: string, name: string, color = '#6366f1') {
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
+  if (!contact) throw new Error('Contact not found')
+  return prisma.contactTag.upsert({
+    where: { contactId_name: { contactId, name } },
+    create: { workspaceId, contactId, name, color },
+    update: { color }
+  })
+}
+
+export async function removeTag(workspaceId: string, contactId: string, tagId: string) {
+  const tag = await prisma.contactTag.findFirst({ where: { id: tagId, contactId, workspaceId } })
+  if (!tag) throw new Error('Tag not found')
+  await prisma.contactTag.delete({ where: { id: tagId } })
+}
+
+export async function calculateHealthScore(workspaceId: string, contactId: string) {
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId },
+    include: {
+      tickets: { where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } },
+      conversations: { select: { lastMessageAt: true }, orderBy: { lastMessageAt: 'desc' }, take: 1 }
+    }
+  })
+  if (!contact) throw new Error('Contact not found')
+
+  const ltvNum = Number(contact.ltv)
+  const ltvScore = Math.min(100, (ltvNum / 500) * 100)
+  const openTickets = contact.tickets.length
+  const noComplaintScore = Math.max(0, 100 - openTickets * 25)
+  const lastActive = contact.conversations[0]?.lastMessageAt
+  const daysSinceActive = lastActive
+    ? (Date.now() - lastActive.getTime()) / (1000 * 60 * 60 * 24)
+    : 999
+  const activityScore = Math.max(0, 100 - daysSinceActive * 2)
+
+  const score = Math.round(ltvScore * 0.4 + noComplaintScore * 0.3 + activityScore * 0.3)
+  const factors = {
+    ltvScore: Math.round(ltvScore),
+    noComplaintScore,
+    activityScore: Math.round(activityScore),
+    openTickets
+  }
+
+  await prisma.contactHealthScore.create({ data: { contactId, score, factors } })
+  await prisma.contact.update({ where: { id: contactId }, data: { healthScore: score } })
+
+  return { score, factors }
+}
