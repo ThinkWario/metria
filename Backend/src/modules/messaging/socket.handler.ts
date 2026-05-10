@@ -6,6 +6,8 @@ interface AuthPayload {
   userId: string
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export function registerSocketHandlers(io: Server): void {
   io.use(async (socket, next) => {
     const token = (socket.handshake.auth as any)?.token as string | undefined
@@ -31,11 +33,13 @@ export function registerSocketHandlers(io: Server): void {
     socket.join(`workspace:${workspaceId}`)
 
     socket.on('conversation:join', (conversationId: string) => {
+      if (typeof conversationId !== 'string' || !UUID_REGEX.test(conversationId)) return
       socket.join(`workspace:${workspaceId}:conv:${conversationId}`)
       io.to(`workspace:${workspaceId}`).emit('agent:viewing', { conversationId, userId })
     })
 
     socket.on('conversation:leave', (conversationId: string) => {
+      if (typeof conversationId !== 'string' || !UUID_REGEX.test(conversationId)) return
       socket.leave(`workspace:${workspaceId}:conv:${conversationId}`)
     })
   })

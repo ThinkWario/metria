@@ -4,6 +4,11 @@ import app from './app'
 import { initSocket } from './lib/socket'
 import { registerSocketHandlers } from './modules/messaging/socket.handler'
 
+if (!process.env.JWT_SECRET) {
+  console.error('[FATAL] JWT_SECRET environment variable is not set')
+  process.exit(1)
+}
+
 const PORT = process.env.PORT || 4000
 
 const httpServer = createServer(app)
