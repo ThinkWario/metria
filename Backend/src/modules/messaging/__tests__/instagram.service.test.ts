@@ -31,6 +31,10 @@ describe('verifyInstagramSignature', () => {
   it('returns false on missing header', () => {
     expect(verifyInstagramSignature('{}', '', APP_SECRET)).toBe(false)
   })
+
+  it('returns false on wrong-length header', () => {
+    expect(verifyInstagramSignature('{}', 'sha256=tooshort', APP_SECRET)).toBe(false)
+  })
 })
 
 describe('parseInstagramUpdate', () => {

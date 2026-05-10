@@ -64,7 +64,10 @@ export function verifyInstagramSignature(
     }
 
     const expectedSig = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex')
-    return crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expectedSig))
+    const expectedBuffer = Buffer.from(expectedSig)
+    const providedBuffer = Buffer.from(signatureHeader)
+    if (expectedBuffer.length !== providedBuffer.length) return false
+    return crypto.timingSafeEqual(expectedBuffer, providedBuffer)
   } catch {
     return false
   }
@@ -94,7 +97,7 @@ export async function parseInstagramUpdate(
           externalMessageId: event.message.mid,
           senderExternalId: `ig_${event.sender.id}`,
           senderName: undefined,
-          content: event.message.text,
+          content: event.message.text ?? undefined, // undefined for attachment-only messages
           mediaUrl: event.message.attachments?.[0]?.payload?.url,
           mediaType: event.message.attachments?.[0]?.type
         })
