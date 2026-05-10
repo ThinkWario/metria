@@ -16,7 +16,11 @@ import valentinaRoutes from './routes/valentina'
 import settingsRoutes from './routes/settings'
 import usersRoutes from './routes/users'
 import adminRoutes from './routes/admin'
+// import productsRoutes from './routes/products'
 import logsRoutes from './routes/logs'
+import onboardingRoutes from './routes/onboarding'
+import paymentsRoutes from './routes/payments'
+import messagingRoutes from './modules/messaging/messaging.routes'
 
 const app = express()
 
@@ -44,7 +48,11 @@ app.use('/api/ia', valentinaRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/users', usersRoutes)
 app.use('/api/admin', adminRoutes)
+// app.use('/api/products', productsRoutes)
 app.use('/api/logs', logsRoutes)
+app.use('/api/onboarding', onboardingRoutes)
+app.use('/api/payments', paymentsRoutes)
+app.use('/api', messagingRoutes)
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
