@@ -22,7 +22,11 @@ describe('verifyWhatsAppSignature', () => {
   })
 
   it('returns false when signature does not match', () => {
-    expect(verifyWhatsAppSignature('{"test":1}', 'sha256=bad', APP_SECRET)).toBe(false)
+    const body = '{"test":1}'
+    const validSig = makeSignature(body)
+    // Same length as real signature but wrong value — exercises timingSafeEqual false path
+    const wrongSig = validSig.slice(0, -1) + (validSig.endsWith('a') ? 'b' : 'a')
+    expect(verifyWhatsAppSignature(body, wrongSig, APP_SECRET)).toBe(false)
   })
 
   it('returns false when signature header is missing', () => {
