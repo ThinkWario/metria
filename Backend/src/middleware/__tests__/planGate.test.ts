@@ -32,7 +32,8 @@ describe('requirePlan', () => {
     expect(res.status).toHaveBeenCalledWith(403)
     expect(res.json).toHaveBeenCalledWith({
       code: 'PLAN_UPGRADE_REQUIRED',
-      requiredPlans: ['PRO', 'SCALE']
+      requiredPlans: ['PRO', 'SCALE'],
+      error: 'Your current plan does not support this feature. Please upgrade.'
     })
     expect(next).not.toHaveBeenCalled()
   })
