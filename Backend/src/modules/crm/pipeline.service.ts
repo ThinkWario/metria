@@ -1,0 +1,105 @@
+import { prisma } from '../../lib/prisma'
+
+const DEFAULT_STAGES = [
+  { name: 'Lead', color: '#94a3b8', order: 1, isWon: false, isLost: false },
+  { name: 'Calificado', color: '#818cf8', order: 2, isWon: false, isLost: false },
+  { name: 'Propuesta', color: '#f59e0b', order: 3, isWon: false, isLost: false },
+  { name: 'Negociación', color: '#f97316', order: 4, isWon: false, isLost: false },
+  { name: 'Ganado', color: '#22c55e', order: 5, isWon: true, isLost: false },
+  { name: 'Perdido', color: '#ef4444', order: 6, isWon: false, isLost: true }
+]
+
+export async function listPipelines(workspaceId: string) {
+  return prisma.pipeline.findMany({
+    where: { workspaceId },
+    include: {
+      stages: { orderBy: { order: 'asc' } },
+      _count: { select: { deals: true } }
+    },
+    orderBy: { isDefault: 'desc' }
+  })
+}
+
+export async function createPipeline(workspaceId: string, name: string) {
+  const existing = await prisma.pipeline.findFirst({ where: { workspaceId } })
+  const isDefault = !existing
+  return prisma.pipeline.create({
+    data: {
+      workspaceId,
+      name,
+      isDefault,
+      stages: { create: DEFAULT_STAGES }
+    },
+    include: { stages: { orderBy: { order: 'asc' } } }
+  })
+}
+
+export async function listDeals(workspaceId: string, pipelineId?: string) {
+  return prisma.deal.findMany({
+    where: {
+      workspaceId,
+      ...(pipelineId && { pipelineId })
+    },
+    include: {
+      stage: { select: { id: true, name: true, color: true, isWon: true, isLost: true } },
+      contact: { select: { id: true, name: true, phone: true } }
+    },
+    orderBy: { createdAt: 'desc' }
+  })
+}
+
+export async function createDeal(
+  workspaceId: string,
+  data: { title: string; contactId: string; pipelineId: string; stageId: string; value?: number }
+) {
+  const { value, ...rest } = data
+  return prisma.deal.create({
+    data: {
+      workspaceId,
+      ...rest,
+      ...(value !== undefined && { value })
+    },
+    include: {
+      stage: { select: { id: true, name: true, color: true } },
+      contact: { select: { id: true, name: true } }
+    }
+  })
+}
+
+export async function moveDeal(workspaceId: string, dealId: string, stageId: string) {
+  const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId } })
+  if (!deal) throw new Error('Deal not found')
+
+  const stage = await prisma.pipelineStage.findFirst({
+    where: { id: stageId, pipelineId: deal.pipelineId }
+  })
+  if (!stage) throw new Error('Stage not found')
+
+  const now = new Date()
+  const extra: Record<string, unknown> = {}
+  if (stage.isWon) { extra.status = 'WON'; extra.wonAt = now }
+  else if (stage.isLost) { extra.status = 'LOST'; extra.lostAt = now }
+
+  return prisma.deal.update({
+    where: { id: dealId, workspaceId },
+    data: { stageId, ...extra }
+  })
+}
+
+export async function closeDeal(
+  workspaceId: string,
+  dealId: string,
+  outcome: 'WON' | 'LOST',
+  lostReason?: string
+) {
+  const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId } })
+  if (!deal) throw new Error('Deal not found')
+
+  const now = new Date()
+  const data =
+    outcome === 'WON'
+      ? { status: 'WON', wonAt: now }
+      : { status: 'LOST', lostAt: now, lostReason: lostReason ?? null }
+
+  return prisma.deal.update({ where: { id: dealId, workspaceId }, data })
+}
