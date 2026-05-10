@@ -34,7 +34,7 @@ export function useInbox() {
   // Load conversations on mount
   useEffect(() => {
     fetchAPI('/messaging/conversations?status=OPEN')
-      .then(res => res.json())
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json() })
       .then((data: Conversation[]) => setConversations(data))
       .catch(console.error)
       .finally(() => setLoadingConvs(false))
@@ -45,7 +45,7 @@ export function useInbox() {
     if (!selectedId) { setMessages([]); return }
     setLoadingMsgs(true)
     fetchAPI(`/messaging/conversations/${selectedId}/messages`)
-      .then(res => res.json())
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json() })
       .then((data: Message[]) => setMessages(data))
       .catch(console.error)
       .finally(() => setLoadingMsgs(false))
@@ -82,14 +82,17 @@ export function useInbox() {
     if (!selectedId || !content.trim()) return
     setSendingMessage(true)
     try {
-      await fetchAPI(`/messaging/conversations/${selectedId}/messages`, {
+      const res = await fetchAPI(`/messaging/conversations/${selectedId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content.trim() })
       })
-    } finally {
+      if (!res.ok) throw new Error(await res.text())
+    } catch (err) {
       setSendingMessage(false)
+      throw err
     }
+    setSendingMessage(false)
   }, [selectedId])
 
   return {
