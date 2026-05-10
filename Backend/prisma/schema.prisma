@@ -352,6 +352,7 @@ model Contact {
 
   @@unique([workspaceId, email])
   @@index([workspaceId, status])
+  @@index([workspaceId, phone])
   @@map("contacts")
 }
 
@@ -364,6 +365,7 @@ model ContactTag {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
+  @@unique([contactId, name])
   @@map("contact_tags")
 }
 
@@ -377,6 +379,7 @@ model ContactNote {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
+  @@index([contactId, createdAt])
   @@map("contact_notes")
 }
 
@@ -388,6 +391,7 @@ model ContactHealthScore {
   calculatedAt DateTime @default(now()) @map("calculated_at")
   contact      Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
+  @@index([contactId, calculatedAt])
   @@map("contact_health_scores")
 }
 
@@ -401,6 +405,7 @@ model Pipeline {
   stages      PipelineStage[]
   deals       Deal[]
 
+  @@unique([workspaceId, name])
   @@map("pipelines")
 }
 
@@ -415,6 +420,8 @@ model PipelineStage {
   pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   deals      Deal[]
 
+  @@unique([pipelineId, name])
+  @@unique([pipelineId, order])
   @@map("pipeline_stages")
 }
 
@@ -436,9 +443,9 @@ model Deal {
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
   workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact          Contact       @relation(fields: [contactId], references: [id])
-  pipeline         Pipeline      @relation(fields: [pipelineId], references: [id])
-  stage            PipelineStage @relation(fields: [stageId], references: [id])
+  contact          Contact       @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  pipeline         Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage            PipelineStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
 
   @@index([workspaceId, status])
   @@map("deals")
@@ -460,7 +467,7 @@ model Ticket {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact          Contact   @relation(fields: [contactId], references: [id])
+  contact          Contact   @relation(fields: [contactId], references: [id], onDelete: Restrict)
 
   @@index([workspaceId, status, priority])
   @@map("tickets")
@@ -485,7 +492,7 @@ model Conversation {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  channel          Channel   @relation(fields: [channelId], references: [id])
+  channel          Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
   contact          Contact?  @relation(fields: [contactId], references: [id])
   messages         Message[]
   tags             ConversationTag[]
@@ -515,7 +522,7 @@ model Message {
   workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  @@index([conversationId, sentAt])
+  @@index([workspaceId, conversationId, sentAt])
   @@map("messages")
 }
 
@@ -526,6 +533,7 @@ model ConversationTag {
   color          String       @default("#6366f1")
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  @@unique([conversationId, name])
   @@map("conversation_tags")
 }
 
@@ -571,6 +579,7 @@ model QuickReply {
   createdAt   DateTime  @default(now()) @map("created_at")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
+  @@index([workspaceId, shortcut])
   @@map("quick_replies")
 }
 
