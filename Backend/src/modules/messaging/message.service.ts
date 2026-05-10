@@ -19,22 +19,20 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     where: { id: channelId },
     select: { platform: true }
   })
-  const source = PLATFORM_TO_SOURCE[channel?.platform ?? ''] ?? 'MANUAL'
+  if (!channel) throw new Error(`Channel not found: ${channelId}`)
+  const source = PLATFORM_TO_SOURCE[channel.platform] ?? 'MANUAL'
 
-  let contact = await prisma.contact.findFirst({
-    where: { workspaceId, phone: senderExternalId }
+  const contact = await prisma.contact.upsert({
+    where: { workspaceId_phone: { workspaceId, phone: senderExternalId } },
+    create: {
+      workspaceId,
+      name: senderName ?? senderExternalId,
+      phone: senderExternalId,
+      source,
+      status: 'LEAD'
+    },
+    update: {}
   })
-  if (!contact) {
-    contact = await prisma.contact.create({
-      data: {
-        workspaceId,
-        name: senderName ?? senderExternalId,
-        phone: senderExternalId,
-        source,
-        status: 'LEAD'
-      }
-    })
-  }
 
   let isNewConversation = false
   let conversation = await prisma.conversation.findUnique({
@@ -88,6 +86,15 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
   const io = getIO()
   const room = `workspace:${workspaceId}`
 
+  const messagePayload = {
+    id: message.id,
+    conversationId: message.conversationId,
+    direction: message.direction,
+    senderType: message.senderType,
+    content: message.content,
+    sentAt: message.sentAt
+  }
+
   if (isNewConversation) {
     io.to(room).emit('conversation:new', {
       id: conversation.id,
@@ -97,16 +104,9 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       contact: conversation.contact,
       createdAt: conversation.createdAt
     })
-  } else {
-    io.to(room).emit('message:new', {
-      id: message.id,
-      conversationId: message.conversationId,
-      direction: message.direction,
-      senderType: message.senderType,
-      content: message.content,
-      sentAt: message.sentAt
-    })
   }
+
+  io.to(room).emit('message:new', messagePayload)
 
   return {
     conversationId: conversation.id,

@@ -351,8 +351,8 @@ model Contact {
   healthScores     ContactHealthScore[]
 
   @@unique([workspaceId, email])
+  @@unique([workspaceId, phone])
   @@index([workspaceId, status])
-  @@index([workspaceId, phone])
   @@map("contacts")
 }
 

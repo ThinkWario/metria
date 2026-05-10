@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
     channel: { findUnique: vi.fn() },
-    contact: { findFirst: vi.fn(), create: vi.fn() },
+    contact: { upsert: vi.fn() },
     conversation: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -56,8 +56,7 @@ describe('processInboundMessage', () => {
     }
 
     vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
-    vi.mocked(prisma.contact.findFirst).mockResolvedValue(null)
-    vi.mocked(prisma.contact.create).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue(null)
     vi.mocked(prisma.conversation.create).mockResolvedValue(mockConversation as any)
     vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, messageCount: 1 } as any)
@@ -65,14 +64,16 @@ describe('processInboundMessage', () => {
 
     const result = await processInboundMessage(baseData)
 
-    expect(prisma.contact.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(prisma.contact.upsert).toHaveBeenCalledWith({
+      where: { workspaceId_phone: { workspaceId: WORKSPACE_ID, phone: '+56912345678' } },
+      create: expect.objectContaining({
         workspaceId: WORKSPACE_ID,
         phone: '+56912345678',
         name: 'Juan Pérez',
         source: 'TELEGRAM',
         status: 'LEAD'
-      })
+      }),
+      update: {}
     })
     expect(result.isNewConversation).toBe(true)
     expect(result.contactId).toBe('contact-1')
@@ -92,19 +93,21 @@ describe('processInboundMessage', () => {
     }
 
     vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
-    vi.mocked(prisma.contact.findFirst).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
     vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, messageCount: 6 } as any)
     vi.mocked(prisma.message.create).mockResolvedValue(mockMessage as any)
 
     const result = await processInboundMessage(baseData)
 
-    expect(prisma.contact.create).not.toHaveBeenCalled()
+    expect(prisma.contact.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: {} })
+    )
     expect(result.isNewConversation).toBe(false)
     expect(result.contactId).toBe('contact-existing')
   })
 
-  it('emits conversation:new on first message in a thread', async () => {
+  it('emits conversation:new and message:new on first message in a thread', async () => {
     const mockChannel = { id: CHANNEL_ID, platform: 'TELEGRAM' }
     const mockContact = { id: 'c1', name: 'Ana', status: 'LEAD', phone: '+56911111111' }
     const mockConversation = {
@@ -116,8 +119,7 @@ describe('processInboundMessage', () => {
     const mockIO = { to: vi.fn().mockReturnThis(), emit: vi.fn() }
 
     vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
-    vi.mocked(prisma.contact.findFirst).mockResolvedValue(null)
-    vi.mocked(prisma.contact.create).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue(null)
     vi.mocked(prisma.conversation.create).mockResolvedValue(mockConversation as any)
     vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, messageCount: 1 } as any)
@@ -128,5 +130,6 @@ describe('processInboundMessage', () => {
 
     expect(mockIO.to).toHaveBeenCalledWith(`workspace:${WORKSPACE_ID}`)
     expect(mockIO.emit).toHaveBeenCalledWith('conversation:new', expect.objectContaining({ id: 'conv-new' }))
+    expect(mockIO.emit).toHaveBeenCalledWith('message:new', expect.objectContaining({ id: 'msg-3' }))
   })
 })

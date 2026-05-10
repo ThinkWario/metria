@@ -2,11 +2,17 @@ import { Telegraf } from 'telegraf'
 import type { Update } from 'telegraf/typings/core/types/typegram'
 import { processInboundMessage } from '../message.service'
 
+const BOT_CACHE_MAX = 200
 const botCache = new Map<string, Telegraf>()
 
 function getOrCreateBot(workspaceId: string, channelId: string, botToken: string): Telegraf {
   const key = `${workspaceId}:${channelId}`
   if (!botCache.has(key)) {
+    if (botCache.size >= BOT_CACHE_MAX) {
+      const oldestKey = botCache.keys().next().value
+      if (oldestKey) botCache.delete(oldestKey)
+    }
+
     const bot = new Telegraf(botToken)
 
     bot.on('text', async (ctx) => {
@@ -17,10 +23,15 @@ function getOrCreateBot(workspaceId: string, channelId: string, botToken: string
         channelId,
         externalConversationId: String(chat.id),
         externalMessageId: String(ctx.message.message_id),
-        senderExternalId: String(from.id),
+        // prefix distinguishes Telegram IDs from real phone numbers
+        senderExternalId: `tg_${from.id}`,
         senderName: [from.first_name, from.last_name].filter(Boolean).join(' ') || from.username || String(from.id),
         content: ctx.message.text
       })
+    })
+
+    bot.catch((err: unknown) => {
+      console.error(`[Telegraf:${key}] unhandled error:`, err)
     })
 
     botCache.set(key, bot)
