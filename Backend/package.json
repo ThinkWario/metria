@@ -7,6 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsup src/index.ts --format cjs --dts",
     "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "db:push": "prisma push",
     "db:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
@@ -21,9 +24,11 @@
     "date-fns": "^3.6.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "google-auth-library": "^10.6.1",
     "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "mercadopago": "^2.12.0"
   },
   "devDependencies": {
     "@types/compression": "^1.7.5",
