@@ -1,26 +1,31 @@
 import 'dotenv/config'
+import { createServer } from 'http'
 import app from './app'
+import { initSocket } from './lib/socket'
+import { registerSocketHandlers } from './modules/messaging/socket.handler'
 
 const PORT = process.env.PORT || 4000
 
-const server = app.listen(PORT, () => {
-    console.log(`[Server] API running on http://127.0.0.1:${PORT}`)
+const httpServer = createServer(app)
+const io = initSocket(httpServer)
+registerSocketHandlers(io)
+
+httpServer.listen(PORT, () => {
+  console.log(`[Server] API running on http://127.0.0.1:${PORT}`)
 })
 
-// Handle unhandled rejections and exceptions
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason)
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
 })
 
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception:', err)
+  console.error('Uncaught Exception:', err)
 })
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server')
-    server.close(() => {
-        console.log('HTTP server closed')
-        process.exit(0)
-    })
+  console.log('SIGTERM signal received: closing HTTP server')
+  httpServer.close(() => {
+    console.log('HTTP server closed')
+    process.exit(0)
+  })
 })
