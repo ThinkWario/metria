@@ -59,6 +59,30 @@ describe('createTicket', () => {
   })
 })
 
+describe('updateTicket', () => {
+  it('throws if ticket not found', async () => {
+    vi.mocked(prisma.ticket.findFirst).mockResolvedValue(null)
+    await expect(updateTicket(WS, 't1', { status: 'IN_PROGRESS' })).rejects.toThrow('Ticket not found')
+  })
+
+  it('updates status when provided', async () => {
+    vi.mocked(prisma.ticket.findFirst).mockResolvedValue({ id: 't1' } as any)
+    vi.mocked(prisma.ticket.update).mockResolvedValue({} as any)
+    await updateTicket(WS, 't1', { status: 'IN_PROGRESS' })
+    expect(prisma.ticket.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'IN_PROGRESS' }) })
+    )
+  })
+
+  it('can null assignedToUserId', async () => {
+    vi.mocked(prisma.ticket.findFirst).mockResolvedValue({ id: 't1' } as any)
+    vi.mocked(prisma.ticket.update).mockResolvedValue({} as any)
+    await updateTicket(WS, 't1', { assignedToUserId: null })
+    const call = vi.mocked(prisma.ticket.update).mock.calls[0][0]
+    expect(call.data).toHaveProperty('assignedToUserId', null)
+  })
+})
+
 describe('resolveTicket', () => {
   it('sets status=RESOLVED and resolvedAt', async () => {
     vi.mocked(prisma.ticket.findFirst).mockResolvedValue({ id: 't1' } as any)

@@ -23,7 +23,7 @@ export async function listTickets(workspaceId: string, opts: ListTicketsOpts = {
       ...(status && { status }),
       ...(priority && { priority }),
       ...(contactId && { contactId }),
-      ...(cursor && { id: { lt: cursor } })
+      ...(cursor && { createdAt: { lt: new Date(cursor) } })
     },
     include: {
       contact: { select: { id: true, name: true, phone: true } }
@@ -44,12 +44,12 @@ export interface CreateTicketData {
 }
 
 export async function createTicket(workspaceId: string, data: CreateTicketData) {
+  const contact = await prisma.contact.findFirst({ where: { id: data.contactId, workspaceId } })
+  if (!contact) throw new Error('Contact not found')
+
   const priority = data.priority ?? 'MEDIUM'
   const slaHours = SLA_HOURS[priority] ?? 24
   const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000)
-
-  const contact = await prisma.contact.findFirst({ where: { id: data.contactId, workspaceId } })
-  if (!contact) throw new Error('Contact not found')
 
   return prisma.ticket.create({
     data: {
@@ -63,7 +63,7 @@ export async function createTicket(workspaceId: string, data: CreateTicketData) 
       ...(data.conversationId && { conversationId: data.conversationId }),
       ...(data.assignedToUserId && { assignedToUserId: data.assignedToUserId })
     },
-    include: { contact: { select: { id: true, name: true } } }
+    include: { contact: { select: { id: true, name: true, phone: true } } }
   })
 }
 
@@ -76,8 +76,8 @@ export async function updateTicket(
   if (!ticket) throw new Error('Ticket not found')
 
   const updateData: Record<string, unknown> = {}
-  if (data.status) updateData.status = data.status
-  if (data.priority) updateData.priority = data.priority
+  if (data.status !== undefined) updateData.status = data.status
+  if (data.priority !== undefined) updateData.priority = data.priority
   if ('assignedToUserId' in data) updateData.assignedToUserId = data.assignedToUserId
 
   return prisma.ticket.update({ where: { id: ticketId, workspaceId }, data: updateData })
