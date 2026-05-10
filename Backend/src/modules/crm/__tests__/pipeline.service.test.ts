@@ -74,6 +74,20 @@ describe('moveDeal', () => {
     )
   })
 
+  it('auto-marks LOST when target stage isLost', async () => {
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'deal-1', pipelineId: 'p1' } as any)
+    vi.mocked(prisma.pipelineStage.findFirst).mockResolvedValue({ id: 'stage-lost', isWon: false, isLost: true } as any)
+    vi.mocked(prisma.deal.update).mockResolvedValue({} as any)
+
+    await moveDeal(WS, 'deal-1', 'stage-lost')
+
+    expect(prisma.deal.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ stageId: 'stage-lost', status: 'LOST', lostAt: expect.any(Date) })
+      })
+    )
+  })
+
   it('moves deal without closing when stage is neutral', async () => {
     vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'deal-1', pipelineId: 'p1' } as any)
     vi.mocked(prisma.pipelineStage.findFirst).mockResolvedValue({ id: 'stage-2', isWon: false, isLost: false } as any)
