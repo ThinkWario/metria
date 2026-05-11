@@ -28,7 +28,7 @@ export async function updateAgent(
 export async function deleteAgent(workspaceId: string, agentId: string) {
   const agent = await prisma.botAgent.findFirst({ where: { id: agentId, workspaceId } })
   if (!agent) throw new Error('Agent not found')
-  await prisma.botAgent.delete({ where: { id: agentId } })
+  await prisma.botAgent.delete({ where: { id: agentId, workspaceId } })
 }
 
 export async function listFlows(workspaceId: string, botAgentId: string) {
@@ -83,5 +83,5 @@ export async function updateFlow(
 export async function deleteFlow(workspaceId: string, flowId: string) {
   const flow = await prisma.botFlow.findFirst({ where: { id: flowId, workspaceId } })
   if (!flow) throw new Error('Flow not found')
-  await prisma.botFlow.delete({ where: { id: flowId } })
+  await prisma.botFlow.delete({ where: { id: flowId, workspaceId } })
 }

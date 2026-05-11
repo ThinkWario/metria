@@ -58,7 +58,7 @@ describe('deleteAgent', () => {
     vi.mocked(prisma.botAgent.findFirst).mockResolvedValue({ id: 'a1' } as any)
     vi.mocked(prisma.botAgent.delete).mockResolvedValue({} as any)
     await deleteAgent(WS, 'a1')
-    expect(prisma.botAgent.delete).toHaveBeenCalledWith({ where: { id: 'a1' } })
+    expect(prisma.botAgent.delete).toHaveBeenCalledWith({ where: { id: 'a1', workspaceId: WS } })
   })
 })
 
