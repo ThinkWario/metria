@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import type { Update } from 'telegraf/typings/core/types/typegram'
 import { prisma } from '../../lib/prisma'
 import { handleTelegramUpdate } from './channels/telegram.service'
+import { getChannels, upsertChannelConfig } from './channel.service'
 import type { AuthRequest } from '../../middleware/auth'
 import { getConversations as _getConversations, getMessages as _getMessages, sendMessage as _sendMessage } from './inbox.service'
 import { verifyWhatsAppSignature, parseWhatsAppUpdate } from './channels/whatsapp.service'
@@ -130,5 +131,38 @@ export async function instagramWebhook(req: Request, res: Response): Promise<voi
   } catch (err) {
     console.error('[Instagram webhook error]', err)
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' })
+  }
+}
+
+export async function getChannelsHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId
+    const channels = await getChannels(workspaceId)
+    res.json(channels)
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch channels' })
+  }
+}
+
+export async function upsertChannelConfigHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId
+    const { platform } = req.params
+    const { name, config, status } = req.body
+
+    if (!platform || !name || !config) {
+      res.status(400).json({ error: 'platform, name and config are required' })
+      return
+    }
+
+    const channel = await upsertChannelConfig(workspaceId, {
+      platform: platform as any,
+      name,
+      config,
+      status
+    })
+    res.status(200).json(channel)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update channel config' })
   }
 }
