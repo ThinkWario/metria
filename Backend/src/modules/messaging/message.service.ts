@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import { getIO } from '../../lib/socket'
+import { tryRunBotFlows } from '../bot/flow.engine'
 import type { InboundMessageData, ProcessedMessage } from './types'
 
 const PLATFORM_TO_SOURCE: Record<string, string> = {
@@ -75,13 +76,16 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     }
   })
 
-  await prisma.conversation.update({
+  const updatedConv = await prisma.conversation.update({
     where: { id: conversation.id },
-    data: {
-      lastMessageAt: new Date(),
-      messageCount: { increment: 1 }
-    }
+    data: { lastMessageAt: new Date(), messageCount: { increment: 1 } },
+    include: { channel: { select: { platform: true, config: true } } }
   })
+
+  tryRunBotFlows(workspaceId, channelId, {
+    ...updatedConv,
+    contactId: contact.id
+  }, content).catch(err => console.error('[BotEngine]', err))
 
   const io = getIO()
   const room = `workspace:${workspaceId}`
