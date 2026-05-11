@@ -22,6 +22,7 @@ import onboardingRoutes from './routes/onboarding'
 import paymentsRoutes from './routes/payments'
 import messagingRoutes from './modules/messaging/messaging.routes'
 import crmRoutes from './modules/crm/crm.routes'
+import botRoutes from './modules/bot/bot.routes'
 
 const app = express()
 
@@ -55,6 +56,7 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/logs', logsRoutes)
 app.use('/api/onboarding', onboardingRoutes)
 app.use('/api/payments', paymentsRoutes)
+app.use('/api', botRoutes)
 app.use('/api', crmRoutes)
 app.use('/api', messagingRoutes)
 
