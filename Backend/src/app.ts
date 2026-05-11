@@ -23,6 +23,8 @@ import paymentsRoutes from './routes/payments'
 import messagingRoutes from './modules/messaging/messaging.routes'
 import crmRoutes from './modules/crm/crm.routes'
 import botRoutes from './modules/bot/bot.routes'
+import analyticsRoutes from './modules/analytics/analytics.routes'
+import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 
 const app = express()
 
@@ -59,6 +61,10 @@ app.use('/api/payments', paymentsRoutes)
 app.use('/api', botRoutes)
 app.use('/api', crmRoutes)
 app.use('/api', messagingRoutes)
+app.use('/api', analyticsRoutes)
+
+// Start cron jobs
+startAnalyticsCron()
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
