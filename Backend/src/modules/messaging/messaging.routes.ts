@@ -9,7 +9,9 @@ import {
   instagramWebhook,
   getConversationsHandler,
   getMessagesHandler,
-  sendMessageHandler
+  sendMessageHandler,
+  getChannelsHandler,
+  upsertChannelConfigHandler
 } from './messaging.controller'
 
 const router = Router()
@@ -22,6 +24,8 @@ router.get('/webhooks/instagram/:workspaceId', instagramWebhookVerify)
 router.post('/webhooks/instagram/:workspaceId', instagramWebhook)
 
 // Authenticated inbox routes — PRO and SCALE plans only
+router.get('/messaging/channels', authenticate, requirePlan('PRO', 'SCALE'), getChannelsHandler)
+router.post('/messaging/channels/:platform/config', authenticate, requirePlan('PRO', 'SCALE'), upsertChannelConfigHandler)
 router.get('/messaging/conversations', authenticate, requirePlan('PRO', 'SCALE'), getConversationsHandler)
 router.get('/messaging/conversations/:conversationId/messages', authenticate, requirePlan('PRO', 'SCALE'), getMessagesHandler)
 router.post('/messaging/conversations/:conversationId/messages', authenticate, requirePlan('PRO', 'SCALE'), sendMessageHandler)
