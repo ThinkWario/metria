@@ -12,7 +12,7 @@ interface ChannelConfigFormProps {
 }
 
 export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: ChannelConfigFormProps) => {
-    const [config, setConfig] = useState(initialConfig || {})
+    const [config, setConfig] = useState<Record<string, any>>(initialConfig || {})
     const [loading, setLoading] = useState(false)
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
