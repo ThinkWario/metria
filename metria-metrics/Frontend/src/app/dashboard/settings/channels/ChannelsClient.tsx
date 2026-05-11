@@ -81,7 +81,7 @@ export const ChannelsClient = () => {
                 { platform: 'instagram', status: 'disconnected' },
                 { platform: 'telegram', status: 'disconnected' },
                 { platform: 'messenger', status: 'disconnected' },
-            ]).map((channel) => (
+            ] as ChannelStatus[]).map((channel) => (
                 <ChannelCard
                     key={channel.platform}
                     platform={channel.platform as any}
