@@ -3,7 +3,7 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:4000/api'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://bobyads-backend-m.3awmod.easypanel.host/api'
 
 export async function login(formData: FormData) {
     const email = formData.get("email")
@@ -45,6 +45,42 @@ export async function login(formData: FormData) {
 
     } catch (error) {
         console.error("Login server error:", error)
+        return { success: false, error: "Error de conexión con el servidor" }
+    }
+}
+
+export async function googleLogin(credential: string) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/auth/google`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential })
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+            return { success: false, error: data.error || 'Autenticación fallida con Google' }
+        }
+
+        // Set session cookie
+        const cookieStore = await cookies()
+        cookieStore.set("metria_session", data.token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 60 * 60 * 24 * 7,
+            path: "/",
+        })
+
+        return {
+            success: true,
+            token: data.token,
+            user: data.user,
+            workspace: data.workspace,
+            onboardingRequired: data.onboardingRequired
+        }
+    } catch (error) {
+        console.error("Google login action error:", error)
         return { success: false, error: "Error de conexión con el servidor" }
     }
 }

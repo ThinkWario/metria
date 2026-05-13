@@ -1,6 +1,6 @@
 // src/lib/api.ts
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:4000/api'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://bobyads-backend-m.3awmod.easypanel.host/api'
 
 // Helperes for fetching API
 
@@ -26,11 +26,21 @@ export const fetchAPI = async (endpoint: string, options: RequestInit = {}) => {
 
         if (!response.ok) {
             let msg = `API error: ${response.statusText}`
+            let code = ''
             try {
                 const errData = await response.json()
                 if (errData.error) msg = errData.error
                 else if (errData.message) msg = errData.message
+                if (errData.code) code = errData.code
             } catch (e) { }
+
+            // Handle Trial Expired or Subscription Required
+            if (response.status === 403 && (code === 'TRIAL_EXPIRED' || code === 'SUBSCRIPTION_REQUIRED')) {
+                if (typeof window !== 'undefined') {
+                    window.location.href = '/onboarding/plans?reason=' + code
+                }
+            }
+
             throw new Error(msg)
         }
 
