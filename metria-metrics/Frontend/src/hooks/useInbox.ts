@@ -9,7 +9,15 @@ export interface Conversation {
   status: 'OPEN' | 'PENDING' | 'CLOSED'
   messageCount: number
   lastMessageAt?: string
-  contact: { id: string; name: string; phone: string }
+  contact: { 
+    id: string; 
+    name: string; 
+    phone: string;
+    email?: string;
+    status: string;
+    ltv: number | string;
+    source: string;
+  }
   channel: { id: string; platform: string; name: string }
   createdAt: string
 }
