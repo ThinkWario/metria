@@ -1,13 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from "recharts"
-import { MousePointerClick, Target, TrendingUp, Search, Loader2 } from "lucide-react"
+import { MousePointerClick, Target, TrendingUp, Search, Loader2, BarChart2 } from "lucide-react"
 import { fetchAPI } from "@/lib/api"
 import { formatCurrency, formatNumber } from "@/lib/formatting"
 
@@ -16,45 +17,42 @@ import { useUserStore } from "@/store/useUserStore"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 
-const performanceData = [
-    { date: "01 Mar", spend: 120, conversions: 15, cpa: 8 },
-    { date: "02 Mar", spend: 135, conversions: 18, cpa: 7.5 },
-    { date: "03 Mar", spend: 150, conversions: 14, cpa: 10.7 },
-    { date: "04 Mar", spend: 140, conversions: 22, cpa: 6.3 },
-    { date: "05 Mar", spend: 180, conversions: 28, cpa: 6.4 },
-    { date: "06 Mar", spend: 210, conversions: 35, cpa: 6.0 },
-]
-
 export default function GoogleAdsPage() {
     const router = useRouter()
     const { user } = useUserStore()
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
-    const [campaigns, setCampaigns] = useState<any[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+
+    const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
+    const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
+    const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : ''
+
+    const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
+        queryKey: ['google', 'campaigns', { fromStr, toStr }],
+        queryFn: () => fetchAPI(`/google/campaigns?${rangeParams}`),
+        enabled: !!integrations.google
+    })
+
+    const { data: performanceRes = [], isLoading: perfLoading } = useQuery({
+        queryKey: ['google', 'performance', { fromStr, toStr }],
+        queryFn: () => fetchAPI(`/google/daily-performance?${rangeParams}`),
+        enabled: !!integrations.google
+    })
+
+    const { data: searchTerms = [], isLoading: termsLoading } = useQuery({
+        queryKey: ['google', 'search-terms', { fromStr, toStr }],
+        queryFn: () => fetchAPI(`/google/search-terms?${rangeParams}`),
+        enabled: !!integrations.google
+    })
+
+    const performanceData = Array.isArray(performanceRes) ? performanceRes : []
+    const isLoading = campaignsLoading || perfLoading || termsLoading
 
     useEffect(() => {
         if (user?.role === "OPERATOR") {
             router.push("/dashboard/logistics")
-            return
         }
-        if (!integrations.google) return
-        const loadCampaigns = async () => {
-            try {
-                const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
-                const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
-                const rangeParams = fromStr && toStr ? `from=${fromStr}&to=${toStr}` : ''
-                
-                const data = await fetchAPI(`/google/campaigns?${rangeParams}`)
-                setCampaigns(data || [])
-            } catch (error) {
-                console.error("Failed to load Google campaigns:", error)
-            } finally {
-                setIsLoading(false)
-            }
-        }
-        loadCampaigns()
-    }, [integrations.google, date, user?.role, router])
+    }, [user?.role, router])
 
     if (user?.role === "OPERATOR") return null
     if (!integrations.google) return <UnconfiguredState integration="Google Ads" />
@@ -76,7 +74,7 @@ export default function GoogleAdsPage() {
                         <Target className="h-5 w-5 text-amber-500" />
                         Dashboard de Campañas Google
                     </CardTitle>
-                    <CardDescription>Estadísticas sincronizadas con Google Ads API (Timezone: America/Santiago).</CardDescription>
+                    <CardDescription>Estadísticas sincronizadas con Google Ads API.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? (
@@ -100,7 +98,7 @@ export default function GoogleAdsPage() {
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                            campaigns.map((camp) => (
+                            campaigns.map((camp: any) => (
                                 <TableRow key={camp.id}>
                                     <TableCell>
                                         <div className="font-medium">{camp.name}</div>
@@ -125,16 +123,25 @@ export default function GoogleAdsPage() {
             </Card>
 
             <div className="grid gap-4 md:grid-cols-2">
-                {/* Spend vs Conversions Chart */}
+                {/* Spend vs Conversions Chart — datos reales del período seleccionado */}
                 <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <TrendingUp className="h-5 w-5 text-chart-1" />
-                            Spend vs Conversiones (7D)
+                            Spend vs Conversiones
                         </CardTitle>
-                        <CardDescription>Relación entre gasto diario y volumen de conversiones.</CardDescription>
+                        <CardDescription>Gasto diario y volumen de conversiones en el período seleccionado.</CardDescription>
                     </CardHeader>
                     <CardContent>
+                        {isLoading ? (
+                            <div className="flex justify-center p-8"><Loader2 className="animate-spin text-muted-foreground" /></div>
+                        ) : performanceData.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-[250px] gap-2 text-muted-foreground">
+                                <BarChart2 className="h-8 w-8 opacity-30" />
+                                <p className="text-sm">Sin datos para el período seleccionado.</p>
+                                <p className="text-xs">Sincroniza Google Ads desde las integraciones.</p>
+                            </div>
+                        ) : (
                         <div className="h-[250px] w-full min-h-[250px]">
                             <ResponsiveContainer width="100%" height={250}>
                                 <LineChart data={performanceData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
@@ -149,6 +156,7 @@ export default function GoogleAdsPage() {
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -162,42 +170,28 @@ export default function GoogleAdsPage() {
                         <CardDescription>Términos de búsqueda de mayor rendimiento (PMax & Search).</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 hover:bg-background/80 transition-colors">
-                            <div>
-                                <div className="font-medium text-sm">&quot;metria metrics software&quot;</div>
-                                <div className="text-xs text-emerald-500 flex items-center gap-1">
-                                    <TrendingUp className="h-3 w-3" /> Brand Search
+                        {searchTerms.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground opacity-50">
+                                <Search className="h-8 w-8 mb-2" />
+                                <p className="text-sm">Sin insights disponibles.</p>
+                            </div>
+                        ) : (
+                            searchTerms.map((term: any, idx: number) => (
+                                <div key={idx} className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 hover:bg-background/80 transition-colors">
+                                    <div>
+                                        <div className="font-medium text-sm">&quot;{term.query}&quot;</div>
+                                        <div className={`text-xs flex items-center gap-1 ${term.category === 'Brand Search' ? 'text-emerald-500' : 'text-blue-500'}`}>
+                                            {term.category === 'Brand Search' ? <TrendingUp className="h-3 w-3" /> : <MousePointerClick className="h-3 w-3" />}
+                                            {term.category}
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-sm font-bold text-primary">{term.conversions} Conv.</div>
+                                        <div className="text-xs text-muted-foreground">CPA: {formatCurrency(term.cpa)}</div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-sm font-bold text-primary">12 Conv.</div>
-                                <div className="text-xs text-muted-foreground">CPA: {formatCurrency(2.10)}</div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 hover:bg-background/80 transition-colors">
-                            <div>
-                                <div className="font-medium text-sm">&quot;profit tracking e-commerce&quot;</div>
-                                <div className="text-xs text-blue-500 flex items-center gap-1">
-                                    <MousePointerClick className="h-3 w-3" /> Generic Search
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-sm font-bold text-primary">8 Conv.</div>
-                                <div className="text-xs text-muted-foreground">CPA: {formatCurrency(15.40)}</div>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 hover:bg-background/80 transition-colors opacity-70">
-                            <div>
-                                <div className="font-medium text-sm">&quot;shopify google ads integration&quot;</div>
-                                <div className="text-xs text-muted-foreground flex items-center gap-1">
-                                    <Target className="h-3 w-3" /> Long tail
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-sm font-bold">3 Conv.</div>
-                                <div className="text-xs text-muted-foreground">CPA: {formatCurrency(8.90)}</div>
-                            </div>
-                        </div>
+                            ))
+                        )}
                     </CardContent>
                     <CardFooter>
                         <p className="text-xs text-muted-foreground bg-primary/10 text-primary px-3 py-2 rounded-md w-full">

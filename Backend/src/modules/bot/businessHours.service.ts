@@ -39,8 +39,8 @@ export async function upsertBusinessHours(
 ) {
   return prisma.businessHours.upsert({
     where: { workspaceId },
-    create: { workspaceId, ...data },
-    update: data
+    create: { workspaceId, ...data } as any,
+    update: data as any
   })
 }
 

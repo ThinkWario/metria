@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useState } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { fetchAPI, syncShopifyOrders, getCustomersLtv, getReturns } from "@/lib/api"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { useDateRangeStore } from "@/store/useDateRangeStore"
 import { useCampaignStore } from "@/store/useCampaignStore"
 import { useUserStore } from "@/store/useUserStore"
 import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { format } from "date-fns"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,7 +24,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { toast } from "sonner"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 
-// No mocks down here anymore
+const PAGE_SIZE = 20
 
 export default function SalesPage() {
     const router = useRouter()
@@ -31,127 +33,112 @@ export default function SalesPage() {
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
     const { disabledCampaignIds } = useCampaignStore()
-    const [orders, setOrders] = useState<any[]>([])
-    const [skuPerformance, setSkuPerformance] = useState<any[]>([])
-    const [topSoldPerformance, setTopSoldPerformance] = useState<any[]>([])
-    const [customersLtv, setCustomersLtv] = useState<any>({ ltv: 0, repurchaseRate: 0, totalCustomers: 0 })
-    const [returnsData, setReturnsData] = useState<any>({ count: 0, totalValue: 0, orders: [] })
-    const [isSyncing, setIsSyncing] = useState(false)
-    const [isLoading, setIsLoading] = useState(true)
-    // Pagination
     const [page, setPage] = useState(1)
-    const [totalOrders, setTotalOrders] = useState(0)
-    const PAGE_SIZE = 20
-
-    const loadData = useCallback(async () => {
-        setIsLoading(true)
-        try {
-            const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
-            const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
-            const exclusions = disabledCampaignIds.length > 0 ? `&excludeCampaigns=${disabledCampaignIds.join(',')}` : ''
-            const rangeParams = (fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=30') + exclusions
-            const topProductsRangeParams = 'days=7' + exclusions
-
-            const [ordersRes, skuRes, ltvRes, returnsRes, topSoldRes] = await Promise.all([
-                fetchAPI(`/shopify/orders?limit=${PAGE_SIZE}&page=${page}${fromStr && toStr ? `&from=${fromStr}&to=${toStr}` : ''}`),
-                fetchAPI(`/metrics/sku-performance?${rangeParams}`),
-                getCustomersLtv(fromStr, toStr),
-                getReturns(fromStr, toStr),
-                fetchAPI(`/metrics/sku-performance?${topProductsRangeParams}`)
-            ])
-            if (ordersRes.data) setOrders(ordersRes.data)
-            if (ordersRes.meta?.total !== undefined) setTotalOrders(ordersRes.meta.total)
-            if (skuRes) setSkuPerformance(skuRes)
-            if (ltvRes) setCustomersLtv(ltvRes)
-            if (returnsRes) setReturnsData(returnsRes)
-            if (topSoldRes) setTopSoldPerformance(topSoldRes)
-        } catch (e) {
-            console.error('Failed to load sales data', e)
-        } finally {
-            setIsLoading(false)
-        }
-    }, [date, page, disabledCampaignIds])
+    const queryClient = useQueryClient()
 
     useEffect(() => {
-        if (user?.role === "OPERATOR") {
-            router.push("/dashboard/logistics")
-            return
-        }
-        loadData()
-    }, [loadData, user?.role, router])
+        if (user?.role === "OPERATOR") router.push("/dashboard/logistics")
+    }, [user?.role, router])
 
-    const handleSync = async () => {
-        setIsSyncing(true)
-        try {
-            const res = await syncShopifyOrders()
+    const from = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
+    const to = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
+    const exclusions = disabledCampaignIds.length > 0 ? `&excludeCampaigns=${disabledCampaignIds.join(',')}` : ''
+    const rangeParams = (from && to ? `from=${from}&to=${to}` : 'days=30') + exclusions
+
+    const { data: ordersRes, isLoading: ordersLoading } = useQuery({
+        queryKey: ['shopify', 'orders', { from, to, page }],
+        queryFn: () => fetchAPI(`/shopify/orders?limit=${PAGE_SIZE}&page=${page}${from && to ? `&from=${from}&to=${to}` : ''}`)
+    })
+
+    const { data: skuPerformance = [], isLoading: skuLoading } = useQuery({
+        queryKey: ['metrics', 'sku-performance', { from, to, exclusions }],
+        queryFn: () => fetchAPI(`/metrics/sku-performance?${rangeParams}`)
+    })
+
+    const { data: customersLtv = { ltv: 0, repurchaseRate: 0, totalCustomers: 0 } } = useQuery({
+        queryKey: ['shopify', 'ltv', { from, to }],
+        queryFn: () => getCustomersLtv(from, to)
+    })
+
+    const { data: returnsData = { count: 0, totalValue: 0, orders: [] } } = useQuery({
+        queryKey: ['shopify', 'returns', { from, to }],
+        queryFn: () => getReturns(from, to)
+    })
+
+    const { data: topSoldRaw = [], isLoading: topLoading } = useQuery({
+        queryKey: ['metrics', 'sku-top', { exclusions }],
+        queryFn: () => fetchAPI(`/metrics/sku-performance?days=7${exclusions}`)
+    })
+
+    const isLoading = ordersLoading || skuLoading || topLoading
+    const orders = ordersRes?.data || []
+    const totalOrders = ordersRes?.meta?.total || 0
+    const topProducts = [...(Array.isArray(topSoldRaw) ? topSoldRaw : [])]
+        .sort((a, b) => Number(b.sales) - Number(a.sales))
+        .slice(0, 5)
+
+    const syncMutation = useMutation({
+        mutationFn: () => syncShopifyOrders(),
+        onSuccess: (res) => {
             toast.success("Sincronización Exitosa", {
                 description: `Se han importado ${res.count} órdenes desde Shopify.`,
             })
-            await loadData() // Refresh table
-        } catch (e: any) {
-            console.error("Sync error:", e)
+            queryClient.invalidateQueries({ queryKey: ['shopify'] })
+            queryClient.invalidateQueries({ queryKey: ['metrics'] })
+        },
+        onError: (e: any) => {
             toast.error("Error de Sincronización", {
                 description: e.message || "No se pudo sincronizar con Shopify. Revisa tus accesos.",
             })
-        } finally {
-            setIsSyncing(false)
         }
-    }
+    })
 
-    const topProducts = [...topSoldPerformance]
-        .sort((a, b) => Number(b.sales) - Number(a.sales))
-        .slice(0, 5)
+    const handleSync = () => syncMutation.mutate()
 
     if (user?.role === "OPERATOR") return null
     if (!integrations.shopify) return <UnconfiguredState integration="Shopify" />
 
     return (
         <div className="space-y-6">
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+                        Canales de Venta
+                        <Badge className="bg-[#96bf48] hover:bg-[#86ab40] text-white border-transparent">Shopify API Live</Badge>
+                    </h1>
                     <div className="flex items-center gap-3">
-                        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-                            Canales de Venta
-                            <Badge className="bg-[#96bf48] hover:bg-[#86ab40] text-white border-transparent">Shopify API Live</Badge>
-                        </h1>
                         {disabledCampaignIds.length > 0 && (
                             <Badge variant="outline" className="text-amber-500 border-amber-500/30 animate-pulse">
                                 {disabledCampaignIds.length} campañas filtradas
                             </Badge>
                         )}
+                        {canEdit && (
+                            <Button onClick={handleSync} disabled={syncMutation.isPending} className="w-full sm:w-auto">
+                                {syncMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
+                                {syncMutation.isPending ? "Sincronizando Shopify..." : "Sincronizar Datos"}
+                            </Button>
+                        )}
                     </div>
-                    <p className="text-muted-foreground">Listado de órdenes, análisis de SKU y métricas de retención de Shopify.</p>
                 </div>
-                {canEdit && (
-                    <Button onClick={handleSync} disabled={isSyncing} className="w-full sm:w-auto">
-                        {isSyncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
-                        {isSyncing ? "Sincronizando Shopify..." : "Sincronizar Datos"}
-                    </Button>
-                )}
+                <p className="text-muted-foreground">Listado de órdenes, análisis de SKU y métricas de retención de Shopify.</p>
             </div>
 
             <Tabs defaultValue="orders" className="space-y-4">
                 <TabsList className="bg-card/50 backdrop-blur-md border border-border/50">
-                    <TabsTrigger value="orders" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <ShoppingCart className="w-4 h-4 mr-2 text-blue-500" />
-                        Órdenes
+                    <TabsTrigger value="orders" className="data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:border-primary/20 dark:data-[state=active]:bg-primary/20 dark:data-[state=active]:border-primary/30 dark:data-[state=active]:shadow-[0_0_15px_-5px_rgba(16,185,129,0.4)] transition-all duration-300">
+                        <ShoppingCart className="w-4 h-4 mr-2 text-blue-500" />Órdenes
                     </TabsTrigger>
-                    <TabsTrigger value="top-products" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <Trophy className="w-4 h-4 mr-2 text-yellow-500" />
-                        Los más vendidos
+                    <TabsTrigger value="top-products" className="data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:border-primary/20 dark:data-[state=active]:bg-primary/20 dark:data-[state=active]:border-primary/30 dark:data-[state=active]:shadow-[0_0_15px_-5px_rgba(16,185,129,0.4)] transition-all duration-300">
+                        <Trophy className="w-4 h-4 mr-2 text-yellow-500" />Los más vendidos
                     </TabsTrigger>
-                    <TabsTrigger value="sku" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <HandCoins className="w-4 h-4 mr-2 text-emerald-500" />
-                        Rendimiento SKU
+                    <TabsTrigger value="sku" className="data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:border-primary/20 dark:data-[state=active]:bg-primary/20 dark:data-[state=active]:border-primary/30 dark:data-[state=active]:shadow-[0_0_15px_-5px_rgba(16,185,129,0.4)] transition-all duration-300">
+                        <HandCoins className="w-4 h-4 mr-2 text-emerald-500" />Rendimiento SKU
                     </TabsTrigger>
-                    <TabsTrigger value="customers" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <UserCheck className="w-4 h-4 mr-2 text-purple-500" />
-                        Clientes (LTV)
+                    <TabsTrigger value="customers" className="data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:border-primary/20 dark:data-[state=active]:bg-primary/20 dark:data-[state=active]:border-primary/30 dark:data-[state=active]:shadow-[0_0_15px_-5px_rgba(16,185,129,0.4)] transition-all duration-300">
+                        <UserCheck className="w-4 h-4 mr-2 text-purple-500" />Clientes (LTV)
                     </TabsTrigger>
-                    <TabsTrigger value="returns" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <RefreshCcw className="w-4 h-4 mr-2 text-rose-500" />
-                        Reembolsos
+                    <TabsTrigger value="returns" className="data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:border-primary/20 dark:data-[state=active]:bg-primary/20 dark:data-[state=active]:border-primary/30 dark:data-[state=active]:shadow-[0_0_15px_-5px_rgba(16,185,129,0.4)] transition-all duration-300">
+                        <RefreshCcw className="w-4 h-4 mr-2 text-rose-500" />Reembolsos
                     </TabsTrigger>
                 </TabsList>
 
@@ -162,7 +149,7 @@ export default function SalesPage() {
                             <CardDescription>Sincronizadas en tiempo real vía Webhooks de Shopify.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {isLoading ? (
+                            {ordersLoading ? (
                                 <div className="space-y-3 py-2">
                                     {Array.from({ length: 6 }).map((_, i) => (
                                         <Skeleton key={i} className="h-10 w-full rounded-md" />
@@ -187,7 +174,7 @@ export default function SalesPage() {
                                                     No hay órdenes. Sincroniza con Shopify usando el botón superior.
                                                 </TableCell>
                                             </TableRow>
-                                        ) : orders.map((order) => (
+                                        ) : orders.map((order: any) => (
                                             <TableRow key={order.id || order.orderId}>
                                                 <TableCell className="font-medium text-primary hover:underline cursor-pointer">
                                                     <div className="flex items-center gap-2">
@@ -198,9 +185,7 @@ export default function SalesPage() {
                                                 <TableCell className="text-muted-foreground">{order.date || new Date(order.createdAt).toLocaleDateString('es-ES')}</TableCell>
                                                 <TableCell>{order.customer || order.customerName}</TableCell>
                                                 <TableCell>
-                                                    <Badge
-                                                        className={getStatusColorClass(order.status || order.financialStatus)}
-                                                    >
+                                                    <Badge className={getStatusColorClass(order.status || order.financialStatus)}>
                                                         {mapStatus(order.status || order.financialStatus)}
                                                     </Badge>
                                                 </TableCell>
@@ -215,8 +200,7 @@ export default function SalesPage() {
                                     </TableBody>
                                 </Table>
                             )}
-                            {/* Pagination controls */}
-                            {!isLoading && totalOrders > PAGE_SIZE && (
+                            {!ordersLoading && totalOrders > PAGE_SIZE && (
                                 <div className="flex items-center justify-between pt-4 border-t border-border/40">
                                     <span className="text-xs text-muted-foreground">
                                         Mostrando {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalOrders)} de {totalOrders} órdenes
@@ -245,7 +229,6 @@ export default function SalesPage() {
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* CHART BENTO BOX */}
                         <Card className="lg:col-span-2 bg-card/40 backdrop-blur-xl border-border/50 shadow-sm overflow-hidden">
                             <CardHeader className="border-b border-border/30 bg-muted/10 pb-4">
                                 <CardTitle className="flex items-center gap-2 text-base">
@@ -255,7 +238,7 @@ export default function SalesPage() {
                             </CardHeader>
                             <CardContent className="pt-6 relative">
                                 <div className="h-[320px] w-full">
-                                    {isLoading ? (
+                                    {topLoading ? (
                                         <div className="w-full h-full flex flex-col items-center justify-center">
                                             <Loader2 className="h-8 w-8 animate-spin text-primary/50 mb-4" />
                                             <span className="text-sm text-muted-foreground">Cargando métricas...</span>
@@ -269,60 +252,27 @@ export default function SalesPage() {
                                         <ResponsiveContainer width="100%" height="100%">
                                             <BarChart data={topProducts} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
                                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.25} />
-                                                <XAxis
-                                                    dataKey="name"
-                                                    stroke="currentColor"
-                                                    className="text-muted-foreground text-[11px] font-medium"
-                                                    tickLine={false}
-                                                    axisLine={false}
-                                                    interval={0}
-                                                    tickFormatter={(value) => value.length > 15 ? `${value.substring(0, 15)}...` : value}
-                                                    dy={10}
-                                                />
-                                                <YAxis
-                                                    stroke="currentColor"
-                                                    className="text-muted-foreground text-[11px] font-medium"
-                                                    tickLine={false}
-                                                    axisLine={false}
-                                                    tickFormatter={(value) => `${value} u.`}
-                                                />
-                                                <Tooltip
-                                                    cursor={{ fill: 'transparent' }} // Fixes the gray background filling the bar
-                                                    content={({ active, payload }) => {
-                                                        if (active && payload && payload.length) {
-                                                            const data = payload[0].payload;
-                                                            return (
-                                                                <div className="rounded-xl border border-border/50 bg-background/95 backdrop-blur-md p-4 shadow-xl">
-                                                                    <div className="font-semibold text-foreground text-sm mb-1">{data.name}</div>
-                                                                    <div className="text-[10px] font-mono text-muted-foreground mb-3 bg-muted px-2 py-0.5 rounded-md inline-block">{data.sku}</div>
-                                                                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                                                                        <div className="flex flex-col">
-                                                                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Volumen</span>
-                                                                            <span className="font-semibold text-primary">{data.sales} uds.</span>
-                                                                        </div>
-                                                                        <div className="flex flex-col">
-                                                                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Ingresos</span>
-                                                                            <span className="font-semibold text-foreground">{formatCurrency(data.revenue)}</span>
-                                                                        </div>
-                                                                    </div>
+                                                <XAxis dataKey="name" stroke="currentColor" className="text-muted-foreground text-[11px] font-medium" tickLine={false} axisLine={false} interval={0} tickFormatter={(value) => value.length > 15 ? `${value.substring(0, 15)}...` : value} dy={10} />
+                                                <YAxis stroke="currentColor" className="text-muted-foreground text-[11px] font-medium" tickLine={false} axisLine={false} tickFormatter={(value) => `${value} u.`} />
+                                                <Tooltip cursor={{ fill: 'transparent' }} content={({ active, payload }) => {
+                                                    if (active && payload && payload.length) {
+                                                        const data = payload[0].payload;
+                                                        return (
+                                                            <div className="rounded-xl border border-border/50 bg-background/95 backdrop-blur-md p-4 shadow-xl">
+                                                                <div className="font-semibold text-foreground text-sm mb-1">{data.name}</div>
+                                                                <div className="text-[10px] font-mono text-muted-foreground mb-3 bg-muted px-2 py-0.5 rounded-md inline-block">{data.sku}</div>
+                                                                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                                                                    <div className="flex flex-col"><span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Volumen</span><span className="font-semibold text-primary">{data.sales} uds.</span></div>
+                                                                    <div className="flex flex-col"><span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Ingresos</span><span className="font-semibold text-foreground">{formatCurrency(data.revenue)}</span></div>
                                                                 </div>
-                                                            );
-                                                        }
-                                                        return null;
-                                                    }}
-                                                />
-                                                <Bar
-                                                    dataKey="sales"
-                                                    radius={[6, 6, 0, 0]}
-                                                    maxBarSize={60}
-                                                    animationDuration={1500}
-                                                >
-                                                    {topProducts.map((entry, index) => (
-                                                        <Cell
-                                                            key={`cell-${index}`}
-                                                            fill={`var(--chart-${(index % 5) + 1})`}
-                                                            className="hover:opacity-80 transition-opacity duration-300 cursor-pointer"
-                                                        />
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                }} />
+                                                <Bar dataKey="sales" radius={[6, 6, 0, 0]} maxBarSize={60} animationDuration={1500}>
+                                                    {topProducts.map((entry: any, index: number) => (
+                                                        <Cell key={`cell-${index}`} fill={`var(--chart-${(index % 5) + 1})`} className="hover:opacity-80 transition-opacity duration-300 cursor-pointer" />
                                                     ))}
                                                 </Bar>
                                             </BarChart>
@@ -332,7 +282,6 @@ export default function SalesPage() {
                             </CardContent>
                         </Card>
 
-                        {/* LIST BENTO BOX */}
                         <Card className="bg-gradient-to-br from-card/60 to-muted/20 backdrop-blur-xl border-border/50 shadow-sm overflow-hidden flex flex-col">
                             <CardHeader className="border-b border-border/30 bg-muted/10 pb-4">
                                 <CardTitle className="text-base flex items-center justify-between">
@@ -341,19 +290,13 @@ export default function SalesPage() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-0 flex-1 overflow-auto">
-                                {topProducts.length === 0 && !isLoading && (
-                                    <div className="flex items-center justify-center h-full text-muted-foreground py-10">
-                                        Sin datos
-                                    </div>
+                                {topProducts.length === 0 && !topLoading && (
+                                    <div className="flex items-center justify-center h-full text-muted-foreground py-10">Sin datos</div>
                                 )}
                                 <div className="divide-y divide-border/30">
-                                    {topProducts.map((product, index) => (
+                                    {topProducts.map((product: any, index: number) => (
                                         <div key={product.sku} className="p-4 hover:bg-muted/30 transition-colors flex items-center gap-4 group">
-                                            <div className={`flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm shrink-0 shadow-sm ${index === 0 ? 'bg-yellow-500/20 text-yellow-600 border border-yellow-500/30' :
-                                                index === 1 ? 'bg-slate-300/20 text-slate-500 border border-slate-300/30' :
-                                                    index === 2 ? 'bg-amber-700/20 text-amber-700/80 border border-amber-700/30' :
-                                                        'bg-secondary text-secondary-foreground'
-                                                }`}>
+                                            <div className={`flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm shrink-0 shadow-sm ${index === 0 ? 'bg-yellow-500/20 text-yellow-600 border border-yellow-500/30' : index === 1 ? 'bg-slate-300/20 text-slate-500 border border-slate-300/30' : index === 2 ? 'bg-amber-700/20 text-amber-700/80 border border-amber-700/30' : 'bg-secondary text-secondary-foreground'}`}>
                                                 {index + 1}
                                             </div>
                                             <div className="flex-1 min-w-0">
@@ -392,14 +335,14 @@ export default function SalesPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {skuPerformance.length === 0 ? (
+                                    {(skuPerformance as any[]).length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={7} className="text-center text-muted-foreground h-24 border-dashed">
                                                 Sin datos de rendimiento de SKU. Sincroniza órdenes para poblar.
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        skuPerformance.map((sku) => (
+                                        (skuPerformance as any[]).map((sku) => (
                                             <TableRow key={sku.sku}>
                                                 <TableCell className="max-w-[200px]">
                                                     <div className="font-medium flex items-center gap-2">
@@ -414,22 +357,9 @@ export default function SalesPage() {
                                                 <TableCell className="text-right whitespace-nowrap text-chart-2">{formatCurrency(sku.adspend)}</TableCell>
                                                 <TableCell className="text-right whitespace-nowrap font-bold text-primary bg-primary/5">{formatCurrency(sku.profit)}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <Badge
-                                                        variant={
-                                                            sku.marginRaw === 0 ? "outline" :
-                                                                sku.marginRaw < 0 ? "destructive" :
-                                                                    sku.marginRaw < 20 ? "secondary" :
-                                                                        "outline"
-                                                        }
-                                                        className={
-                                                            sku.marginRaw === 0 ? "bg-muted text-muted-foreground border-border" : // Neutral styling for 0 (gift/promo)
-                                                                sku.marginRaw >= 20 ? "bg-[#96bf48]/10 text-[#96bf48] border-[#96bf48]/20" :
-                                                                    sku.marginRaw > 0 ? "bg-yellow-500/10 text-yellow-600 border-yellow-500/20" : ""
-                                                        }
-                                                    >
-                                                        {sku.cost === 0 && (
-                                                            <span title="Costo no configurado para este producto (COGS en $0). El margen es irreal." className="mr-1 cursor-help">⚠️</span>
-                                                        )}
+                                                    <Badge variant={sku.marginRaw === 0 ? "outline" : sku.marginRaw < 0 ? "destructive" : sku.marginRaw < 20 ? "secondary" : "outline"}
+                                                        className={sku.marginRaw === 0 ? "bg-muted text-muted-foreground border-border" : sku.marginRaw >= 20 ? "bg-[#96bf48]/10 text-[#96bf48] border-[#96bf48]/20" : sku.marginRaw > 0 ? "bg-yellow-500/10 text-yellow-600 border-yellow-500/20" : ""}>
+                                                        {sku.cost === 0 && <span title="Costo no configurado" className="mr-1 cursor-help">⚠️</span>}
                                                         {sku.margin}
                                                     </Badge>
                                                 </TableCell>
@@ -449,7 +379,7 @@ export default function SalesPage() {
                                 <CardTitle className="text-sm text-muted-foreground">Lifetime Value (LTV)</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-3xl font-bold text-primary">{formatCurrency(customersLtv.ltv)}</div>
+                                <div className="text-3xl font-bold text-primary">{formatCurrency((customersLtv as any).ltv)}</div>
                                 <p className="text-xs text-muted-foreground mt-1">Gasto promedio histórico por cliente.</p>
                             </CardContent>
                         </Card>
@@ -458,8 +388,8 @@ export default function SalesPage() {
                                 <CardTitle className="text-sm text-muted-foreground">Tasa de Recompra</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-3xl font-bold text-primary">{customersLtv.repurchaseRate}%</div>
-                                <p className="text-xs text-muted-foreground mt-1">Basado en {customersLtv.totalCustomers} clientes únicos.</p>
+                                <div className="text-3xl font-bold text-primary">{(customersLtv as any).repurchaseRate}%</div>
+                                <p className="text-xs text-muted-foreground mt-1">Basado en {(customersLtv as any).totalCustomers} clientes únicos.</p>
                             </CardContent>
                         </Card>
                     </div>
@@ -474,13 +404,13 @@ export default function SalesPage() {
                                     <CardDescription>Monto total de dinero devuelto en órdenes de Shopify.</CardDescription>
                                 </div>
                                 <div className="text-right">
-                                    <div className="text-2xl font-bold text-destructive">{formatCurrency(returnsData.totalValue)}</div>
-                                    <p className="text-xs text-muted-foreground">{returnsData.count} órdenes afectadas</p>
+                                    <div className="text-2xl font-bold text-destructive">{formatCurrency((returnsData as any).totalValue)}</div>
+                                    <p className="text-xs text-muted-foreground">{(returnsData as any).count} órdenes afectadas</p>
                                 </div>
                             </div>
                         </CardHeader>
                         <CardContent>
-                            {returnsData.orders && returnsData.orders.length > 0 ? (
+                            {(returnsData as any).orders && (returnsData as any).orders.length > 0 ? (
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
@@ -491,7 +421,7 @@ export default function SalesPage() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {returnsData.orders.map((order: any) => (
+                                        {(returnsData as any).orders.map((order: any) => (
                                             <TableRow key={order.id}>
                                                 <TableCell className="font-medium text-destructive">{order.id}</TableCell>
                                                 <TableCell>{new Date(order.date).toLocaleDateString('es-ES')}</TableCell>
@@ -509,8 +439,7 @@ export default function SalesPage() {
                         </CardContent>
                     </Card>
                 </TabsContent>
-
             </Tabs>
-        </div >
+        </div>
     )
 }

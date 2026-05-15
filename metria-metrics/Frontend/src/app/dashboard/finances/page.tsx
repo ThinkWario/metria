@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useEffect } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { fetchAPI } from "@/lib/api"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { useDateRangeStore } from "@/store/useDateRangeStore"
@@ -32,17 +33,7 @@ export default function FinancesPage() {
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
     const { disabledCampaignIds } = useCampaignStore()
-    const [fixedCosts, setFixedCosts] = useState<any[]>([])
-    const [financeSummary, setFinanceSummary] = useState<any>(null)
-    const [globalSettings, setGlobalSettings] = useState<any>({
-        taxRate: 0,
-        gatewayPercent: 3.49,
-        gatewayFixed: 0.30,
-        customFees: [],
-        currency: 'usd'
-    })
-    const [lowMarginAlerts, setLowMarginAlerts] = useState<any[]>([])
-    const [isLoading, setIsLoading] = useState(true)
+    const queryClient = useQueryClient()
 
     // Modals state
     const [isTaxModalOpen, setIsTaxModalOpen] = useState(false)
@@ -50,92 +41,123 @@ export default function FinancesPage() {
     const [isCustomFeeModalOpen, setIsCustomFeeModalOpen] = useState(false)
     const [isFixedCostModalOpen, setIsFixedCostModalOpen] = useState(false)
     
+    // Form management for modals
     const [formGateway, setFormGateway] = useState({ gatewayPercent: '3.49', gatewayFixed: '0.30' })
     const [formTax, setFormTax] = useState({ taxRate: '19.00' })
-    
-    const [editingCustomFee, setEditingCustomFee] = useState<any>(null)
     const [formCustomFee, setFormCustomFee] = useState({ name: '', type: 'percent', amount: '' })
+    const [formFixedCost, setFormFixedCost] = useState({ name: '', category: 'Suscripción', amount: '' })
 
+    const [editingCustomFee, setEditingCustomFee] = useState<any>(null)
     const [editingFixedCost, setEditingFixedCost] = useState<any>(null)
-    const [formFixedCost, setFormFixedCost] = useState({ 
-        name: '', category: 'Suscripción', amount: '' 
-    })
 
-    // Confirm delete state (replaces native confirm() dialogs)
+    // Confirm delete state
     const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'fee' | 'cost', id: string, label: string } | null>(null)
 
-    const loadData = async () => {
-        setIsLoading(true)
-        try {
-            const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
-            const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
-            const exclusions = disabledCampaignIds.length > 0 ? `&excludeCampaigns=${disabledCampaignIds.join(',')}` : ''
-            const rangeParams = (fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7') + exclusions
+    const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
+    const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
+    const exclusions = disabledCampaignIds.length > 0 ? `&excludeCampaigns=${disabledCampaignIds.join(',')}` : ''
+    const rangeParams = (fromStr && toStr ? `from=${fromStr}&to=${toStr}` : 'days=7') + exclusions
 
-            const [summaryRes, financesRes, performanceRes] = await Promise.all([
-                fetchAPI(`/metrics/summary?${rangeParams}`),
-                fetchAPI('/metrics/finances'),
-                fetchAPI(`/metrics/sku-performance?${rangeParams}`)
-            ])
-            setFinanceSummary(summaryRes)
-            if (financesRes.fixedCosts) setFixedCosts(financesRes.fixedCosts)
-            if (financesRes.settings) {
-                setGlobalSettings({
-                    ...financesRes.settings,
-                    customFees: financesRes.settings.customFees || []
-                })
-                setFormTax({ taxRate: Number(financesRes.settings.taxRate || 19.00).toFixed(2) })
-                setFormGateway({
-                    gatewayPercent: Number(financesRes.settings.gatewayPercent || 3.49).toFixed(2),
-                    gatewayFixed: Number(financesRes.settings.gatewayFixed || 0.30).toFixed(2),
-                })
-            }
-            
-            if (Array.isArray(performanceRes)) {
-                const alerts = performanceRes
-                    .filter((p: any) => p.marginRaw < 20)
-                    .map((p: any) => ({
-                        ...p,
-                        target: "20.0%"
-                    }))
-                setLowMarginAlerts(alerts)
-            }
-        } catch (e) {
-            console.error('Failed to load finances data', e)
-        } finally {
-            setIsLoading(false)
-        }
+    // Queries
+    const { data: financeSummary, isLoading: summaryLoading } = useQuery({
+        queryKey: ['metrics', 'summary', { fromStr, toStr, exclusions }],
+        queryFn: () => fetchAPI(`/metrics/summary?${rangeParams}`),
+        refetchInterval: 60_000
+    })
+
+    const { data: financesData, isLoading: financesLoading } = useQuery({
+        queryKey: ['metrics', 'finances'],
+        queryFn: () => fetchAPI('/metrics/finances'),
+        refetchInterval: 300_000
+    })
+
+    const { data: performanceRes = [], isLoading: perfLoading } = useQuery({
+        queryKey: ['metrics', 'sku-performance', { fromStr, toStr, exclusions }],
+        queryFn: () => fetchAPI(`/metrics/sku-performance?${rangeParams}`)
+    })
+
+    const fixedCosts = financesData?.fixedCosts || []
+    const globalSettings = financesData?.settings || {
+        taxRate: 0,
+        gatewayPercent: 3.49,
+        gatewayFixed: 0.30,
+        customFees: [],
+        currency: 'usd'
     }
+
+    const lowMarginAlerts = Array.isArray(performanceRes)
+        ? performanceRes.filter((p: any) => (p.marginRaw || 0) < 20).map((p: any) => ({ ...p, target: "20.0%" }))
+        : []
+
+    const isLoading = summaryLoading || financesLoading || perfLoading
+
+    // Sync form state when financesData loads
+    useEffect(() => {
+        if (financesData?.settings) {
+            setFormTax({ taxRate: Number(financesData.settings.taxRate || 19.00).toFixed(2) })
+            setFormGateway({
+                gatewayPercent: Number(financesData.settings.gatewayPercent || 3.49).toFixed(2),
+                gatewayFixed: Number(financesData.settings.gatewayFixed || 0.30).toFixed(2),
+            })
+        }
+    }, [financesData])
 
     useEffect(() => {
         if (user?.role === "OPERATOR") {
             router.push("/dashboard/logistics")
-            return
         }
-        loadData()
-    }, [date, user?.role, router, disabledCampaignIds])
+    }, [user?.role, router])
 
-    const handleSaveGlobalSetting = async (payload: any) => {
-        try {
-            await fetchAPI('/settings/global', {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            })
+    // Mutations
+    const globalSettingsMutation = useMutation({
+        mutationFn: (payload: any) => fetchAPI('/settings/global', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        }),
+        onSuccess: () => {
             toast.success('Parámetros actualizados')
-            loadData()
-            return true
-        } catch (error) {
-            toast.error('Error al guardar los parámetros')
-            return false
-        }
+            queryClient.invalidateQueries({ queryKey: ['metrics', 'finances'] })
+            queryClient.invalidateQueries({ queryKey: ['metrics', 'summary'] })
+        },
+        onError: () => toast.error('Error al guardar los parámetros')
+    })
+
+    const fixedCostMutation = useMutation({
+        mutationFn: (payload: any) => fetchAPI('/metrics/finances/fixed-costs', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        }),
+        onSuccess: (data: any) => {
+            toast.success(editingFixedCost ? 'Costo actualizado' : 'Costo agregado')
+            setIsFixedCostModalOpen(false)
+            queryClient.invalidateQueries({ queryKey: ['metrics', 'finances'] })
+            queryClient.invalidateQueries({ queryKey: ['metrics', 'summary'] })
+        },
+        onError: () => toast.error('Error al guardar costo fijo')
+    })
+
+    const deleteFixedCostMutation = useMutation({
+        mutationFn: (id: string) => fetchAPI(`/metrics/finances/fixed-costs/${id}`, { method: 'DELETE' }),
+        onSuccess: () => {
+            toast.success('Costo fijo eliminado')
+            queryClient.invalidateQueries({ queryKey: ['metrics', 'finances'] })
+            queryClient.invalidateQueries({ queryKey: ['metrics', 'summary'] })
+        },
+        onError: () => toast.error('Error al eliminar costo fijo')
+    })
+
+    // Handlers
+    const handleSaveTax = () => {
+        globalSettingsMutation.mutate({ taxRate: parseFloat(formTax.taxRate) })
+        setIsTaxModalOpen(false)
     }
 
-    const handleSaveTax = async () => {
-        if (await handleSaveGlobalSetting({ taxRate: parseFloat(formTax.taxRate) })) setIsTaxModalOpen(false)
-    }
-
-    const handleSaveGateway = async () => {
-        if (await handleSaveGlobalSetting({ gatewayPercent: parseFloat(formGateway.gatewayPercent), gatewayFixed: parseFloat(formGateway.gatewayFixed) })) setIsGatewayModalOpen(false)
+    const handleSaveGateway = () => {
+        globalSettingsMutation.mutate({
+            gatewayPercent: parseFloat(formGateway.gatewayPercent),
+            gatewayFixed: parseFloat(formGateway.gatewayFixed)
+        })
+        setIsGatewayModalOpen(false)
     }
 
     const openCustomFeeModal = (fee: any = null) => {
@@ -148,7 +170,7 @@ export default function FinancesPage() {
         setIsCustomFeeModalOpen(true)
     }
 
-    const handleSaveCustomFee = async () => {
+    const handleSaveCustomFee = () => {
         if (!formCustomFee.name || !formCustomFee.amount) return toast.error('Rellena todos los campos')
         
         let newCustomFees = [...(globalSettings?.customFees || [])]
@@ -159,49 +181,34 @@ export default function FinancesPage() {
             newCustomFees.push({ id: Math.random().toString(36).substring(7), name: formCustomFee.name, type: formCustomFee.type, amount: parseFloat(formCustomFee.amount) })
         }
 
-        if (await handleSaveGlobalSetting({ customFees: newCustomFees })) setIsCustomFeeModalOpen(false)
+        globalSettingsMutation.mutate({ customFees: newCustomFees })
+        setIsCustomFeeModalOpen(false)
     }
 
     const handleDeleteCustomFee = (id: string, name: string) => {
         setDeleteConfirm({ type: 'fee', id, label: name })
     }
 
-    const handleSaveFixedCost = async () => {
-        try {
-            await fetchAPI('/metrics/finances/fixed-costs', {
-                method: 'POST',
-                body: JSON.stringify({
-                    id: editingFixedCost?.id,
-                    name: formFixedCost.name,
-                    category: formFixedCost.category,
-                    amount: parseFloat(formFixedCost.amount)
-                })
-            })
-            toast.success(editingFixedCost ? 'Costo actualizado' : 'Costo agregado')
-            setIsFixedCostModalOpen(false)
-            loadData()
-        } catch (error) {
-            toast.error('Error al guardar costo fijo')
-        }
+    const handleSaveFixedCost = () => {
+        fixedCostMutation.mutate({
+            id: editingFixedCost?.id,
+            name: formFixedCost.name,
+            category: formFixedCost.category,
+            amount: parseFloat(formFixedCost.amount)
+        })
     }
 
     const handleDeleteFixedCost = (id: string, name: string) => {
         setDeleteConfirm({ type: 'cost', id, label: name })
     }
 
-    const execDelete = async () => {
+    const execDelete = () => {
         if (!deleteConfirm) return
         if (deleteConfirm.type === 'fee') {
             const newCustomFees = globalSettings.customFees.filter((f: any) => f.id !== deleteConfirm.id)
-            await handleSaveGlobalSetting({ customFees: newCustomFees })
+            globalSettingsMutation.mutate({ customFees: newCustomFees })
         } else {
-            try {
-                await fetchAPI(`/metrics/finances/fixed-costs/${deleteConfirm.id}`, { method: 'DELETE' })
-                toast.success('Costo fijo eliminado')
-                loadData()
-            } catch (error) {
-                toast.error('Error al eliminar costo fijo')
-            }
+            deleteFixedCostMutation.mutate(deleteConfirm.id)
         }
         setDeleteConfirm(null)
     }
@@ -233,7 +240,7 @@ export default function FinancesPage() {
                 </div>
                 <div className="grid gap-4 md:grid-cols-4">
                     {[0, 1, 2, 3].map((i) => (
-                        <div key={i} className="flex flex-col gap-4 rounded-xl border border-border/50 bg-card/30 backdrop-blur-xl p-6">
+                        <div key={i} className="flex flex-col gap-4 rounded-xl border border-border/80 bg-card/30 backdrop-blur-xl p-6">
                             <div className="flex justify-between items-center"><Skeleton className="h-4 w-28 rounded" /><Skeleton className="h-4 w-4 rounded-full" /></div>
                             <Skeleton className="h-8 w-32 rounded-md" />
                             <Skeleton className="h-3 w-20 rounded" />
@@ -249,13 +256,15 @@ export default function FinancesPage() {
     return (
         <div className="space-y-6" style={{ opacity: fadeIn ? 1 : 0, transition: 'opacity 350ms cubic-bezier(0.23, 1, 0.32, 1)' }}>
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <h1 className="text-3xl font-bold tracking-tight">Finanzas E-commerce</h1>
-                    {disabledCampaignIds.length > 0 && (
-                        <Badge variant="outline" className="text-amber-500 border-amber-500/30 animate-pulse">
-                            {disabledCampaignIds.length} campañas filtradas
-                        </Badge>
-                    )}
+                    <div className="flex items-center gap-3">
+                        {disabledCampaignIds.length > 0 && (
+                            <Badge variant="outline" className="text-amber-500 border-amber-500/80 animate-pulse">
+                                {disabledCampaignIds.length} campañas filtradas
+                            </Badge>
+                        )}
+                    </div>
                 </div>
                 <p className="text-muted-foreground">Control avanzado de utilidad neta, costos fijos y salud del margen.</p>
             </div>
@@ -277,7 +286,7 @@ export default function FinancesPage() {
                         <TrendingUp className="h-4 w-4 text-blue-500" />
                     </div>
                     <div className="px-6 pb-2">
-                        <div className="text-2xl font-bold tabular-nums text-gray-200">{financeSummary ? formatCurrency(-Math.abs(Number(financeSummary.metaAdSpend || 0) + Number(financeSummary.googleAdSpend || 0) + Number(financeSummary.tiktokAdSpend || 0))) : "$0"}</div>
+                        <div className="text-2xl font-bold tabular-nums">{financeSummary ? formatCurrency(-Math.abs(Number(financeSummary.metaAdSpend || 0) + Number(financeSummary.googleAdSpend || 0) + Number(financeSummary.tiktokAdSpend || 0))) : "$0"}</div>
                         <p className="text-xs text-muted-foreground mt-1">Meta, Google & TikTok Ads</p>
                     </div>
                 </TiltCard>
@@ -287,7 +296,7 @@ export default function FinancesPage() {
                         <Truck className="h-4 w-4 text-amber-500" />
                     </div>
                     <div className="px-6 pb-2">
-                        <div className="text-2xl font-bold tabular-nums text-gray-200">{financeSummary ? formatCurrency(-Math.abs(Number(financeSummary.totalCogs || 0) + Number(financeSummary.totalShipping || 0))) : "$0"}</div>
+                        <div className="text-2xl font-bold tabular-nums">{financeSummary ? formatCurrency(-Math.abs(Number(financeSummary.totalCogs || 0) + Number(financeSummary.totalShipping || 0))) : "$0"}</div>
                         <p className="text-xs text-muted-foreground mt-1">Dropi + Costo Prod.</p>
                     </div>
                 </TiltCard>
@@ -311,7 +320,7 @@ export default function FinancesPage() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-                <Card className="bg-card/30 backdrop-blur-xl border border-border/50 flex flex-col p-0 overflow-hidden">
+                <Card className="bg-card/30 backdrop-blur-xl border border-border/80 flex flex-col p-0 overflow-hidden">
                     <CardHeader className="bg-destructive/5 border-b border-destructive/10 pt-6 pb-6">
                         <div className="flex items-center gap-3">
                             <div className="p-2 bg-destructive/10 rounded-lg">
@@ -340,7 +349,7 @@ export default function FinancesPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : lowMarginAlerts.map((alert) => (
-                                    <TableRow key={alert.sku} className="hover:bg-muted/50 transition-colors border-b border-border/40">
+                                    <TableRow key={alert.sku} className="hover:bg-muted/50 transition-colors border-b border-border/60">
                                         <TableCell className="px-4 py-3">
                                             <div className="font-semibold text-sm truncate max-w-[180px]" title={alert.name}>{alert.name}</div>
                                             <div className="text-[10px] font-mono text-muted-foreground uppercase">{alert.sku}</div>
@@ -364,7 +373,7 @@ export default function FinancesPage() {
                 </Card>
 
                 <div className="space-y-4 flex flex-col">
-                    <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
+                    <Card className="bg-card/30 backdrop-blur-xl border border-border/80">
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center justify-between text-base">
                                 <div className="flex items-center">
@@ -374,8 +383,8 @@ export default function FinancesPage() {
                                     </Badge>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-sm font-normal text-muted-foreground border border-border/50 px-2 py-1 rounded-md bg-background/50">
-                                        Total: {formatCurrency(fixedCosts.reduce((sum, c) => sum + Number(c.amount), 0))}
+                                    <span className="text-sm font-normal text-muted-foreground border border-border/80 px-2 py-1 rounded-md bg-background/50">
+                                        Total: {formatCurrency(fixedCosts.reduce((sum: number, c: any) => sum + Number(c.amount), 0))}
                                     </span>
                                     {canEdit && (
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openFixedCostModal()}>
@@ -420,7 +429,7 @@ export default function FinancesPage() {
                         </CardContent>
                     </Card>
 
-                    <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
+                    <Card className="bg-card/30 backdrop-blur-xl border border-border/80">
                         <CardHeader className="pb-3">
                             <CardTitle className="flex items-center justify-between text-base">
                                 <div className="flex items-center gap-2">
@@ -480,7 +489,7 @@ export default function FinancesPage() {
                                             <div className="text-xs text-muted-foreground">Personalizado</div>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <div className="flex items-center gap-2 border border-border/50 rounded-md px-3 py-1 bg-background/50">
+                                            <div className="flex items-center gap-2 border border-border/80 rounded-md px-3 py-1 bg-background/50">
                                                 <span className="font-mono text-sm">{fee.type === 'percent' ? `${fee.amount}%` : formatCurrency(fee.amount)}</span>
                                             </div>
                                             {canEdit && (

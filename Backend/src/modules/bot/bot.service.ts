@@ -64,7 +64,7 @@ export async function createFlow(
       triggerType: data.triggerType,
       triggerValue: data.triggerValue,
       channel: data.channel ?? 'ALL',
-      actions: data.actions,
+      actions: data.actions as any,
       priority: data.priority ?? 100
     }
   })
@@ -77,7 +77,7 @@ export async function updateFlow(
 ) {
   const flow = await prisma.botFlow.findFirst({ where: { id: flowId, workspaceId } })
   if (!flow) throw new Error('Flow not found')
-  return prisma.botFlow.update({ where: { id: flowId, workspaceId }, data })
+  return prisma.botFlow.update({ where: { id: flowId, workspaceId }, data: data as any })
 }
 
 export async function deleteFlow(workspaceId: string, flowId: string) {

@@ -1,0 +1,53 @@
+[
+  {
+    "id": "3ec25a00-7f21-48e8-ac7a-72b07167832c",
+    "workspaceId": "cd7616b4-44c2-4830-bc87-6f7533b616cc",
+    "userId": "53c5a5a1-be63-4673-9fdf-abb35a38d172",
+    "provider": "MERCADOPAGO",
+    "planType": "PRO",
+    "status": "REJECTED",
+    "amount": "28000",
+    "currency": "CLP",
+    "externalId": null,
+    "responseRaw": {
+      "status": 400,
+      "message": "Card token was generated without cvv validation"
+    },
+    "errorMessage": "Card token was generated without cvv validation",
+    "createdAt": "2026-03-12T23:19:30.163Z"
+  },
+  {
+    "id": "7534bcda-e464-4d9d-963b-dc0f50099ebc",
+    "workspaceId": "cd7616b4-44c2-4830-bc87-6f7533b616cc",
+    "userId": "53c5a5a1-be63-4673-9fdf-abb35a38d172",
+    "provider": "MERCADOPAGO",
+    "planType": "PRO",
+    "status": "REJECTED",
+    "amount": "28000",
+    "currency": "CLP",
+    "externalId": null,
+    "responseRaw": {
+      "status": 400,
+      "message": "Card token was generated without cvv validation"
+    },
+    "errorMessage": "Card token was generated without cvv validation",
+    "createdAt": "2026-03-12T23:18:30.820Z"
+  },
+  {
+    "id": "0acffb5f-5aba-4a70-adeb-94c7918fcae5",
+    "workspaceId": "cd7616b4-44c2-4830-bc87-6f7533b616cc",
+    "userId": "53c5a5a1-be63-4673-9fdf-abb35a38d172",
+    "provider": "MERCADOPAGO",
+    "planType": "PRO",
+    "status": "SANDBOX_REJECTED",
+    "amount": "28000",
+    "currency": "CLP",
+    "externalId": null,
+    "responseRaw": {
+      "status": 400,
+      "message": "Card token was generated without cvv validation"
+    },
+    "errorMessage": "Pago rechazado: Fondos insuficientes (Simulación FUND)",
+    "createdAt": "2026-03-12T23:17:07.994Z"
+  }
+]

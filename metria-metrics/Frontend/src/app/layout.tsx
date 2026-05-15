@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { Providers } from "@/components/providers";
+import { SkylineBackground } from "@/components/layout/skyline-background";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,14 +55,18 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground min-h-screen`}
+        suppressHydrationWarning
       >
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
-          disableTransitionOnChange
+          disableTransitionOnChange={false}
         >
-          {children}
+          <SkylineBackground />
+          <Providers>
+            {children}
+          </Providers>
         </ThemeProvider>
         <Toaster position="top-right" />
       </body>

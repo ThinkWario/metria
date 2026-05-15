@@ -1,6 +1,7 @@
 import cron from 'node-cron'
 import { prisma } from '../../lib/prisma'
 import { aggregateChannelSnapshot } from './analytics.service'
+import { checkTablesExist } from '../../lib/db-check'
 
 function yesterdayUTC(): string {
   const d = new Date()
@@ -9,27 +10,38 @@ function yesterdayUTC(): string {
 }
 
 async function runDailyAggregation(): Promise<void> {
+  // Safety check: ensure tables exist
+  const exists = await checkTablesExist()
+  if (!exists) {
+    console.warn('[AnalyticsCron] Tables not found. Database might be syncing. Skipping aggregation.')
+    return
+  }
+
   const dateStr = yesterdayUTC()
   console.log(`[AnalyticsCron] Running aggregation for ${dateStr}`)
 
-  const channels = await prisma.channel.findMany({
-    where: { status: { not: 'DISCONNECTED' } },
-    select: { id: true, workspaceId: true }
-  })
+  try {
+    const channels = await prisma.channel.findMany({
+      where: { status: { not: 'DISCONNECTED' } },
+      select: { id: true, workspaceId: true }
+    })
 
-  let ok = 0
-  let failed = 0
-  for (const ch of channels) {
-    try {
-      await aggregateChannelSnapshot(ch.workspaceId, ch.id, dateStr)
-      ok++
-    } catch (err) {
-      failed++
-      console.error(`[AnalyticsCron] Failed for channel ${ch.id}:`, err)
+    let ok = 0
+    let failed = 0
+    for (const ch of channels) {
+      try {
+        await aggregateChannelSnapshot(ch.workspaceId, ch.id, dateStr)
+        ok++
+      } catch (err) {
+        failed++
+        console.error(`[AnalyticsCron] Failed for channel ${ch.id}:`, err)
+      }
     }
-  }
 
-  console.log(`[AnalyticsCron] Done — ${ok} ok, ${failed} failed`)
+    console.log(`[AnalyticsCron] Done — ${ok} ok, ${failed} failed`)
+  } catch (err: any) {
+    console.error('[AnalyticsCron] Error fetching channels:', err.message)
+  }
 }
 
 export function startAnalyticsCron(): void {

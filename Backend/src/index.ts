@@ -1,8 +1,10 @@
 import 'dotenv/config'
+console.log('DEBUG: DATABASE_URL =', process.env.DATABASE_URL)
 import { createServer } from 'http'
 import app from './app'
 import { initSocket } from './lib/socket'
 import { registerSocketHandlers } from './modules/messaging/socket.handler'
+import { waitForDb } from './lib/db-check'
 
 if (!process.env.JWT_SECRET) {
   console.error('[FATAL] JWT_SECRET environment variable is not set')
@@ -11,26 +13,28 @@ if (!process.env.JWT_SECRET) {
 
 const PORT = process.env.PORT || 4000
 
-const httpServer = createServer(app)
-const io = initSocket(httpServer)
-registerSocketHandlers(io)
+async function startServer() {
+  // Wait for DB to be ready
+  await waitForDb()
 
-httpServer.listen(PORT, () => {
-  console.log(`[Server] API running on http://127.0.0.1:${PORT}`)
-})
+  const httpServer = createServer(app)
+  const io = initSocket(httpServer)
+  registerSocketHandlers(io)
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
-})
-
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err)
-})
-
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server')
-  httpServer.close(() => {
-    console.log('HTTP server closed')
-    process.exit(0)
+  httpServer.listen(PORT, () => {
+    console.log(`[Server] API running on http://127.0.0.1:${PORT}`)
   })
+
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server')
+    httpServer.close(() => {
+      console.log('HTTP server closed')
+      process.exit(0)
+    })
+  })
+}
+
+startServer().catch(err => {
+  console.error('[FATAL] Failed to start server:', err)
+  process.exit(1)
 })

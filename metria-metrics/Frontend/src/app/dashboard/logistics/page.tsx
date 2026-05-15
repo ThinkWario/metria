@@ -1,62 +1,50 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { fetchAPI } from "@/lib/api"
 import { useWorkspaceConfig } from "@/hooks/useWorkspaceConfig"
 import { useDateRangeStore } from "@/store/useDateRangeStore"
 import { format } from "date-fns"
 import { UnconfiguredState } from "@/components/ui/unconfigured-state"
+import { toast } from "sonner"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from "recharts"
-import { Package, Truck, CheckCircle2, XOctagon } from "lucide-react"
+import { Package, Truck, CheckCircle2, XOctagon, Loader2, PieChartIcon } from "lucide-react"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
-
-const deliveryData = [
-    { name: "Entregado", value: 65, color: "var(--color-emerald-500)" },
-    { name: "En Tránsito", value: 20, color: "var(--color-blue-500)" },
-    { name: "Devuelto", value: 10, color: "var(--color-destructive)" },
-    { name: "Pendiente", value: 5, color: "var(--color-muted)" }
-]
-
-const recentShipments = [
-    { guide: "DRP-9812", client: "Ana Martínez", city: "Bogotá", status: "Entregado", value: "$45.00", fee: "$4.50" },
-    { guide: "DRP-9813", client: "Carlos Gómez", city: "Medellín", status: "En Tránsito", value: "$120.00", fee: "Pendiente" },
-    { guide: "DRP-9814", client: "Lucía Fernández", city: "Cali", status: "Devuelto", value: "$35.00", fee: "$3.50" },
-    { guide: "DRP-9815", client: "Pedro Sánchez", city: "Cartagena", status: "Pendiente", value: "$85.00", fee: "Pendiente" }
-]
 
 export default function LogisticsPage() {
     const { integrations } = useWorkspaceConfig()
     const { date } = useDateRangeStore()
-    const [shipments, setShipments] = useState<any[]>(recentShipments)
-    const [summary, setSummary] = useState<any>(null)
 
-    const loadData = useCallback(async () => {
-        try {
-            const fromStr = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
-            const toStr = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
-            const rangeParams = fromStr && toStr ? `?from=${fromStr}&to=${toStr}` : ''
+    const from = date?.from ? format(date.from, 'yyyy-MM-dd') : ''
+    const to = date?.to ? format(date.to, 'yyyy-MM-dd') : ''
+    const rangeQuery = from && to ? `?from=${from}&to=${to}` : ''
 
-            const [shipmentsRes, summaryRes] = await Promise.all([
-                fetchAPI(`/dropi/shipments${rangeParams}`),
-                fetchAPI(`/dropi/summary${rangeParams}`)
-            ])
-            if (shipmentsRes.data) setShipments(shipmentsRes.data)
-            setSummary(summaryRes)
-        } catch (e) {
-            console.error('Failed to load logistics data', e)
-        }
-    }, [date])
+    const { data: shipmentsRes, isLoading: shipmentsLoading } = useQuery({
+        queryKey: ['dropi', 'shipments', { from, to }],
+        queryFn: () => fetchAPI(`/dropi/shipments${rangeQuery}`),
+        onError: () => toast.error('No se pudo cargar la información de logística.')
+    } as any)
 
-    useEffect(() => {
-        // eslint-disable-next-line
-        loadData()
-    }, [loadData])
+    const { data: summary, isLoading: summaryLoading } = useQuery({
+        queryKey: ['dropi', 'summary', { from, to }],
+        queryFn: () => fetchAPI(`/dropi/summary${rangeQuery}`)
+    })
+
+    const isLoading = shipmentsLoading || summaryLoading
+    const shipments = Array.isArray((shipmentsRes as any)?.data) ? (shipmentsRes as any).data : []
 
     if (!integrations.dropi) return <UnconfiguredState integration="Dropi" />
+
+    const pieData = summary?.breakdown ? [
+        { name: "Entregado", value: summary.breakdown.delivered, color: "var(--color-emerald-500)" },
+        { name: "En Tránsito", value: summary.breakdown.inTransit, color: "var(--color-blue-500)" },
+        { name: "Devuelto", value: summary.breakdown.returned, color: "var(--color-destructive)" },
+        { name: "Pendiente", value: summary.breakdown.pending, color: "var(--color-muted)" }
+    ].filter(d => d.value > 0) : []
 
     return (
         <div className="space-y-6">
@@ -75,7 +63,7 @@ export default function LogisticsPage() {
                         <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-emerald-500">{summary?.deliveryRate?.toFixed(1) || '0.0'}%</div>
+                        <div className="text-2xl font-bold text-emerald-500">{summary?.deliveryRate?.toFixed(1) ?? '—'}%</div>
                         <p className="text-xs text-muted-foreground mt-1">Crítico para modelo Contra Entrega</p>
                     </CardContent>
                 </Card>
@@ -85,7 +73,7 @@ export default function LogisticsPage() {
                         <XOctagon className="h-4 w-4 text-destructive" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-destructive">{summary?.returnRate?.toFixed(1) || '0.0'}%</div>
+                        <div className="text-2xl font-bold text-destructive">{summary?.returnRate?.toFixed(1) ?? '—'}%</div>
                         <p className="text-xs text-muted-foreground mt-1">Órdenes que generan costo hundido</p>
                     </CardContent>
                 </Card>
@@ -95,7 +83,7 @@ export default function LogisticsPage() {
                         <Truck className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{summary?.activeGuides || 0}</div>
+                        <div className="text-2xl font-bold">{summary?.activeGuides ?? '—'}</div>
                         <p className="text-xs text-muted-foreground mt-1">En tránsito + Pendientes</p>
                     </CardContent>
                 </Card>
@@ -105,92 +93,97 @@ export default function LogisticsPage() {
                         <Package className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">${summary?.totalCollected?.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) || '0'}</div>
+                        <div className="text-2xl font-bold">${summary?.totalCollected?.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) ?? '—'}</div>
                         <p className="text-xs text-muted-foreground mt-1">En billetera Dropi</p>
                     </CardContent>
                 </Card>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-                {/* Delivery Chart */}
                 <Card className="bg-card/30 backdrop-blur-xl border border-border/50 md:col-span-1">
                     <CardHeader>
                         <CardTitle>Estado Actual</CardTitle>
-                        <CardDescription>Distribución de los últimos 100 envíos.</CardDescription>
+                        <CardDescription>Distribución de envíos en el período seleccionado.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[250px] w-full mt-4">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={
-                                            summary?.breakdown ? [
-                                                { name: "Entregado", value: summary.breakdown.delivered, color: "var(--color-emerald-500)" },
-                                                { name: "En Tránsito", value: summary.breakdown.inTransit, color: "var(--color-blue-500)" },
-                                                { name: "Devuelto", value: summary.breakdown.returned, color: "var(--color-destructive)" },
-                                                { name: "Pendiente", value: summary.breakdown.pending, color: "var(--color-muted)" }
-                                            ] : deliveryData
-                                        }
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={80}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                        stroke="none"
-                                    >
-                                        {deliveryData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
-                                    </Pie>
-                                    <RechartsTooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px', color: 'hsl(var(--foreground))' }} itemStyle={{ color: 'hsl(var(--foreground))' }} />
-                                    <Legend verticalAlign="bottom" height={36} iconType="circle" formatter={(value) => <span className="text-muted-foreground text-xs">{value}</span>} />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </div>
+                        {isLoading ? (
+                            <div className="flex justify-center items-center h-[250px]">
+                                <Loader2 className="animate-spin text-muted-foreground" />
+                            </div>
+                        ) : pieData.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-[250px] gap-2 text-muted-foreground">
+                                <PieChartIcon className="h-8 w-8 opacity-30" />
+                                <p className="text-sm">Sin datos de envíos.</p>
+                            </div>
+                        ) : (
+                            <div className="h-[250px] w-full mt-4">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
+                                            {pieData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        <RechartsTooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px', color: 'hsl(var(--foreground))' }} itemStyle={{ color: 'hsl(var(--foreground))' }} />
+                                        <Legend verticalAlign="bottom" height={36} iconType="circle" formatter={(value) => <span className="text-muted-foreground text-xs">{value}</span>} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 
-                {/* Guides Table */}
                 <Card className="bg-card/30 backdrop-blur-xl border border-border/50 md:col-span-2">
                     <CardHeader>
                         <CardTitle>Seguimiento de Guías (Tiempo Real)</CardTitle>
                         <CardDescription>Últimas actualizaciones desde transportadoras.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Guía Dropi</TableHead>
-                                    <TableHead>Cliente / Destino</TableHead>
-                                    <TableHead>Estado</TableHead>
-                                    <TableHead className="text-right">Recaudo</TableHead>
-                                    <TableHead className="text-right">Costo Flete</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {shipments.map((ship) => (
-                                    <TableRow key={ship.guideId || ship.guide}>
-                                        <TableCell className="font-mono text-xs font-medium text-primary cursor-pointer hover:underline">{ship.guideId || ship.guide}</TableCell>
-                                        <TableCell>
-                                            <div className="font-medium">{ship.clientName || ship.client}</div>
-                                            <div className="text-xs text-muted-foreground">{ship.city}</div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge className={getStatusColorClass(ship.status)}>
-                                                {mapStatus(ship.status)}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium">
-                                            {ship.collectedValue ? `$${Number(ship.collectedValue).toLocaleString('es-CL', { minimumFractionDigits: 0 })}` : (ship.value || '-')}
-                                        </TableCell>
-                                        <TableCell className="text-right text-muted-foreground text-xs">
-                                            {ship.shippingFee ? `$${Number(ship.shippingFee).toLocaleString('es-CL', { minimumFractionDigits: 0 })}` : (ship.fee || '-')}
-                                        </TableCell>
+                        {isLoading ? (
+                            <div className="flex justify-center items-center h-32">
+                                <Loader2 className="animate-spin text-muted-foreground" />
+                            </div>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Guía Dropi</TableHead>
+                                        <TableHead>Cliente / Destino</TableHead>
+                                        <TableHead>Estado</TableHead>
+                                        <TableHead className="text-right">Recaudo</TableHead>
+                                        <TableHead className="text-right">Costo Flete</TableHead>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                                </TableHeader>
+                                <TableBody>
+                                    {shipments.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="text-center text-muted-foreground h-24 border-dashed">
+                                                No hay guías registradas en el período seleccionado.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        shipments.map((ship: any) => (
+                                            <TableRow key={ship.guideId || ship.guide}>
+                                                <TableCell className="font-mono text-xs font-medium text-primary cursor-pointer hover:underline">{ship.guideId || ship.guide}</TableCell>
+                                                <TableCell>
+                                                    <div className="font-medium">{ship.clientName || ship.client}</div>
+                                                    <div className="text-xs text-muted-foreground">{ship.city}</div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge className={getStatusColorClass(ship.status)}>{mapStatus(ship.status)}</Badge>
+                                                </TableCell>
+                                                <TableCell className="text-right font-medium">
+                                                    {ship.collectedValue ? `$${Number(ship.collectedValue).toLocaleString('es-CL', { minimumFractionDigits: 0 })}` : '-'}
+                                                </TableCell>
+                                                <TableCell className="text-right text-muted-foreground text-xs">
+                                                    {ship.shippingFee ? `$${Number(ship.shippingFee).toLocaleString('es-CL', { minimumFractionDigits: 0 })}` : '-'}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        )}
                     </CardContent>
                 </Card>
             </div>

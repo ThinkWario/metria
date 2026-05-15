@@ -7,7 +7,8 @@ const PLATFORM_TO_SOURCE: Record<string, string> = {
   WHATSAPP: 'WHATSAPP',
   INSTAGRAM: 'INSTAGRAM',
   TELEGRAM: 'TELEGRAM',
-  TIKTOK: 'TIKTOK'
+  TIKTOK: 'TIKTOK',
+  MESSENGER: 'MESSENGER'
 }
 
 export async function processInboundMessage(data: InboundMessageData): Promise<ProcessedMessage> {

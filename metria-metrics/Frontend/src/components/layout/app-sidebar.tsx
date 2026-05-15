@@ -26,8 +26,11 @@ import {
     LogOut,
     MousePointerClick,
     ShieldAlert,
-    Smartphone
+    Smartphone,
+    MessageSquare,
+    Users
 } from "lucide-react"
+import { cn } from "../../lib/utils"
 import Link from "next/link"
 import { ModeToggle } from "@/components/mode-toggle"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -48,6 +51,8 @@ type MenuItem = {
 
 const menuItems: MenuItem[] = [
     { title: "Centro de Control", icon: BarChart3, url: "/dashboard" },
+    { title: "Inbox (Chats)", icon: MessageSquare, url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "CRM", icon: Users, url: "/dashboard/crm", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Finanzas E-commerce", icon: Wallet, url: "/dashboard/finances", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
     { title: "Canales de Venta", icon: ShoppingBag, url: "/dashboard/sales", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
     { title: "Marketing & Ads", icon: Megaphone, url: "/dashboard/marketing", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
@@ -60,7 +65,7 @@ const menuItems: MenuItem[] = [
 export function AppSidebar() {
     const { state } = useSidebar()
     const isCollapsed = state === "collapsed"
-    const { fetchMe, getDisplayName, getInitials, user } = useUserStore()
+    const { fetchMe, getDisplayName, getInitials, user, isLoading: userLoading } = useUserStore()
 
     const [profileOpen, setProfileOpen] = useState(false)
     const [preferencesOpen, setPreferencesOpen] = useState(false)
@@ -74,10 +79,13 @@ export function AppSidebar() {
     const userName = getDisplayName()
     const userEmail = user?.email || ""
     const userInitials = getInitials()
-    const userRole = user?.role || "USER"
+    const userRole = user?.role || null
 
+    // Show all items while user profile is loading (user === null).
+    // Only filter by role once we know the actual role.
     const filteredMenuItems = menuItems.filter(item => {
         if (!item.roles) return true;
+        if (!userRole) return true;
         return item.roles.includes(userRole);
     });
 
@@ -96,20 +104,28 @@ export function AppSidebar() {
 
     return (
         <>
-            <Sidebar collapsible="icon" className="border-r border-border/50 bg-background/50 backdrop-blur-xl">
+            <Sidebar collapsible="icon" className="border-r border-border/80 bg-background/50 backdrop-blur-xl will-change-[width,backdrop-filter]">
                 <SidebarHeader>
-                    <div className={`flex h-16 items-center font-bold text-xl tracking-tighter text-foreground transition-all duration-300 ${isCollapsed ? 'justify-center px-0' : 'justify-between px-4'}`}>
+                    <div className={cn(
+                        "flex h-16 items-center font-bold text-xl tracking-tighter text-foreground transition-[padding,gap] duration-300 ease-in-out",
+                        isCollapsed ? "justify-center px-0 gap-0" : "justify-between px-4 gap-2"
+                    )}>
+                        <div className="flex items-center min-w-0 overflow-hidden">
+                            {isCollapsed ? (
+                                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary shrink-0 animate-in fade-in zoom-in duration-300">
+                                    M
+                                </div>
+                            ) : (
+                                <div className="flex items-center animate-in fade-in slide-in-from-left-2 duration-300">
+                                    <span className="text-primary mr-1">Metria</span>Metrics
+                                </div>
+                            )}
+                        </div>
                         {!isCollapsed && (
-                            <div className="flex items-center">
-                                <span className="text-primary mr-1">Metria</span>Metrics
+                            <div className="animate-in fade-in zoom-in duration-300">
+                                <ModeToggle />
                             </div>
                         )}
-                        {isCollapsed && (
-                            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary">
-                                M
-                            </div>
-                        )}
-                        {!isCollapsed && <ModeToggle />}
                     </div>
                     {!isCollapsed && user?.isImpersonating && (
                         <div className="mx-4 mt-2 mb-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center gap-2 justify-center shadow-inner">
@@ -140,7 +156,7 @@ export function AppSidebar() {
                 <SidebarFooter>
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            {!mounted ? (
+                            {(!mounted || (!user && userLoading)) ? (
                                 <div className="h-12 w-full flex items-center px-4 gap-3">
                                     <div className="h-8 w-8 rounded-lg bg-primary/20 animate-pulse" />
                                     <div className="flex-1 space-y-2">
@@ -165,7 +181,7 @@ export function AppSidebar() {
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent
                                         side="top"
-                                        className="w-[--radix-popper-anchor-width] min-w-56 rounded-lg bg-card/95 backdrop-blur-xl border-border/50 shadow-2xl"
+                                        className="w-[--radix-popper-anchor-width] min-w-56 rounded-lg bg-card/95 backdrop-blur-xl border-border/80 shadow-2xl"
                                         align="end"
                                         sideOffset={4}
                                     >
@@ -197,7 +213,16 @@ export function AppSidebar() {
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                             className="gap-2 cursor-pointer focus:bg-destructive/20 text-destructive focus:text-destructive transition-colors mt-2"
-                                            onClick={async () => await logout()}
+                                            onClick={async () => {
+                                                // Clear all session/local data
+                                                Object.keys(localStorage).forEach(key => {
+                                                    if (key.startsWith('metria_')) {
+                                                        localStorage.removeItem(key);
+                                                    }
+                                                });
+                                                toast.success("Sesión cerrada", { duration: 1500 })
+                                                await logout()
+                                            }}
                                         >
                                             <LogOut className="size-4" />
                                             <span>Cerrar Sesión</span>

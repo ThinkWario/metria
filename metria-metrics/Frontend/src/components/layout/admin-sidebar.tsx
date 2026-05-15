@@ -22,6 +22,7 @@ import {
     LogOut,
     ShieldAlert
 } from "lucide-react"
+import { cn } from "../../lib/utils"
 import Link from "next/link"
 import { ModeToggle } from "@/components/mode-toggle"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -51,21 +52,29 @@ export function AdminSidebar() {
     const isCollapsed = state === "collapsed"
 
     return (
-        <Sidebar collapsible="icon" className="border-r border-border/50 bg-background/50 backdrop-blur-xl">
+        <Sidebar collapsible="icon" className="border-r border-border/50 bg-background/50 backdrop-blur-xl will-change-[width,backdrop-filter]">
             <SidebarHeader>
-                <div className={`flex h-16 items-center font-bold text-xl tracking-tighter text-foreground transition-all duration-300 ${isCollapsed ? 'justify-center px-0' : 'justify-between px-4'}`}>
+                <div className={cn(
+                    "flex h-16 items-center font-bold text-xl tracking-tighter text-foreground transition-[padding,gap] duration-300 ease-in-out",
+                    isCollapsed ? "justify-center px-0 gap-0" : "justify-between px-4 gap-2"
+                )}>
+                    <div className="flex items-center min-w-0 overflow-hidden">
+                        {isCollapsed ? (
+                            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-destructive/10 text-destructive shrink-0 animate-in fade-in zoom-in duration-300">
+                                <ShieldAlert className="w-4 h-4" />
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-300">
+                                <ShieldAlert className="w-5 h-5 text-destructive" />
+                                <span><span className="text-primary mr-1">Metria</span>Admin</span>
+                            </div>
+                        )}
+                    </div>
                     {!isCollapsed && (
-                        <div className="flex items-center gap-2">
-                            <ShieldAlert className="w-5 h-5 text-destructive" />
-                            <span><span className="text-primary mr-1">Metria</span>Admin</span>
+                        <div className="animate-in fade-in zoom-in duration-300">
+                            <ModeToggle />
                         </div>
                     )}
-                    {isCollapsed && (
-                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-destructive/10 text-destructive">
-                            <ShieldAlert className="w-4 h-4" />
-                        </div>
-                    )}
-                    {!isCollapsed && <ModeToggle />}
                 </div>
             </SidebarHeader>
             <SidebarContent>

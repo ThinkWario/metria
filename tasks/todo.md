@@ -1,25 +1,16 @@
-# Project Initialization & Verification Plan
+# Task: Workspace creation for Google Auth
 
-## Metria Project Status: Verified & Polished (Phase 5 Complete)
-## Objective: Fixing Ad Spend Calculation and Data Integrity
+## Context
+A workspace with its ID is required for Mercado Pago and PayPal integrations. Currently, Google login creates users without a workspace, which causes errors during onboarding when trying to select a paid plan.
 
-## 🛠️ Phase 1: Environmental Check
-- [x] Determine local development URLs (Frontend & Backend)
-- [x] Check if dependencies are installed in both directories
-- [x] Start Backend development server (`npm run dev`)
-- [x] Start Frontend development server (`npm run dev`)
-- [x] Verify both servers are healthy and accessible
+## To-Do
+- [x] Modify `Backend/src/routes/auth.ts` to create a default workspace on Google login.
+- [x] Update `Backend/src/routes/onboarding.ts` to handle updating an existing workspace instead of returning an error if it already exists.
+- [x] Verify that Google login logic is correct and won't block payment flows.
+- [x] Run `/audit` to ensure visual and functional quality.
 
-## 🎨 Phase 2: Visual & Functional Audit (/audit)
-- [x] Run Step 1: Environmental Check (Integrated Browser)
-- [x] Run Step 2: Visual Excellence Audit (IA, Grid, Glassmorphism, Typography, Sidebar)
-- [x] Run Step 3: Interaction & Trust Audit (Feedback, States, Optimistic UI)
-- [x] Generate Step 4: Audit Report
-- [x] Perform Step 5: Recursive Self-Correction (Scores >= 9)
-
-## ✅ Phase 3: Final Verification
-- [x] Update documentation (Update `tasks/todo.md` to Verified & Polished)
-- [x] Final project status overview
-
----
-**Current Focus:** DONE - All systems operational and audited.
+## Progress
+- Implementation finished and verified.
+- Backend compiles and logic is robust.
+- Frontend audit completed successfully.
+- STATUS: Verified & Polished.

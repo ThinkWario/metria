@@ -97,7 +97,7 @@ export async function parseInstagramUpdate(
           externalMessageId: event.message.mid,
           senderExternalId: `ig_${event.sender.id}`,
           senderName: undefined,
-          content: event.message.text ?? undefined, // undefined for attachment-only messages
+          content: event.message.text ?? '', 
           mediaUrl: event.message.attachments?.[0]?.payload?.url,
           mediaType: event.message.attachments?.[0]?.type
         })

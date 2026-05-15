@@ -1,0 +1,43 @@
+- generic [ref=e1]:
+  - main "Metria Metrics" [ref=e2]:
+    - link "Saltar al formulario de inicio de sesión" [ref=e3] [cursor=pointer]:
+      - /url: "#login-form"
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - img [ref=e7]
+        - generic [ref=e9]:
+          - heading "Metria Metrics" [level=1] [ref=e10]
+          - paragraph [ref=e11]: Cálculo de Utilidad Neta en Tiempo Real
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - generic [ref=e14]: Iniciar Sesión
+          - generic [ref=e15]:
+            - generic [ref=e16]:
+              - text: "Admin:"
+              - strong [ref=e17]: admin@metria.com
+              - text: /
+              - strong [ref=e18]: metria2025
+            - generic [ref=e19]:
+              - text: "Super Admin:"
+              - strong [ref=e20]: superadmin@metria.ai
+              - text: /
+              - strong [ref=e21]: masterkey
+        - form "Formulario de inicio de sesión" [ref=e22]:
+          - generic [ref=e23]:
+            - generic [ref=e24]:
+              - generic [ref=e25]: Correo Electrónico
+              - textbox "Correo Electrónico" [ref=e26]:
+                - /placeholder: admin@metria.com
+            - generic [ref=e27]:
+              - generic [ref=e29]: Contraseña
+              - textbox "Contraseña" [ref=e30]:
+                - /placeholder: ••••••••
+          - button "Ingresar al Dashboard" [active] [ref=e32]
+  - region "Notifications alt+T":
+    - list:
+      - listitem [ref=e34]:
+        - img [ref=e36]
+        - generic [ref=e40]:
+          - generic [ref=e41]: Error de Autenticación
+          - generic [ref=e42]: Error de conexión con el servidor
+  - alert [ref=e33]

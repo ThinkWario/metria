@@ -1,3 +1,5 @@
+export type MessagingPlatform = 'WHATSAPP' | 'INSTAGRAM' | 'TELEGRAM' | 'TIKTOK' | 'MESSENGER'
+
 export interface InboundMessageData {
   workspaceId: string
   channelId: string

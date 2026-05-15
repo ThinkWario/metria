@@ -93,7 +93,7 @@ export async function parseMessengerUpdate(
           externalMessageId: event.message.mid,
           senderExternalId: `msgr_${event.sender.id}`,
           senderName: undefined,
-          content: event.message.text ?? undefined,
+          content: event.message.text ?? '',
           mediaUrl: event.message.attachments?.[0]?.payload?.url,
           mediaType: event.message.attachments?.[0]?.type
         })

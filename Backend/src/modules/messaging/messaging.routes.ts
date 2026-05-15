@@ -7,6 +7,8 @@ import {
   whatsappWebhook,
   instagramWebhookVerify,
   instagramWebhook,
+  messengerWebhookVerify,
+  messengerWebhook,
   getConversationsHandler,
   getMessagesHandler,
   sendMessageHandler,
@@ -22,6 +24,8 @@ router.get('/webhooks/whatsapp/:workspaceId', whatsappWebhookVerify)
 router.post('/webhooks/whatsapp/:workspaceId', whatsappWebhook)
 router.get('/webhooks/instagram/:workspaceId', instagramWebhookVerify)
 router.post('/webhooks/instagram/:workspaceId', instagramWebhook)
+router.get('/webhooks/messenger/:workspaceId', messengerWebhookVerify)
+router.post('/webhooks/messenger/:workspaceId', messengerWebhook)
 
 // Authenticated inbox routes — PRO and SCALE plans only
 router.get('/messaging/channels', authenticate, requirePlan('PRO', 'SCALE'), getChannelsHandler)

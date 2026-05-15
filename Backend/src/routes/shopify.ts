@@ -5,9 +5,9 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { invalidateWorkspaceCache } from '../middleware/cache'
 import { createAuditLog } from '../lib/logger'
 import { getStartOfDay, getEndOfDay } from '../lib/dateUtils'
+import { upsertDailyMetric } from '../lib/metrics'
+import { AlertService } from '../services/alertService'
 import 'dotenv/config'
-
-const TIMEZONE = 'America/Santiago'
 
 const router = Router()
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET || ''
@@ -43,7 +43,7 @@ router.post('/webhooks/orders/create', verifyShopifyWebhook, async (req, res) =>
         const workspaceId = req.query.workspaceId as string
         if (!workspaceId) return res.status(400).send('Missing workspaceId query param')
 
-        const newOrder = await prisma.order.upsert({
+        await prisma.order.upsert({
             where: { workspaceId_shopifyId: { workspaceId, shopifyId: order.id.toString() } },
             update: {
                 totalPrice: parseFloat(order.total_price),
@@ -168,34 +168,50 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
             return res.status(400).json({ error: 'Missing domain or accessToken in Shopify config' })
         }
 
-        // Fetch orders from Shopify REST API (last 60 days, up to 250 orders)
-        // using 2024-01 version. status=any brings all paid, pending, refunded.
-        const response = await fetch(`https://${domain}/admin/api/2024-01/orders.json?status=any&limit=250`, {
-            headers: {
-                'X-Shopify-Access-Token': accessToken,
-                'Content-Type': 'application/json'
+        // --- HELPER FOR PAGINATED FETCH ---
+        const fetchAllFromShopify = async (resource: string, params: string = '') => {
+            let allItems: any[] = [];
+            let url: string | null = `https://${domain}/admin/api/2024-10/${resource}.json?limit=250${params}`;
+            
+            while (url) {
+                const response: any = await fetch(url, {
+                    headers: {
+                        'X-Shopify-Access-Token': accessToken,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    console.error(`Shopify API Error (${resource}):`, response.status, errText);
+                    break;
+                }
+
+                const data: any = await response.json();
+                const key = resource.includes('orders') ? 'orders' : 'products';
+                allItems = [...allItems, ...(data[key] || [])];
+
+                // Pagination logic via Link header
+                const linkHeader: string | null = response.headers.get('Link');
+                url = null;
+                if (linkHeader && linkHeader.includes('rel="next"')) {
+                    const match: RegExpMatchArray | null = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+                    if (match) url = match[1];
+                }
             }
-        })
+            return allItems;
+        };
 
-        if (!response.ok) {
-            const errText = await response.text()
-            console.error('Shopify Sync API Error:', response.status, errText)
-            return res.status(response.status).json({ error: 'Failed to fetch from Shopify API', details: errText })
-        }
-
-        const data = await response.json()
-        const orders = data.orders || []
-
-        // Upsert all orders and aggregate daily revenue
-        let processed = 0
-        const dailyRevenues: Record<string, number> = {}
+        // --- ORDER SYNC ---
+        const orders = await fetchAllFromShopify('orders', '&status=any');
+        let processedOrders = 0;
+        const dailyRevenues: Record<string, number> = {};
 
         for (const order of orders) {
-            // Count paid, pending, authorized or partially_refunded as potential revenue
-            const validStatuses = ['paid', 'partially_refunded', 'pending', 'authorized']
+            const validStatuses = ['paid', 'partially_refunded', 'pending', 'authorized'];
             if (validStatuses.includes(order.financial_status)) {
-                const dateStr = new Date(order.created_at).toISOString().split('T')[0]
-                dailyRevenues[dateStr] = (dailyRevenues[dateStr] || 0) + parseFloat(order.total_price)
+                const dateStr = new Date(order.created_at).toISOString().split('T')[0];
+                dailyRevenues[dateStr] = (dailyRevenues[dateStr] || 0) + parseFloat(order.total_price);
             }
 
             await prisma.order.upsert({
@@ -232,61 +248,57 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
                     }),
                     createdAt: new Date(order.created_at)
                 }
-            })
-            processed++
+            });
+            processedOrders++;
         }
 
-        // Upsert DailyMetrics with the aggregated revenues
-        for (const [dateStr, revenue] of Object.entries(dailyRevenues)) {
-            const dateObj = new Date(dateStr)
-
-            // Fast upsert without overriding other fields entirely if it exists
-            const existing = await prisma.dailyMetric.findUnique({
-                where: { workspaceId_date: { workspaceId, date: dateObj } }
-            })
-
-            if (existing) {
-                await prisma.dailyMetric.update({
-                    where: { id: existing.id },
-                    data: {
-                        totalRevenue: revenue,
-                        netProfit: Number(revenue) - Number(existing.metaAdSpend) - Number(existing.googleAdSpend) - Number(existing.tiktokAdSpend || 0) - Number(existing.totalShipping) - Number(existing.totalCogs)
-                    }
-                })
-            } else {
-                await prisma.dailyMetric.create({
-                    data: {
+        // --- PRODUCT SYNC ---
+        const shProducts = await fetchAllFromShopify('products');
+        let processedProducts = 0;
+        for (const sp of shProducts) {
+            const variants = sp.variants || [];
+            for (const v of variants) {
+                await prisma.product.upsert({
+                    where: { workspaceId_sku: { workspaceId, sku: v.sku || `SP-${v.id}` } },
+                    update: {
+                        name: `${sp.title}${v.title !== 'Default Title' ? ` - ${v.title}` : ''}`,
+                        price: v.price
+                    },
+                    create: {
                         workspaceId,
-                        date: dateObj,
-                        totalRevenue: revenue,
-                        metaAdSpend: 0,
-                        googleAdSpend: 0,
-                        tiktokAdSpend: 0,
-                        totalShipping: 0,
-                        totalCogs: 0,
-                        netProfit: revenue,
+                        sku: v.sku || `SP-${v.id}`,
+                        name: `${sp.title}${v.title !== 'Default Title' ? ` - ${v.title}` : ''}`,
+                        price: v.price,
+                        cogs: "0" 
                     }
-                })
+                });
+                processedProducts++;
             }
         }
 
-        // Update lastSync
+        // --- UPDATE DAILY METRICS ---
+        for (const [dateStr, revenue] of Object.entries(dailyRevenues)) {
+            await upsertDailyMetric(workspaceId, new Date(dateStr), 'totalRevenue', revenue);
+        }
+
         await prisma.integration.update({
             where: { id: integration.id },
             data: { lastSync: new Date(), status: 'Connected' }
-        })
+        });
 
-        await invalidateWorkspaceCache(workspaceId)
+        await invalidateWorkspaceCache(workspaceId);
 
         await createAuditLog({
             workspaceId,
             source: 'Shopify',
             event: 'Sync',
             status: '200 OK',
-            message: `Sincronizadas ${processed} órdenes con éxito.`
-        })
+            message: `Sincronización completa: ${processedOrders} órdenes y ${processedProducts} productos procesados.`
+        });
+        
+        AlertService.checkAndTriggerAlerts(workspaceId).catch(err => console.error('Alert trigger error:', err));
 
-        return res.status(200).json({ success: true, count: processed })
+        return res.status(200).json({ success: true, orders: processedOrders, products: processedProducts });
     } catch (error) {
         console.error('Shopify Sync Error:', error)
         return res.status(500).json({ error: 'Internal server error while syncing Shopify' })

@@ -11,11 +11,8 @@ router.get('/', authenticate, async (req: AuthRequest, res) => {
 
         const logs = await prisma.auditLog.findMany({
             where: { workspaceId },
-            distinct: ['source'],
-            orderBy: [
-                { source: 'asc' },
-                { createdAt: 'desc' }
-            ]
+            take: 50,
+            orderBy: { createdAt: 'desc' }
         })
 
         res.status(200).json(logs)

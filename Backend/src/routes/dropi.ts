@@ -1,22 +1,47 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { invalidateWorkspaceCache } from '../middleware/cache'
 import { createAuditLog } from '../lib/logger'
 import { getStartOfDay, getEndOfDay } from '../lib/dateUtils'
+import { upsertDailyMetric } from '../lib/metrics'
 
 const router = Router()
 
-// 1. Webhook: Dropi status update
+const verifyDropiWebhook = (req: any, res: any, next: any) => {
+    const token = req.headers['x-dropi-token']
+    if (!token || token !== process.env.DROPI_WEBHOOK_SECRET) {
+        return res.status(401).json({ error: 'Unauthorized' })
+    }
+    next()
+}
+
+// Webhook is public (no 'authenticate' middleware), token-based security
 router.post('/webhooks/status', async (req, res) => {
     try {
-        const { guideId, orderId, clientName, city, status, collectedValue, shippingFee } = req.body
+        const token = req.headers['x-dropi-token']
         const workspaceId = req.query.workspaceId as string || req.body.workspaceId
+
+        if (!workspaceId) {
+            return res.status(400).json({ error: 'Missing workspaceId' })
+        }
+
+        // Robust isolation: Fetch integration config for this workspace
+        const integration = await prisma.integration.findFirst({
+            where: { workspaceId, platform: 'Dropi' }
+        })
+
+        const config = (integration?.config as any) || {}
+        const secret = config.webhookSecret || process.env.DROPI_WEBHOOK_SECRET
+
+        if (!token || token !== secret) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid token' })
+        }
+
+        const { guideId, orderId, clientName, city, status, collectedValue, shippingFee } = req.body
 
         if (!guideId) {
             return res.status(400).json({ error: 'Missing guideId' })
-        }
-        if (!workspaceId) {
-            return res.status(400).json({ error: 'Missing workspaceId' })
         }
 
         await prisma.shipment.upsert({
@@ -38,39 +63,12 @@ router.post('/webhooks/status', async (req, res) => {
             }
         })
 
-        // Accumulate shipping fees into today's DailyMetric (or derived from order date if tracked, using today for simplicity)
         if (shippingFee) {
-            const dateObj = new Date(new Date().toISOString().split('T')[0])
-            const fee = parseFloat(shippingFee)
-
-            const existing = await prisma.dailyMetric.findUnique({
-                where: { workspaceId_date: { workspaceId, date: dateObj } }
-            })
-
-            if (existing) {
-                await prisma.dailyMetric.update({
-                    where: { id: existing.id },
-                    data: {
-                        totalShipping: { increment: fee },
-                        netProfit: { decrement: fee }
-                    }
-                })
-            } else {
-                await prisma.dailyMetric.create({
-                    data: {
-                        workspaceId,
-                        date: dateObj,
-                        totalRevenue: 0,
-                        metaAdSpend: 0,
-                        googleAdSpend: 0,
-                        tiktokAdSpend: 0,
-                        totalShipping: fee,
-                        totalCogs: 0,
-                        netProfit: -fee
-                    }
-                })
-            }
+            const today = new Date(new Date().toISOString().split('T')[0])
+            await upsertDailyMetric(workspaceId, today, 'totalShipping', parseFloat(shippingFee), 'increment')
         }
+
+        await invalidateWorkspaceCache(workspaceId)
 
         await createAuditLog({
             workspaceId,

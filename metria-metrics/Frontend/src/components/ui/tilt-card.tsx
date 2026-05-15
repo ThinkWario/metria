@@ -41,7 +41,7 @@ export function TiltCard({
         // Base card styles matching the existing Card component
         "flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
         // Enhanced glassmorphism
-        "bg-card/30 backdrop-blur-xl border-border/50",
+        "bg-card/30 backdrop-blur-xl border-border/80",
         // Subtle glow on hover via box-shadow (GPU composited)
         "hover:shadow-lg hover:shadow-primary/5",
         className

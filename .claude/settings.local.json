@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "Bash(npm test *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(npm run *)",
+      "Bash(git push *)",
+      "mcp__magic__21st_magic_component_builder",
+      "mcp__plugin_context-mode_context-mode__ctx_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_fill_form",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "Bash(docker compose *)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :5432)",
+      "Bash(taskkill *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(docker info *)",
+      "Bash(docker context ls *)",
+      "Bash(docker context *)",
+      "PowerShell(Start-Process \"C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe\")",
+      "Bash(npx prisma *)",
+      "PowerShell($env:DATABASE_URL)",
+      "PowerShell(Invoke-WebRequest -Uri 'http://localhost:4000/health' | Select-Object -ExpandProperty Content)",
+      "PowerShell(\\(Invoke-WebRequest -Uri 'http://localhost:4000/health' -UseBasicParsing\\).Content)",
+      "PowerShell(try { \\(Invoke-WebRequest -Uri 'https://bobyads-backend-m.3awmod.easypanel.host/health' -UseBasicParsing\\).Content } catch { $_.Exception.Message })",
+      "Bash(node *)",
+      "Bash(where npm *)",
+      "PowerShell($env:PATH += ';C:\\\\Program Files\\\\nodejs\\\\'; node \"C:\\\\Users\\\\usuario\\\\.claude\\\\plugins\\\\cache\\\\context-mode\\\\context-mode\\\\1.0.54\\\\cli.bundle.mjs\" upgrade)",
+      "Bash(cmd *)",
+      "Bash(bun *)",
+      "PowerShell(Get-Date *)"
+    ]
+  }
+}

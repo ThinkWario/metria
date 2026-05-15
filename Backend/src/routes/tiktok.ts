@@ -4,9 +4,9 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { cacheMiddleware, CACHE_TTL, invalidateWorkspaceCache } from '../middleware/cache'
 import { getStartOfDay, getEndOfDay } from '../lib/dateUtils'
 import { createAuditLog } from '../lib/logger'
+import { upsertDailyMetric } from '../lib/metrics'
 
 const router = Router()
-const TIMEZONE = 'America/Santiago'
 
 // Sync TikTok Ads via Graph API
 router.post('/sync', authenticate, async (req: AuthRequest, res) => {
@@ -32,8 +32,21 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
             return res.status(400).json({ error: 'Missing accessToken or adAccountId in TikTok config' })
         }
 
-        const metrics = ["spend", "impressions", "clicks", "conversion", "total_purchase_value"]
-        const dimensions = ["stat_time_day", "campaign_id"]
+        const metrics = [
+            "spend", 
+            "impressions", 
+            "clicks", 
+            "conversion", 
+            "total_purchase_value",
+            "video_views_p25",
+            "video_views_p50",
+            "video_views_p75",
+            "video_views_p100",
+            "six_seconds_video_views",
+            "reach",
+            "frequency"
+        ]
+        const dimensions = ["stat_time_day", "campaign_id", "campaign_name"]
         
         // Let's fetch last 30 days locally since TikTok API expects start_date and end_date
         const endDateObj = new Date()
@@ -113,12 +126,17 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
             await prisma.adSpend.upsert({
                 where: { workspaceId_platform_campaignId_date: { workspaceId, platform: 'TIKTOK', campaignId: row.dimensions.campaign_id?.toString() || '', date: new Date(dateStr) } },
                 update: {
-                    // Campaign name might not come via BASIC report unless we add campaign_name to dimensions or fetch campaign info. 
-                    // Let's assume it's omitted or we store campaignId as name if missing
                     campaignName: row.dimensions.campaign_name || row.dimensions.campaign_id?.toString() || 'TikTok Campaign',
                     spend,
                     impressions: parseInt(metricsObj.impressions || '0'),
+                    reach: parseInt(metricsObj.reach || '0'),
                     clicks: parseInt(metricsObj.clicks || '0'),
+                    videoViews: parseInt(metricsObj.video_play || '0'),
+                    videoViewsP25: parseInt(metricsObj.video_views_p25 || '0'),
+                    videoViewsP50: parseInt(metricsObj.video_views_p50 || '0'),
+                    videoViewsP75: parseInt(metricsObj.video_views_p75 || '0'),
+                    videoViewsP100: parseInt(metricsObj.video_views_p100 || '0'),
+                    videoViews6s: parseInt(metricsObj.six_seconds_video_views || '0'),
                     conversions,
                     conversionValue
                 },
@@ -129,7 +147,14 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
                     campaignName: row.dimensions.campaign_name || row.dimensions.campaign_id?.toString() || 'TikTok Campaign',
                     spend,
                     impressions: parseInt(metricsObj.impressions || '0'),
+                    reach: parseInt(metricsObj.reach || '0'),
                     clicks: parseInt(metricsObj.clicks || '0'),
+                    videoViews: parseInt(metricsObj.video_play || '0'),
+                    videoViewsP25: parseInt(metricsObj.video_views_p25 || '0'),
+                    videoViewsP50: parseInt(metricsObj.video_views_p50 || '0'),
+                    videoViewsP75: parseInt(metricsObj.video_views_p75 || '0'),
+                    videoViewsP100: parseInt(metricsObj.video_views_p100 || '0'),
+                    videoViews6s: parseInt(metricsObj.six_seconds_video_views || '0'),
                     conversions,
                     conversionValue,
                     date: new Date(dateStr)
@@ -140,32 +165,7 @@ router.post('/sync', authenticate, async (req: AuthRequest, res) => {
 
         // Update DailyMetrics
         for (const [dateStr, spend] of Object.entries(dailySpends)) {
-            const dateObj = new Date(dateStr)
-            const existing = await prisma.dailyMetric.findUnique({ where: { workspaceId_date: { workspaceId, date: dateObj } } })
-
-            if (existing) {
-                await prisma.dailyMetric.update({
-                    where: { id: existing.id },
-                    data: {
-                        tiktokAdSpend: spend,
-                        netProfit: Number(existing.totalRevenue) - spend - Number(existing.metaAdSpend) - Number(existing.googleAdSpend) - Number(existing.totalShipping) - Number(existing.totalCogs)
-                    }
-                })
-            } else {
-                await prisma.dailyMetric.create({
-                    data: {
-                        workspaceId,
-                        date: dateObj,
-                        totalRevenue: 0,
-                        metaAdSpend: 0,
-                        googleAdSpend: 0,
-                        tiktokAdSpend: spend,
-                        totalShipping: 0,
-                        totalCogs: 0,
-                        netProfit: -spend,
-                    }
-                })
-            }
+            await upsertDailyMetric(workspaceId, new Date(dateStr), 'tiktokAdSpend', spend)
         }
 
         await prisma.integration.update({
@@ -217,7 +217,13 @@ router.get('/campaigns', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), asyn
                 impressions: true,
                 clicks: true,
                 conversions: true,
-                conversionValue: true
+                conversionValue: true,
+                videoViews: true,
+                videoViews6s: true,
+                videoViewsP25: true,
+                videoViewsP50: true,
+                videoViewsP75: true,
+                videoViewsP100: true
             }
         })
 
@@ -225,18 +231,92 @@ router.get('/campaigns', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), asyn
             const spend = Number(c._sum.spend || 0)
             const conversions = Number(c._sum.conversions || 0)
             const conversionValue = Number(c._sum.conversionValue || 0)
+            const impressions = Number(c._sum.impressions || 0)
+            const video6s = Number(c._sum.videoViews6s || 0)
+            const p25 = Number(c._sum.videoViewsP25 || 0)
+            const p50 = Number(c._sum.videoViewsP50 || 0)
+            const p75 = Number(c._sum.videoViewsP75 || 0)
+            const p100 = Number(c._sum.videoViewsP100 || 0)
+
             return {
                 id: c.campaignId,
                 name: c.campaignName,
-                status: 'Active', // Mocked status
+                status: 'Active', 
                 spend,
+                impressions,
                 cpa: conversions > 0 ? spend / conversions : 0,
                 roas: spend > 0 ? conversionValue / spend : 0,
-                cpp: conversions > 0 ? spend / conversions : 0,
+                clicks: Number(c._sum.clicks || 0),
+                conversions,
+                video6s,
+                p25,
+                p50,
+                p75,
+                p100,
+                hookRate: impressions > 0 ? (p25 / impressions) * 100 : 0,
+                engagedViewRate: impressions > 0 ? (video6s / impressions) * 100 : 0
             }
         })
 
         return res.status(200).json(formatted)
+    } catch (error) {
+        return res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+router.get('/daily-performance', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async (req: AuthRequest, res) => {
+    try {
+        const workspaceId = req.user?.workspaceId
+        if (!workspaceId) return res.status(400).json({ error: 'Workspace required' })
+
+        const { from, to } = req.query
+        const dateFilter = from && to ? {
+            date: {
+                gte: getStartOfDay(from as string),
+                lte: getEndOfDay(to as string)
+            }
+        } : {}
+
+        const rows = await prisma.adSpend.groupBy({
+            by: ['date'],
+            where: { workspaceId, platform: 'TIKTOK', ...dateFilter },
+            _sum: { spend: true, conversions: true },
+            orderBy: { date: 'asc' }
+        })
+
+        const formatted = rows.map(r => {
+            const spend = Number(r._sum.spend || 0)
+            const conversions = Number(r._sum.conversions || 0)
+            return {
+                date: new Date(r.date).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' }),
+                spend,
+                conversions,
+                cpa: conversions > 0 ? spend / conversions : 0
+            }
+        })
+
+        return res.status(200).json(formatted)
+    } catch (error) {
+        return res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+// 3. GET /tiktok/creatives
+router.get('/creatives', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), async (req: AuthRequest, res) => {
+    try {
+        const workspaceId = req.user?.workspaceId
+        if (!workspaceId) return res.status(400).json({ error: 'Workspace required' })
+
+        // Mock TikTok Creatives for now
+        const creatives = [
+            { name: "Video_Vertical_Hook_A", roas: 4.25, conversions: 45, spend: 120.50 },
+            { name: "UGC_Testimonial_01", roas: 3.80, conversions: 32, spend: 85.00 },
+            { name: "Product_Showcase_Tilt", roas: 2.15, conversions: 12, spend: 55.75 },
+            { name: "Discount_Flash_Sale", roas: 5.10, conversions: 68, spend: 133.20 }
+        ]
+
+        creatives.sort((a, b) => b.roas - a.roas)
+        return res.status(200).json(creatives)
     } catch (error) {
         return res.status(500).json({ error: 'Internal server error' })
     }

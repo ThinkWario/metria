@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -12,11 +12,13 @@ import { Switch } from "@/components/ui/switch"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Activity, Unplug, ShieldCheck, Database, Key, Trash2, UserPlus, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
-import { useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getGlobalSettings, updateGlobalSettings, getIntegrations, updateIntegration, getSystemLogs, fetchAPI } from "@/lib/api"
+import { activatePayPalSubscription } from "@/app/onboarding/actions"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { useUserStore } from "@/store/useUserStore"
+import { BillingSection } from "@/components/settings/billing-section"
 
 // Table structure for system event logs
 
@@ -26,97 +28,138 @@ const initialUsers = [
     { id: "u_3", name: "Inversor / Socio", email: "socio@metria.ai", role: "Viewer", status: "Pendiente" },
 ]
 
-export default function SettingsPage() {
-    const router = useRouter()
-    const { user } = useUserStore()
-    const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN"
-    const [connections, setConnections] = useState<Record<string, any>[]>([])
-    const [users, setUsers] = useState(initialUsers)
-    const [recentLogs, setRecentLogs] = useState<any[]>([])
-    const [isLoadingLogs, setIsLoadingLogs] = useState(true)
+import { Suspense } from "react"
 
-    // Global Settings State
+function SettingsContent() {
+    const router = useRouter()
+    const searchParams = useSearchParams()
+    const { user } = useUserStore()
+    const queryClient = useQueryClient()
+    const [users, setUsers] = useState(initialUsers)
+    const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN"
+
+    // Form state (local for edits, synced with query data)
     const [timezone, setTimezone] = useState("santiago")
     const [currency, setCurrency] = useState("usd")
     const [strictAttribution, setStrictAttribution] = useState(false)
-    const [isSaving, setIsSaving] = useState(false)
+    // isSaving derived from mutations below
 
     // API Token form state
     const [isApiDialogOpen, setIsApiDialogOpen] = useState(false)
     const [apiForm, setApiForm] = useState({ platform: "shopify", config: {} as Record<string, string> })
 
+    // Queries
+    const { data: globalSettings } = useQuery({
+        queryKey: ['settings', 'global'],
+        queryFn: getGlobalSettings
+    })
+
+    const { data: integrationsData = [] } = useQuery({
+        queryKey: ['settings', 'integrations'],
+        queryFn: getIntegrations
+    })
+
+    const { data: recentLogs = [], isLoading: isLoadingLogs } = useQuery({
+        queryKey: ['settings', 'logs'],
+        queryFn: getSystemLogs
+    })
+
+    // Sync form state when data is available
     useEffect(() => {
-        const loadSettings = async () => {
-            try {
-                const globalData = await getGlobalSettings()
-                if (globalData) {
-                    setTimezone(globalData.timezone)
-                    setCurrency(globalData.currency)
-                    setStrictAttribution(globalData.strictAttribution)
-                }
-
-                const integrationsData = await getIntegrations()
-
-                // Always ensure all 4 platforms are displayed, merge with DB data
-                const basePlatforms = [
-                    { id: "shopify", platform: "shopify", name: "Shopify Store", status: "Disconnected", type: "Webhook", lastSync: null },
-                    { id: "meta", platform: "meta", name: "Meta Ads API", status: "Disconnected", type: "REST API", lastSync: null },
-                    { id: "dropi", platform: "dropi", name: "Dropi Logistics", status: "Disconnected", type: "REST API", lastSync: null },
-                    { id: "google", platform: "google", name: "Google Ads API", status: "Disconnected", type: "REST API", lastSync: null },
-                    { id: "tiktok", platform: "tiktok", name: "TikTok Ads API", status: "Disconnected", type: "REST API", lastSync: null },
-                ]
-
-                if (integrationsData && Array.isArray(integrationsData)) {
-                    const merged = basePlatforms.map(bp => {
-                        const dbMatch = integrationsData.find((db: any) => db.platform === bp.platform)
-                        return dbMatch ? { ...bp, ...dbMatch } : bp
-                    })
-                    setConnections(merged)
-                } else {
-                    setConnections(basePlatforms)
-                }
-            } catch (err) {
-                console.error("Failed to load settings from DB", err)
-            }
+        if (globalSettings) {
+            setTimezone(globalSettings.timezone || "santiago")
+            setCurrency(globalSettings.currency || "usd")
+            setStrictAttribution(globalSettings.strictAttribution || false)
         }
+    }, [globalSettings])
 
-        const loadLogs = async () => {
-            try {
-                const logsData = await getSystemLogs()
-                setRecentLogs(logsData)
-            } catch (err) {
-                console.error("Failed to load audit logs", err)
-            } finally {
-                setIsLoadingLogs(false)
-            }
-        }
-
+    useEffect(() => {
         if (user?.role === "OPERATOR") {
             router.push("/dashboard/logistics")
-            return
         }
-
-        loadSettings()
-        loadLogs()
     }, [user?.role, router])
 
-    const handleSaveSettings = async () => {
-        setIsSaving(true)
-        try {
-            await updateGlobalSettings({ timezone, currency, strictAttribution })
-            toast.success("Preferencias Guardadas", {
-                description: "Se han actualizado las configuraciones del Workspace correctamente."
-            })
-        } catch (_err) {
-            toast.error("Error al guardar configuraciones globales")
-        } finally {
-            setIsSaving(false)
-        }
-    }
+    // Handle Payment Confirmation (Demo Mode + PayPal Return)
+    useEffect(() => {
+        const handlePaymentConfirmation = async () => {
+            const status = searchParams.get('status')
+            const demo = searchParams.get('demo')
+            const plan = searchParams.get('plan')
+            const paypalReturn = searchParams.get('paypal_return')
+            const subscriptionId = searchParams.get('subscription_id')
 
-    const handleSaveTokens = async () => {
-        setIsSaving(true)
-        try {
+            // PayPal return — activate subscription
+            if (paypalReturn === 'true' && subscriptionId && plan) {
+                toast.loading("Activando tu suscripción PayPal...", { id: 'paypal-activation' })
+                const result = await activatePayPalSubscription(subscriptionId, plan)
+                toast.dismiss('paypal-activation')
+
+                if (result.success) {
+                    toast.success("¡Suscripción PayPal Activada!", {
+                        description: `Tu espacio ha sido actualizado al plan ${plan}.`
+                    })
+                    window.location.href = '/dashboard/settings'
+                } else {
+                    toast.error("Error al activar suscripción", {
+                        description: result.error || "Intenta de nuevo o contacta soporte."
+                    })
+                }
+                return
+            }
+
+            // Demo mode
+            if (status === 'success' && demo === 'true' && plan) {
+                try {
+                    await fetchAPI('/payments/confirm-demo-payment', {
+                        method: 'POST',
+                        body: JSON.stringify({ planType: plan })
+                    })
+                    toast.success("¡Suscripción Demo Activada!", {
+                        description: `Tu espacio ha sido actualizado al plan ${plan}.`
+                    })
+                    window.location.href = '/dashboard/settings'
+                } catch (error) {
+                    console.error("Error confirming demo payment:", error)
+                }
+            } else if (status === 'success') {
+                toast.success("¡Pago Procesado!", {
+                    description: "Tu suscripción se está activando. Esto puede tardar unos segundos."
+                })
+            }
+        }
+
+        handlePaymentConfirmation()
+    }, [searchParams])
+
+    const basePlatforms = [
+        { id: "shopify", platform: "shopify", name: "Shopify Store", status: "Disconnected", type: "Webhook", lastSync: null },
+        { id: "meta", platform: "meta", name: "Meta Ads API", status: "Disconnected", type: "REST API", lastSync: null },
+        { id: "dropi", platform: "dropi", name: "Dropi Logistics", status: "Disconnected", type: "REST API", lastSync: null },
+        { id: "google", platform: "google", name: "Google Ads API", status: "Disconnected", type: "REST API", lastSync: null },
+        { id: "tiktok", platform: "tiktok", name: "TikTok Ads API", status: "Disconnected", type: "REST API", lastSync: null },
+    ]
+
+    const connections = basePlatforms.map(bp => {
+        const dbMatch = Array.isArray(integrationsData) ? integrationsData.find((db: any) => db.platform === bp.platform) : null
+        return dbMatch ? { ...bp, ...dbMatch } : bp
+    })
+
+    // Mutations
+    const saveSettingsMutation = useMutation({
+        mutationFn: updateGlobalSettings,
+        onSuccess: () => {
+            toast.success("Preferencias Guardadas")
+            queryClient.invalidateQueries({ queryKey: ['settings', 'global'] })
+        },
+        onError: () => toast.error("Error al guardar configuraciones globales")
+    })
+
+    const saveTokensMutation = useMutation({
+        mutationFn: (payload: any) => updateIntegration(payload),
+        onSuccess: (data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['settings', 'integrations'] })
+            window.dispatchEvent(new Event('integrations-updated'))
+            
             const platformNames: Record<string, string> = {
                 shopify: "Shopify Store",
                 meta: "Meta Ads",
@@ -125,46 +168,40 @@ export default function SettingsPage() {
                 tiktok: "TikTok Ads"
             }
 
-            const updated = await updateIntegration({
-                platform: apiForm.platform,
-                name: platformNames[apiForm.platform] || apiForm.platform,
-                type: "REST API",
-                config: apiForm.config
-            })
-
-            // Update UI state directly
-            setConnections(prev => prev.map(c =>
-                c.platform === apiForm.platform ? { ...c, ...updated, status: updated.status || "Connected" } : c
-            ))
-
-            // Trigger global event so useWorkspaceConfig can refetch 
-            window.dispatchEvent(new Event('integrations-updated'))
-
             toast.success("Tokens Guardados", {
-                description: `Conexión con ${platformNames[apiForm.platform]} establecida. Descargando historial de datos...`
+                description: `Conexión con ${platformNames[variables.platform] || variables.platform} establecida.`
             })
 
             setIsApiDialogOpen(false)
 
-            // Background Auto-sync
-            const currentPlatform = apiForm.platform;
-            setApiForm({ platform: "shopify", config: {} })
+            // Auto-sync trigger
+            if (variables.platform === 'meta') fetchAPI('/meta/sync', { method: 'POST' })
+            else if (variables.platform === 'shopify') fetchAPI('/shopify/sync', { method: 'POST' })
+            else if (variables.platform === 'tiktok') fetchAPI('/tiktok/sync', { method: 'POST' })
+            else if (variables.platform === 'google') fetchAPI('/google/sync', { method: 'POST' })
+        },
+        onError: (err: any) => toast.error("Error", { description: err.message || "Ocurrió un error guardando las claves de integración" })
+    })
 
-            if (currentPlatform === 'meta') {
-                fetchAPI('/meta/sync', { method: 'POST' })
-                    .then(() => toast.success("Sincronización Meta Completada", { description: "Tus campañas y métricas históricas ya están disponibles en el dashboard." }))
-                    .catch(() => toast.warning("Sincronización Meta Retrasada", { description: "Los permisos de token podrían demorar en activarse." }))
-            } else if (currentPlatform === 'shopify') {
-                fetchAPI('/shopify/sync', { method: 'POST' })
-                    .then(() => toast.success("Sincronización Shopify Completada", { description: "Tus órdenes y métricas de rentabilidad ya están calculadas." }))
-                    .catch(() => toast.warning("Sincronización Shopify Lenta", { description: "El catálogo es muy grande, revisa en unos minutos." }))
-            }
+    const handleSaveSettings = () => {
+        saveSettingsMutation.mutate({ timezone, currency, strictAttribution })
+    }
 
-        } catch (err: any) {
-            toast.error("Error", { description: err.message || "Ocurrió un error guardando las claves de integración" })
-        } finally {
-            setIsSaving(false)
+    const handleSaveTokens = async () => {
+        const platformNames: Record<string, string> = {
+            shopify: "Shopify Store",
+            meta: "Meta Ads",
+            dropi: "Dropi Logistics",
+            google: "Google Ads",
+            tiktok: "TikTok Ads"
         }
+
+        saveTokensMutation.mutate({
+            platform: apiForm.platform,
+            name: platformNames[apiForm.platform] || apiForm.platform,
+            type: "REST API",
+            config: apiForm.config
+        })
     }
 
     const handleRemoveUser = (id: string) => {
@@ -310,8 +347,27 @@ export default function SettingsPage() {
                                                 <Input placeholder="Ej. 123456789" value={apiForm.config.adAccountId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, adAccountId: e.target.value } })} />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label>Access Token</Label>
+                                                <Label>Access Token (Marketing API)</Label>
                                                 <Input type="password" placeholder="Token de acceso..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
+                                            </div>
+                                            <div className="pt-4 border-t border-border/50">
+                                                <Label className="text-[#FE2C55] font-semibold flex items-center gap-2">
+                                                    <ShieldCheck className="h-4 w-4" />
+                                                    TikTok Events API (Opcional)
+                                                </Label>
+                                                <p className="text-[10px] text-muted-foreground mt-1 mb-3">
+                                                    Configura la Events API para medir el ROAS real ignorando bloqueadores de anuncios.
+                                                </p>
+                                                <div className="space-y-3">
+                                                    <div className="space-y-1.5">
+                                                        <Label className="text-[11px]">Pixel ID</Label>
+                                                        <Input placeholder="Ej. C123456789" value={apiForm.config.pixelId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, pixelId: e.target.value } })} />
+                                                    </div>
+                                                    <div className="space-y-1.5">
+                                                        <Label className="text-[11px]">Events API Access Token</Label>
+                                                        <Input type="password" placeholder="api_access_token..." value={apiForm.config.eventsToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, eventsToken: e.target.value } })} />
+                                                    </div>
+                                                </div>
                                             </div>
                                         </>
                                     )}
@@ -321,6 +377,11 @@ export default function SettingsPage() {
                                             <div className="space-y-2">
                                                 <Label>Customer ID (123-456-7890)</Label>
                                                 <Input placeholder="123-456-7890" value={apiForm.config.customerId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, customerId: e.target.value } })} />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Manager ID (MCC)</Label>
+                                                <Input placeholder="123-456-7890 (opcional, solo si usas cuenta Manager)" value={apiForm.config.managerId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, managerId: e.target.value } })} />
+                                                <p className="text-[10px] text-muted-foreground">Solo requerido si tu cuenta está bajo un MCC (Manager Account).</p>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label>Developer Token</Label>
@@ -366,7 +427,7 @@ export default function SettingsPage() {
                                     )}
                                 </div>
                                 <DialogFooter>
-                                    <Button type="button" onClick={handleSaveTokens} disabled={isSaving}>{isSaving ? "Guardando..." : "Guardar y Probar Conexión"}</Button>
+                                    <Button type="button" onClick={handleSaveTokens} disabled={saveTokensMutation.isPending}>{saveTokensMutation.isPending ? "Guardando..." : "Guardar Conexión"}</Button>
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
@@ -423,12 +484,15 @@ export default function SettingsPage() {
                         </CardContent>
                         <CardFooter>
                             {canEdit && (
-                                <Button className="w-full" onClick={handleSaveSettings} disabled={isSaving}>
-                                    {isSaving ? "Guardando..." : "Guardar Entorno"}
+                                <Button className="w-full" onClick={handleSaveSettings} disabled={saveSettingsMutation.isPending}>
+                                    {saveSettingsMutation.isPending ? "Guardando..." : "Guardar Entorno"}
                                 </Button>
                             )}
                         </CardFooter>
                     </Card>
+
+                    {/* Subscription & Billing */}
+                    <BillingSection />
                 </div>
 
                 {/* Users Management */}
@@ -492,7 +556,7 @@ export default function SettingsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {users.map((u) => (
+                                {users.map((u: any) => (
                                     <TableRow key={u.id}>
                                         <TableCell className="font-medium">{u.name}</TableCell>
                                         <TableCell className="text-muted-foreground">{u.email}</TableCell>
@@ -541,41 +605,36 @@ export default function SettingsPage() {
                                     <TableRow>
                                         <TableCell colSpan={5} className="text-center py-8 text-muted-foreground animate-pulse">Cargando logs...</TableCell>
                                     </TableRow>
+                                ) : recentLogs.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground italic">Sin eventos recientes registrados.</TableCell>
+                                    </TableRow>
                                 ) : (
-                                    [
-                                        { name: "Shopify", source: "Shopify" },
-                                        { name: "Meta Ads", source: "Meta" },
-                                        { name: "Dropi", source: "Dropi" },
-                                        { name: "Google Ads", source: "Google" },
-                                        { name: "TikTok Ads", source: "TikTok" },
-                                    ].map((slot) => {
-                                        const log = recentLogs.find(l => l.source === slot.source)
-                                        return (
-                                            <TableRow key={slot.name}>
-                                                <TableCell className="font-mono text-xs text-muted-foreground">
-                                                    {log ? `${log.id.substring(0, 8)}...` : "-"}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline">{slot.name}</Badge>
-                                                </TableCell>
-                                                <TableCell className="font-mono text-xs text-primary">
-                                                    {log ? log.event : "-"}
-                                                </TableCell>
-                                                <TableCell className="text-sm">
-                                                    {log ? new Date(log.createdAt).toLocaleString() : "-"}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    {log ? (
-                                                        <span className={`text-xs font-mono font-medium px-2 py-1 rounded bg-background ${log.status.includes('200') || log.status.includes('OK') ? "text-emerald-500" : "text-destructive"}`}>
-                                                            {log.status}
-                                                        </span>
-                                                    ) : (
-                                                        <Badge variant="secondary" className="bg-muted text-muted-foreground font-medium">Inactivo</Badge>
-                                                    )}
-                                                </TableCell>
-                                            </TableRow>
-                                        )
-                                    })
+                                    recentLogs.map((log: any) => (
+                                        <TableRow key={log.id}>
+                                            <TableCell className="font-mono text-[10px] text-muted-foreground">
+                                                {log.id.substring(0, 8)}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider">{log.source}</Badge>
+                                            </TableCell>
+                                            <TableCell className="font-mono text-xs text-primary max-w-[200px] truncate">
+                                                {log.event}
+                                            </TableCell>
+                                            <TableCell className="text-[11px] text-muted-foreground">
+                                                {new Date(log.createdAt).toLocaleString()}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <span className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded border ${
+                                                    log.status.startsWith('2') || log.status.toLowerCase().includes('ok') 
+                                                    ? "text-emerald-500 border-emerald-500/20 bg-emerald-500/5" 
+                                                    : "text-destructive border-destructive/20 bg-destructive/5"
+                                                }`}>
+                                                    {log.status}
+                                                </span>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
                                 )}
                             </TableBody>
                         </Table>
@@ -585,3 +644,12 @@ export default function SettingsPage() {
         </div>
     )
 }
+
+export default function SettingsPage() {
+    return (
+        <Suspense fallback={<div className='p-8'>Cargando configuración...</div>}>
+            <SettingsContent />
+        </Suspense>
+    )
+}
+

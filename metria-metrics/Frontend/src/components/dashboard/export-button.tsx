@@ -22,6 +22,8 @@ export function ExportButton() {
     const { date } = useDateRangeStore()
     const pathname = usePathname()
     const [isExporting, setIsExporting] = React.useState(false)
+    const [mounted, setMounted] = React.useState(false)
+    React.useEffect(() => setMounted(true), [])
 
     const startStr = date?.from ? format(date.from, "yyyy-MM-dd") : "inicio"
     const endStr = date?.to ? format(date.to, "yyyy-MM-dd") : "fin"
@@ -177,6 +179,15 @@ export function ExportButton() {
         } finally {
             setIsExporting(false)
         }
+    }
+
+    if (!mounted) {
+        return (
+            <Button variant="default" disabled className="bg-primary text-primary-foreground shadow font-medium min-w-[120px]">
+                <Download className="mr-2 h-4 w-4" />
+                Exportar
+            </Button>
+        )
     }
 
     return (

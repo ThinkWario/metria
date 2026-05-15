@@ -5,12 +5,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { useUserStore } from "@/store/useUserStore"
 import { useTheme } from "next-themes"
-import { Palette, LayoutGrid, Calendar, Bell, ImagePlus, Trash2, Mail } from "lucide-react"
+import { Palette, LayoutGrid, Calendar, Bell, ImagePlus, Trash2, Mail, Webhook } from "lucide-react"
 
 interface PreferencesDialogProps {
     open: boolean
@@ -200,6 +201,75 @@ export function PreferencesDialog({ open, onOpenChange }: PreferencesDialogProps
                                 checked={preferences.alertStockout}
                                 onCheckedChange={(v) => handleToggle("alertStockout", v)}
                             />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <Label>Alerta de ROAS bajo</Label>
+                                <p className="text-[11px] text-muted-foreground">Notificar cuando el ROAS cae debajo del umbral.</p>
+                            </div>
+                            <Switch
+                                checked={preferences.alertRoasLow}
+                                onCheckedChange={(v) => handleToggle("alertRoasLow", v)}
+                            />
+                        </div>
+
+                        {preferences.alertRoasLow && (
+                            <div className="pl-4 border-l-2 border-primary/20 space-y-2 py-1">
+                                <Label className="text-[10px] uppercase font-bold text-muted-foreground mr-2">Umbral ROAS Mínimo</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input 
+                                        type="number" 
+                                        step="0.1" 
+                                        className="h-8 w-24 text-xs" 
+                                        value={preferences.roasThreshold} 
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updatePreferences({ roasThreshold: parseFloat(e.target.value) || 0 })}
+                                    />
+                                    <span className="text-xs text-muted-foreground font-medium">x</span>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <Label>Alerta de Entrega baja</Label>
+                                <p className="text-[11px] text-muted-foreground">Notificar si la tasa de entrega efectiva de Dropi cae.</p>
+                            </div>
+                            <Switch
+                                checked={preferences.alertDeliveryLow}
+                                onCheckedChange={(v) => handleToggle("alertDeliveryLow", v)}
+                            />
+                        </div>
+
+                        {preferences.alertDeliveryLow && (
+                            <div className="pl-4 border-l-2 border-primary/20 space-y-2 py-1">
+                                <Label className="text-[10px] uppercase font-bold text-muted-foreground mr-2">Umbral de Entrega (%)</Label>
+                                <div className="flex items-center gap-2">
+                                    <Input 
+                                        type="number" 
+                                        step="1" 
+                                        className="h-8 w-24 text-xs" 
+                                        value={preferences.deliveryThreshold} 
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updatePreferences({ deliveryThreshold: parseFloat(e.target.value) || 0 })}
+                                    />
+                                    <span className="text-xs text-muted-foreground font-medium">%</span>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-2 pt-2">
+                            <Label className="flex items-center gap-1.5">
+                                <Webhook className="h-3.5 w-3.5 text-muted-foreground" />
+                                Webhook Slack / WhatsApp
+                            </Label>
+                            <Input 
+                                placeholder="https://hooks.slack.com/services/..." 
+                                className="h-9 text-xs"
+                                value={preferences.webhookUrl || ''}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => updatePreferences({ webhookUrl: e.target.value })}
+                                onBlur={() => toast.success("URL de Webhook actualizada")}
+                            />
+                            <p className="text-[10px] text-muted-foreground">URL para enviar notificaciones críticas instantáneas.</p>
                         </div>
 
                         <div className="flex items-center justify-between">

@@ -12,27 +12,31 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
     try {
         const user = await prisma.user.findUnique({
             where: { id: req.user!.id },
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                phone: true,
-                role: true,
-                workspaceId: true,
-                workspace: { select: { name: true, logoUrl: true } },
-                preferences: true,
-            },
+            include: {
+                workspace: true,
+                preferences: true
+            }
         })
 
-        if (!user) return res.status(404).json({ error: 'User not found' })
+        if (!user) {
+            console.error('[/me] User not found in DB:', req.user!.id)
+            return res.status(404).json({ error: 'User not found' })
+        }
 
+        // Remove sensitive data before returning
+        const { passwordHash, ...safeUser } = user as any
+        
         res.json({
-            ...user,
+            ...safeUser,
             isImpersonating: !!req.user!.isImpersonating
         })
-    } catch (error) {
-        console.error('Get profile error:', error)
-        res.status(500).json({ error: 'Internal server error' })
+    } catch (error: any) {
+        console.error('Get profile detailed error:', {
+            message: error.message,
+            stack: error.stack,
+            userId: req.user?.id
+        })
+        res.status(500).json({ error: 'Internal server error', detail: error.message })
     }
 })
 
@@ -80,7 +84,7 @@ router.put('/me/password', authenticate, async (req: AuthRequest, res) => {
         const user = await prisma.user.findUnique({ where: { id: req.user!.id } })
         if (!user) return res.status(404).json({ error: 'User not found' })
 
-        const isMatch = await bcrypt.compare(currentPassword, user.passwordHash)
+        const isMatch = await bcrypt.compare(currentPassword, user.passwordHash!)
         if (!isMatch) {
             return res.status(401).json({ error: 'Current password is incorrect' })
         }

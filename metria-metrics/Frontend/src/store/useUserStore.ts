@@ -10,7 +10,13 @@ export interface UserProfile {
     phone: string | null
     role: string
     workspaceId: string | null
-    workspace: { name: string; logoUrl: string | null } | null
+    workspace: { 
+        name: string; 
+        logoUrl: string | null;
+        plan: string;
+        subscriptionStatus: string;
+        trialEndsAt: string | null;
+    } | null
     isImpersonating?: boolean
 }
 
@@ -20,6 +26,11 @@ export interface UserPreferences {
     emailReports: boolean
     alertMarginLow: boolean
     alertStockout: boolean
+    alertRoasLow: boolean
+    alertDeliveryLow: boolean
+    roasThreshold: number
+    deliveryThreshold: number
+    webhookUrl: string | null
     defaultDateRange: string
 }
 
@@ -29,6 +40,11 @@ const DEFAULT_PREFERENCES: UserPreferences = {
     emailReports: true,
     alertMarginLow: true,
     alertStockout: false,
+    alertRoasLow: true,
+    alertDeliveryLow: true,
+    roasThreshold: 2.5,
+    deliveryThreshold: 85.0,
+    webhookUrl: null,
     defaultDateRange: '7d',
 }
 

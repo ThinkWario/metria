@@ -31,10 +31,14 @@ export async function funnelSummary(req: AuthRequest, res: Response): Promise<vo
 export async function runAggregation(req: AuthRequest, res: Response): Promise<void> {
   try {
     const workspaceId = req.user!.workspaceId
+    if (!workspaceId) {
+      res.status(400).json({ error: 'Workspace ID is required' })
+      return
+    }
     const dateStr: string = req.body?.date ?? new Date().toISOString().slice(0, 10)
 
     const channels = await prisma.channel.findMany({
-      where: { workspaceId },
+      where: { workspaceId: workspaceId as string },
       select: { id: true }
     })
 

@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "Bash(git -C \"C:\\\\Proyectos\\\\Metria\" add docs/superpowers/plans/2026-05-09-messaging-crm-phase1-foundation.md)",
+      "Bash(git -C 'C:\\\\Proyectos\\\\Metria' commit -m 'docs: add Phase 1 implementation plan — messaging+CRM foundation *)",
+      "Bash(Get-Content package.json)",
+      "mcp__plugin_context-mode_context-mode__ctx_execute",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(pnpm test *)",
+      "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+      "Bash(npm run *)",
+      "mcp__plugin_context-mode_context-mode__ctx_search",
+      "Bash(pnpm add *)",
+      "PowerShell(New-Item *)",
+      "Bash(npx prisma *)",
+      "Bash(git reset *)",
+      "Bash(npx vitest *)",
+      "Bash(git -C \"C:/Proyectos/Metria\" diff e0da3e2e..1319a6b3 -- Backend/src/modules/messaging/channels/whatsapp.service.ts)",
+      "Bash(git -C \"C:/Proyectos/Metria\" diff e0da3e2e..1319a6b3 -- Backend/src/modules/messaging/__tests__/whatsapp.service.test.ts)",
+      "Bash(tee test-output.log)",
+      "Bash(npx tsc *)",
+      "Bash(git push *)",
+      "Bash(gh pr create --title 'feat: Messaging CRM Phase 2 — WhatsApp, Instagram & Live Inbox' --body ' *)",
+      "Bash(Select-String \"crm\")",
+      "Bash(Select-Object -First 10)",
+      "Bash(Select-String \"pipelines\")",
+      "Bash(pnpm tsc *)",
+      "Bash(Get-Content *)",
+      "Bash(Select-String \"analytics\")",
+      "Bash(dir C:\\\\Proyectos\\\\Metria\\\\Backend\\\\src\\\\modules\\\\analytics *)",
+      "Bash(npm install *)",
+      "Bash(Get-Item \"C:\\\\Proyectos\\\\Metria\\\\nul\")",
+      "Bash(Select-Object Name, Length, LastWriteTime)",
+      "Bash(git rm *)"
+    ]
+  }
+}

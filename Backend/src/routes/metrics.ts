@@ -11,16 +11,20 @@ router.use(requireRole(['SUPER_ADMIN', 'ADMIN', 'VIEWER']))
 
 const TIMEZONE = 'America/Santiago'
 
-// 1. GET /api/metrics/summary?from=...&to=...
+// 1. GET /api/metrics/summary?from=...&to=...&compareFrom=...&compareTo=...
 router.get('/summary', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async (req: AuthRequest, res) => {
     try {
         const workspaceId = req.user?.workspaceId
         if (!workspaceId) return res.status(400).json({ error: 'Workspace required' })
 
-        const { from, to, excludeCampaigns } = req.query as { from?: string; to?: string; excludeCampaigns?: string }
+        const { from, to, compareFrom, compareTo, excludeCampaigns } = req.query as { 
+            from?: string; to?: string; 
+            compareFrom?: string; compareTo?: string; 
+            excludeCampaigns?: string 
+        }
         const excludedIds = excludeCampaigns ? excludeCampaigns.split(',') : []
 
-        // Define date range
+        // Define primary date range
         let startZone: Date, endZone: Date
         if (from && to) {
             startZone = getStartOfDay(from)
@@ -31,108 +35,100 @@ router.get('/summary', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async 
             endZone = getEndOfDay(todayStr)
         }
 
-        const [metrics, fixedCosts, settings, orders, filteredMetaSpend, filteredGoogleSpend, filteredTiktokSpend] = await Promise.all([
-            prisma.dailyMetric.findMany({
-                where: {
-                    workspaceId,
-                    date: { gte: startZone, lte: endZone }
-                }
-            }),
-            prisma.fixedCost.findMany({
-                where: { workspaceId, isActive: true }
-            }),
-            prisma.globalSetting.findUnique({
-                where: { workspaceId }
-            }),
-            prisma.order.findMany({
-                where: {
-                    workspaceId,
-                    financialStatus: { in: ['paid', 'partially_refunded', 'pending', 'authorized'] },
-                    createdAt: { gte: startZone, lte: endZone }
-                }
-            }),
-            // Filtered Meta AdSpend
-            prisma.adSpend.groupBy({
-                by: ['date'],
-                _sum: { spend: true },
-                where: {
-                    workspaceId,
-                    platform: 'META',
-                    date: { gte: startZone, lte: endZone },
-                    campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
-                }
-            }),
-            // Filtered Google AdSpend
-            prisma.adSpend.groupBy({
-                by: ['date'],
-                _sum: { spend: true },
-                where: {
-                    workspaceId,
-                    platform: 'GOOGLE',
-                    date: { gte: startZone, lte: endZone },
-                    campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
-                }
-            }),
-            // Filtered TikTok AdSpend
-            prisma.adSpend.groupBy({
-                by: ['date'],
-                _sum: { spend: true },
-                where: {
-                    workspaceId,
-                    platform: 'TIKTOK',
-                    date: { gte: startZone, lte: endZone },
-                    campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined
-                }
-            })
-        ])
+        // Helper for fetching summary for a range
+        const fetchSummaryData = async (start: Date, end: Date) => {
+            const [metrics, fixedCosts, settings, orders, filteredMetaSpend, filteredGoogleSpend, filteredTiktokSpend] = await Promise.all([
+                prisma.dailyMetric.findMany({
+                    where: { workspaceId, date: { gte: start, lte: end } }
+                }),
+                prisma.fixedCost.findMany({
+                    where: { workspaceId, isActive: true }
+                }),
+                prisma.globalSetting.findUnique({
+                    where: { workspaceId }
+                }),
+                prisma.order.findMany({
+                    where: {
+                        workspaceId,
+                        financialStatus: { in: ['paid', 'partially_refunded', 'pending', 'authorized'] },
+                        createdAt: { gte: start, lte: end }
+                    }
+                }),
+                prisma.adSpend.groupBy({
+                    by: ['date'], _sum: { spend: true },
+                    where: { workspaceId, platform: 'META', date: { gte: start, lte: end }, campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined }
+                }),
+                prisma.adSpend.groupBy({
+                    by: ['date'], _sum: { spend: true },
+                    where: { workspaceId, platform: 'GOOGLE', date: { gte: start, lte: end }, campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined }
+                }),
+                prisma.adSpend.groupBy({
+                    by: ['date'], _sum: { spend: true },
+                    where: { workspaceId, platform: 'TIKTOK', date: { gte: start, lte: end }, campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined }
+                })
+            ])
 
-        const totalFixedCosts = fixedCosts.reduce((sum, cost) => sum + Number(cost.amount), 0)
-        const revenue = metrics.reduce((sum, m) => sum + Number(m.totalRevenue), 0)
-        const orderCount = orders.length
+            const totalFixedCosts = fixedCosts.reduce((sum, cost) => sum + Number(cost.amount), 0)
+            const revenue = metrics.reduce((sum, m) => sum + Number(m.totalRevenue), 0)
+            const orderCount = orders.length
+            const metaSpend = filteredMetaSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
+            const googleSpend = filteredGoogleSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
+            const tiktokSpend = filteredTiktokSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
+            const totalAdSpend = metaSpend + googleSpend + tiktokSpend
 
-        // Total spending from filtered queries
-        const totalMetaSpend = filteredMetaSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
-        const totalGoogleSpend = filteredGoogleSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
-        const totalTiktokSpend = filteredTiktokSpend.reduce((sum, s) => sum + Number(s._sum.spend || 0), 0)
+            let taxesAndFees = 0
+            if (settings) {
+                const taxAmount = revenue * (Number(settings.taxRate || 0) / 100)
+                const gatewayPercentAmount = revenue * (Number(settings.gatewayPercent || 0) / 100)
+                const gatewayFixedAmount = orderCount * Number(settings.gatewayFixed || 0)
+                let customFeesAmount = 0
+                const customFees = (settings.customFees as any[]) || []
+                customFees.forEach(fee => {
+                    if (fee.type === 'percent') customFeesAmount += revenue * (Number(fee.amount || 0) / 100)
+                    else customFeesAmount += orderCount * Number(fee.amount || 0)
+                })
+                taxesAndFees = taxAmount + gatewayPercentAmount + gatewayFixedAmount + customFeesAmount
+            }
 
-        let taxesAndFees = 0
-        if (settings) {
-            const taxAmount = revenue * (Number(settings.taxRate || 0) / 100)
-            const gatewayPercentAmount = revenue * (Number(settings.gatewayPercent || 0) / 100)
-            const gatewayFixedAmount = orderCount * Number(settings.gatewayFixed || 0)
-            let customFeesAmount = 0
-            const customFees = (settings.customFees as any[]) || []
-            customFees.forEach(fee => {
-                if (fee.type === 'percent') customFeesAmount += revenue * (Number(fee.amount || 0) / 100)
-                else customFeesAmount += orderCount * Number(fee.amount || 0)
-            })
-            taxesAndFees = taxAmount + gatewayPercentAmount + gatewayFixedAmount + customFeesAmount
+            const totalShipping = metrics.reduce((sum, m) => sum + Number(m.totalShipping), 0)
+            const totalCogs = metrics.reduce((sum, m) => sum + Number(m.totalCogs), 0)
+            const netProfit = revenue - totalAdSpend - totalShipping - totalCogs - totalFixedCosts - taxesAndFees
+
+            return {
+                totalRevenue: revenue,
+                totalShipping,
+                totalCogs,
+                metaAdSpend: metaSpend,
+                googleAdSpend: googleSpend,
+                tiktokAdSpend: tiktokSpend,
+                totalAdSpend,
+                netProfit,
+                totalFixedCosts,
+                totalTaxAndFees: taxesAndFees
+            }
         }
 
-        const summary = metrics.reduce((acc, m) => ({
-            totalRevenue: acc.totalRevenue + Number(m.totalRevenue),
-            totalShipping: acc.totalShipping + Number(m.totalShipping),
-            totalCogs: acc.totalCogs + Number(m.totalCogs),
-        }), {
-            totalRevenue: 0,
-            totalShipping: 0,
-            totalCogs: 0,
+        // Get main summary
+        const currentSummary = await fetchSummaryData(startZone, endZone)
+
+        // Calculate comparison period
+        let prevStartZone: Date, prevEndZone: Date
+        if (compareFrom && compareTo) {
+            prevStartZone = getStartOfDay(compareFrom)
+            prevEndZone = getEndOfDay(compareTo)
+        } else {
+            // Default: same duration, immediately before
+            const durationMs = endZone.getTime() - startZone.getTime()
+            prevEndZone = subDays(startZone, 1)
+            prevStartZone = new Date(prevEndZone.getTime() - durationMs)
+        }
+
+        const previousSummary = await fetchSummaryData(prevStartZone, prevEndZone)
+
+        return res.status(200).json({
+            ...currentSummary,
+            previousPeriod: previousSummary
         })
-
-        // Recalculate netProfit with filteredMetaSpend & filteredGoogleSpend
-        const netProfit = summary.totalRevenue - totalMetaSpend - totalGoogleSpend - totalTiktokSpend - summary.totalShipping - summary.totalCogs - totalFixedCosts - taxesAndFees
-
-        const finalSummary = {
-            ...summary,
-            metaAdSpend: totalMetaSpend,
-            googleAdSpend: totalGoogleSpend,
-            tiktokAdSpend: totalTiktokSpend,
-            netProfit: netProfit,
-            totalFixedCosts,
-            totalTaxAndFees: taxesAndFees
-        }
-
-        return res.status(200).json(finalSummary)
     } catch (error: any) {
         console.error('Metrics Summary error:', error)
         return res.status(500).json({ error: 'Internal server error', message: error.message })
@@ -608,6 +604,74 @@ router.get('/returns', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), async (r
     } catch (error: any) {
         console.error('Metrics Returns error:', error)
         return res.status(500).json({ error: 'Internal server error', message: error.message })
+    }
+})
+
+// 7. GET /api/metrics/attribution
+router.get('/attribution', authenticate, cacheMiddleware(CACHE_TTL.MINUTE_5), async (req: AuthRequest, res) => {
+    try {
+        const workspaceId = req.user?.workspaceId
+        if (!workspaceId) return res.status(400).json({ error: 'Workspace required' })
+
+        const { from, to, excludeCampaigns } = req.query as { from?: string; to?: string; excludeCampaigns?: string }
+        const excludedIds = excludeCampaigns ? excludeCampaigns.split(',') : []
+
+        const dateFilter = from && to ? {
+            date: {
+                gte: getStartOfDay(from as string),
+                lte: getEndOfDay(to as string)
+            }
+        } : {}
+
+        const orderDateFilter = from && to ? {
+            createdAt: {
+                gte: getStartOfDay(from as string),
+                lte: getEndOfDay(to as string)
+            }
+        } : {}
+
+        // Get Conversions from all platforms
+        const [metaConversions, googleConversions, tiktokConversions, shopifyOrders] = await Promise.all([
+            prisma.adSpend.aggregate({
+                where: { workspaceId, platform: 'META', campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined, ...dateFilter },
+                _sum: { conversions: true }
+            }),
+            prisma.adSpend.aggregate({
+                where: { workspaceId, platform: 'GOOGLE', campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined, ...dateFilter },
+                _sum: { conversions: true }
+            }),
+            prisma.adSpend.aggregate({
+                where: { workspaceId, platform: 'TIKTOK', campaignId: excludedIds.length > 0 ? { notIn: excludedIds } : undefined, ...dateFilter },
+                _sum: { conversions: true }
+            }),
+            prisma.order.count({
+                where: {
+                    workspaceId,
+                    financialStatus: { in: ['paid', 'partially_refunded', 'pending', 'authorized'] },
+                    ...orderDateFilter
+                }
+            })
+        ])
+
+        const meta = Number(metaConversions._sum.conversions || 0)
+        const google = Number(googleConversions._sum.conversions || 0)
+        const tiktok = Number(tiktokConversions._sum.conversions || 0)
+        
+        const attributed = meta + google + tiktok
+        const total = shopifyOrders
+        const orphaned = Math.max(0, total - attributed)
+        const lossRate = total > 0 ? Math.round((orphaned / total) * 100) : 0
+
+        return res.status(200).json({ 
+            attributed, 
+            orphaned, 
+            total, 
+            lossRate,
+            breakdown: { meta, google, tiktok }
+        })
+    } catch (error) {
+        console.error('Attribution error:', error)
+        return res.status(500).json({ error: 'Internal server error' })
     }
 })
 

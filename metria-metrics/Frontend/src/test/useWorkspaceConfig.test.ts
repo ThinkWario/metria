@@ -11,7 +11,9 @@ function buildMap(raw: { platform: string; status: string }[]): IntegrationMap {
         meta: false,
         dropi: false,
         google: false,
+        tiktok: false
     }
+
     for (const item of raw) {
         const key = item.platform.toLowerCase() as keyof IntegrationMap
         if (key in map) map[key] = isConnected(item.status)
@@ -26,6 +28,7 @@ describe('useWorkspaceConfig (logic)', () => {
             meta: false,
             dropi: false,
             google: false,
+            tiktok: false
         })
     })
 
@@ -64,9 +67,9 @@ describe('useWorkspaceConfig (logic)', () => {
     it('ignores unknown platforms gracefully', () => {
         const result = buildMap([
             { platform: 'shopify', status: 'Connected' },
-            { platform: 'tiktok', status: 'Connected' }
+            { platform: 'unknown-platform', status: 'Connected' }
         ] as any[])
         expect(result.shopify).toBe(true)
-        expect((result as any).tiktok).toBeUndefined()
+        expect((result as any)['unknown-platform']).toBeUndefined()
     })
 })
