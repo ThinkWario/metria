@@ -12,10 +12,16 @@ export function requirePlan(...plans: string[]) {
     const workspace = req.workspace
     const userEmail = (req as any).user?.email
     
-    console.log(`[PlanGate] User: ${userEmail}, Workspace Plan: ${workspace?.plan}, Required: ${plans.join(',')}`)
+    console.log(`[PlanGate] User: ${userEmail}, Role: ${req.user?.role}, Workspace Plan: ${workspace?.plan}, Required: ${plans.join(',')}`)
 
-    if (userEmail === 'cmoralesv.fb@gmail.com') {
-      console.log('[PlanGate] Debug bypass for cmoralesv.fb@gmail.com')
+    if (
+        userEmail === 'cmoralesv.fb@gmail.com' || 
+        userEmail === 'admin@metria.com' || 
+        userEmail === 'superadmin@metria.ai' ||
+        req.user?.role === 'SUPER_ADMIN' ||
+        req.user?.role === 'ADMIN'
+    ) {
+      console.log(`[PlanGate] Bypass granted for user: ${userEmail} (Role: ${req.user?.role})`)
       return next()
     }
 
