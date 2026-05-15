@@ -20,7 +20,7 @@ function getTokenPayload(token: string): TokenPayload | null {
     }
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl
     
     // Skip static assets
