@@ -79,7 +79,7 @@ export function proxy(request: NextRequest) {
 
     // CRITICAL GATE: Block dashboard access if no workspaceId OR no active plan (TRIAL/ACTIVE)
     if (pathname.startsWith('/dashboard')) {
-        if (payload.role !== 'SUPER_ADMIN') {
+        if (payload.role !== 'SUPER_ADMIN' && payload.role !== 'ADMIN') {
             const hasNoWorkspace = !payload.workspaceId
             const isInactive = payload.subscriptionStatus !== 'TRIAL' && payload.subscriptionStatus !== 'ACTIVE'
             
