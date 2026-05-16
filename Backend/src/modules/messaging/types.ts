@@ -13,6 +13,7 @@ export interface InboundMessageData {
   content: string
   mediaUrl?: string
   mediaType?: string
+  metadata?: any
 }
 
 export interface ProcessedMessage {

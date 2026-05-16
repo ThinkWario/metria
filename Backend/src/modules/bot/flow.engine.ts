@@ -43,8 +43,13 @@ export async function tryRunBotFlows(
   for (const flow of flows) {
     if (!flow.botAgent.isActive) continue
     if (flow.channel !== 'ALL' && flow.channel !== conversation.channel.platform) continue
+    
+    // Check if bot is enabled for workspace via persona config
+    const botConfig = (flow.botAgent as any).config as Record<string, any> || {}
+    if (botConfig.disabled) continue
+
     if (!(await matchesTrigger(flow, conversation, content))) continue
-    await executeActions(workspaceId, conversation, flow.actions as unknown as ActionDef[])
+    await executeActions(workspaceId, conversation, flow.actions as unknown as ActionDef[], botConfig)
     return
   }
 }
@@ -118,7 +123,8 @@ async function sendBotMessage(
 async function executeActions(
   workspaceId: string,
   conversation: ConversationSnap,
-  actions: ActionDef[]
+  actions: ActionDef[],
+  botConfig: Record<string, any>
 ): Promise<void> {
   const vars = await resolveVariables(conversation)
 
@@ -126,7 +132,14 @@ async function executeActions(
     switch (action.type) {
       case 'send_message': {
         if (!action.content) break
-        await sendBotMessage(workspaceId, conversation, interpolate(action.content, vars))
+        
+        let text = interpolate(action.content, vars)
+        // Apply persona tone tuning if enabled
+        if (botConfig.tone === 'formal') {
+            text = text.charAt(0).toUpperCase() + text.slice(1) // Simple formalization example
+        }
+        
+        await sendBotMessage(workspaceId, conversation, text)
         break
       }
       case 'assign_agent': {

@@ -3,29 +3,22 @@ import { authenticate } from '../../middleware/auth'
 import { requirePlan } from '../../middleware/planGate'
 import {
   telegramWebhook,
-  whatsappWebhookVerify,
-  whatsappWebhook,
-  instagramWebhookVerify,
-  instagramWebhook,
-  messengerWebhookVerify,
-  messengerWebhook,
+  metaWebhookVerify,
+  metaWebhook,
   getConversationsHandler,
   getMessagesHandler,
   sendMessageHandler,
   getChannelsHandler,
   upsertChannelConfigHandler
 } from './messaging.controller'
+import { metaWebhookVerify as gatewayVerify, metaWebhook as gatewayWebhook } from './webhook.gateway'
 
 const router = Router()
 
-// Public webhooks — no JWT, identified by workspaceId in URL
+// Public webhooks — no JWT, identified by workspaceId and platform in URL
 router.post('/webhooks/telegram/:workspaceId', telegramWebhook)
-router.get('/webhooks/whatsapp/:workspaceId', whatsappWebhookVerify)
-router.post('/webhooks/whatsapp/:workspaceId', whatsappWebhook)
-router.get('/webhooks/instagram/:workspaceId', instagramWebhookVerify)
-router.post('/webhooks/instagram/:workspaceId', instagramWebhook)
-router.get('/webhooks/messenger/:workspaceId', messengerWebhookVerify)
-router.post('/webhooks/messenger/:workspaceId', messengerWebhook)
+router.get('/webhooks/meta/:platform/:workspaceId', gatewayVerify)
+router.post('/webhooks/meta/:platform/:workspaceId', gatewayWebhook)
 
 // Authenticated inbox routes — PRO and SCALE plans only
 router.get('/messaging/channels', authenticate, requirePlan('PRO', 'SCALE'), getChannelsHandler)

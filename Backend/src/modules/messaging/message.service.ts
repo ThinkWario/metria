@@ -31,9 +31,12 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       name: senderName ?? senderExternalId,
       phone: senderExternalId,
       source,
+      sourceCampaignId: data.metadata?.campaign_id || null,
       status: 'LEAD'
     },
-    update: {}
+    update: {
+      sourceCampaignId: data.metadata?.campaign_id || contact?.sourceCampaignId
+    }
   })
 
   let isNewConversation = false
