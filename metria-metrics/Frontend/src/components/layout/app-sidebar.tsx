@@ -53,6 +53,7 @@ const menuItems: MenuItem[] = [
     { title: "Centro de Control", icon: BarChart3, url: "/dashboard" },
     { title: "Inbox (Chats)", icon: MessageSquare, url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "CRM", icon: Users, url: "/dashboard/crm", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Canales de Mensajería", icon: MessageSquare, url: "/dashboard/settings/channels", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Finanzas E-commerce", icon: Wallet, url: "/dashboard/finances", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
     { title: "Canales de Venta", icon: ShoppingBag, url: "/dashboard/sales", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
     { title: "Marketing & Ads", icon: Megaphone, url: "/dashboard/marketing", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
