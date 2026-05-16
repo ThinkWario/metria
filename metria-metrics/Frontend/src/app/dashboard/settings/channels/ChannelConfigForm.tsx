@@ -53,14 +53,24 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                             />
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="apiKey">API Key</Label>
+                            <Label htmlFor="appSecret">App Secret</Label>
                             <Input
-                                id="apiKey"
-                                name="apiKey"
+                                id="appSecret"
+                                name="appSecret"
                                 type="password"
-                                value={config.apiKey || ''}
+                                value={config.appSecret || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter your API key"
+                                placeholder="Enter Meta App Secret"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="verifyToken">Verify Token</Label>
+                            <Input
+                                id="verifyToken"
+                                name="verifyToken"
+                                value={config.verifyToken || ''}
+                                onChange={handleInputChange}
+                                placeholder="Enter Webhook Verify Token"
                             />
                         </div>
                     </>
@@ -87,6 +97,27 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 value={config.pageId || ''}
                                 onChange={handleInputChange}
                                 placeholder="Enter Instagram Page ID"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="appSecret">App Secret</Label>
+                            <Input
+                                id="appSecret"
+                                name="appSecret"
+                                type="password"
+                                value={config.appSecret || ''}
+                                onChange={handleInputChange}
+                                placeholder="Enter Meta App Secret"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="verifyToken">Verify Token</Label>
+                            <Input
+                                id="verifyToken"
+                                name="verifyToken"
+                                value={config.verifyToken || ''}
+                                onChange={handleInputChange}
+                                placeholder="Enter Webhook Verify Token"
                             />
                         </div>
                     </>
@@ -122,13 +153,34 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                             />
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="pageId">pageId</Label>
+                            <Label htmlFor="pageId">Page ID</Label>
                             <Input
                                 id="pageId"
                                 name="pageId"
                                 value={config.pageId || ''}
                                 onChange={handleInputChange}
                                 placeholder="Enter Messenger Page ID"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="appSecret">App Secret</Label>
+                            <Input
+                                id="appSecret"
+                                name="appSecret"
+                                type="password"
+                                value={config.appSecret || ''}
+                                onChange={handleInputChange}
+                                placeholder="Enter Meta App Secret"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="verifyToken">Verify Token</Label>
+                            <Input
+                                id="verifyToken"
+                                name="verifyToken"
+                                value={config.verifyToken || ''}
+                                onChange={handleInputChange}
+                                placeholder="Enter Webhook Verify Token"
                             />
                         </div>
                     </>
