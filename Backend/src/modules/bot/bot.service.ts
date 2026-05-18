@@ -18,7 +18,7 @@ export async function createAgent(
 export async function updateAgent(
   workspaceId: string,
   agentId: string,
-  data: { name?: string; isActive?: boolean; description?: string }
+  data: { name?: string; isActive?: boolean; description?: string; config?: Record<string, any> }
 ) {
   const agent = await prisma.botAgent.findFirst({ where: { id: agentId, workspaceId } })
   if (!agent) throw new Error('Agent not found')
