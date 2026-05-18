@@ -114,23 +114,25 @@ export async function parseWhatsAppUpdate(
         }
       }
 
-      // Process each text message
-      for (const msg of value.messages) {
-        if (msg.type === 'text' && msg.text?.body) {
-          try {
-            await processInboundMessage({
-              workspaceId,
-              channelId,
-              externalConversationId: msg.from,
-              externalMessageId: msg.id,
-              senderExternalId: msg.from,
-              senderName: contactMap.get(msg.from),
-              content: msg.text.body,
-              mediaUrl: undefined,
-              mediaType: undefined
-            })
-          } catch (err) {
-            console.error(`[WhatsApp] Failed to process message ${msg.id}:`, err)
+      // Inside loop for messages
+      if (msg.type === 'text' && msg.text?.body) {
+        try {
+          // Check for referral/ref data in payload (if available)
+          const metadata = (msg as any).referral ? { campaign_id: (msg as any).referral.ref } : {}
+
+          await processInboundMessage({
+            workspaceId,
+            channelId,
+            externalConversationId: msg.from,
+            externalMessageId: msg.id,
+            senderExternalId: msg.from,
+            senderName: contactMap.get(msg.from),
+            content: msg.text.body,
+            mediaUrl: undefined,
+            mediaType: undefined,
+            metadata
+          })
+        } catch (err) {            console.error(`[WhatsApp] Failed to process message ${msg.id}:`, err)
           }
         }
       }
