@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client'
+import { SOCKET_URL } from './constants'
 
 const g = globalThis as typeof globalThis & { _metriaSocket?: Socket }
 
@@ -21,9 +22,7 @@ export function getSocket(): Socket | null {
     }
   }
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api'
-  const baseUrl = apiUrl.replace(/\/api$/, '')
-  socket = io(baseUrl, { auth: { token }, transports: ['websocket'] })
+  socket = io(SOCKET_URL, { auth: { token }, transports: ['websocket'] })
   if (process.env.NODE_ENV === 'development') g._metriaSocket = socket
 
   return socket

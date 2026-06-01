@@ -8,6 +8,8 @@ A workspace with its ID is required for Mercado Pago and PayPal integrations. Cu
 - [x] Update `Backend/src/routes/onboarding.ts` to handle updating an existing workspace instead of returning an error if it already exists.
 - [x] Verify that Google login logic is correct and won't block payment flows.
 - [x] Run `/audit` to ensure visual and functional quality.
+- [x] Fix critical `TypeError` in `Backend/src/modules/ai-agent/ai.service.ts` (replaced `FunctionDeclarationSchemaType` with `SchemaType`).
+- [ ] Deploy backend fix to production and verify `/api/health` returns 200 OK.
 
 ## Progress
 - Implementation finished and verified.

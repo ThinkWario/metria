@@ -159,7 +159,7 @@ export default function AdminWorkspacesPage() {
                 </div>
                 <button
                     onClick={() => setIsCreateModalOpen(true)}
-                    className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-primary/30 active:scale-95"
+                    className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_0_35px_rgba(16,185,129,0.5)] hover:scale-[1.04] active:scale-[0.98]"
                 >
                     <Plus className="w-5 h-5" />
                     Expandir Flota

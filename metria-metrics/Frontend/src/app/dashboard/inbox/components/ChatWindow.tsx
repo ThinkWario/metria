@@ -3,19 +3,21 @@ import { useState, useRef, useEffect } from 'react'
 import type { Conversation, Message } from '@/hooks/useInbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { Send, MoreVertical, Phone, Video, Search, ShieldCheck } from 'lucide-react'
+import { Send, MoreVertical, Phone, Video, Search, ShieldCheck, Bot, Hand } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { Badge } from '@/components/ui/badge'
 
 interface Props {
   conversation: Conversation | null
   messages: Message[]
   loading: boolean
   onSend: (content: string) => Promise<void>
+  onHandover?: (conversationId: string) => Promise<void>
 }
 
-export function ChatWindow({ conversation, messages, loading, onSend }: Props) {
+export function ChatWindow({ conversation, messages, loading, onSend, onHandover }: Props) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -63,7 +65,14 @@ export function ChatWindow({ conversation, messages, loading, onSend }: Props) {
           <div>
             <div className="flex items-center gap-2">
                 <p className="text-sm font-black text-foreground leading-none">{conversation.contact.name}</p>
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                {conversation.isHandledByBot ? (
+                    <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 flex items-center gap-1 text-[9px] h-5">
+                        <Bot className="w-3 h-3" />
+                        IA Activa
+                    </Badge>
+                ) : (
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1 font-medium flex items-center gap-1.5 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -72,6 +81,17 @@ export function ChatWindow({ conversation, messages, loading, onSend }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-1">
+            {conversation.isHandledByBot && onHandover && (
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mr-2 h-8 rounded-xl bg-amber-500/10 border-amber-500/30 text-amber-600 hover:bg-amber-500/20"
+                    onClick={() => onHandover(conversation.id)}
+                >
+                    <Hand className="w-3.5 h-3.5 mr-1.5" />
+                    Tomar Control
+                </Button>
+            )}
             <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Phone className="w-4 h-4" /></Button>
             <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Video className="w-4 h-4" /></Button>
             <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Search className="w-4 h-4" /></Button>
@@ -92,6 +112,18 @@ export function ChatWindow({ conversation, messages, loading, onSend }: Props) {
         ) : (
           messages.map((msg, idx) => {
             const isLast = idx === messages.length - 1;
+
+            if (msg.senderType === 'SYSTEM') {
+                return (
+                    <div key={msg.id} className="flex justify-center my-2 animate-in fade-in zoom-in duration-500">
+                        <div className="bg-muted/30 border border-border/40 rounded-full px-4 py-1 text-[10px] text-muted-foreground font-medium flex items-center gap-2">
+                            <Bot className="w-3 h-3" />
+                            {msg.content}
+                        </div>
+                    </div>
+                )
+            }
+
             return (
                 <div
                 key={msg.id}
@@ -104,7 +136,7 @@ export function ChatWindow({ conversation, messages, loading, onSend }: Props) {
                     className={cn(
                     "max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-xl transition-all hover:scale-[1.02]",
                     msg.direction === 'OUTBOUND'
-                        ? 'bg-primary text-primary-foreground rounded-tr-sm border border-primary/20 shadow-primary/10'
+                        ? (msg.senderType === 'BOT' ? 'bg-indigo-600 text-white rounded-tr-sm shadow-indigo-500/20' : 'bg-primary text-primary-foreground rounded-tr-sm border border-primary/20 shadow-primary/10')
                         : 'bg-card border border-border/40 text-foreground rounded-tl-sm shadow-black/5'
                     )}
                 >
@@ -113,6 +145,7 @@ export function ChatWindow({ conversation, messages, loading, onSend }: Props) {
                         "text-[9px] mt-1.5 flex items-center gap-1 font-medium",
                         msg.direction === 'OUTBOUND' ? 'text-primary-foreground/60' : 'text-muted-foreground'
                     )}>
+                        {msg.senderType === 'BOT' && <span className="font-bold mr-1 uppercase">IA</span>}
                         {format(new Date(msg.sentAt), 'HH:mm', { locale: es })}
                         {msg.direction === 'OUTBOUND' && <span className="text-[11px]">✓✓</span>}
                     </div>

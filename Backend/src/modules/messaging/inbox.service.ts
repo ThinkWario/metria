@@ -122,3 +122,31 @@ export async function sendMessage(
       sentAt: message.sentAt
     })
 }
+
+export async function trackAiMetric(
+  workspaceId: string,
+  channelId: string,
+  metric: 'botHandledCount' | 'botResolvedCount' | 'humanHandoffCount'
+) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  await prisma.channelAnalyticSnapshot.upsert({
+    where: {
+      workspaceId_channelId_date: {
+        workspaceId,
+        channelId,
+        date: today
+      }
+    },
+    create: {
+      workspaceId,
+      channelId,
+      date: today,
+      [metric]: 1
+    },
+    update: {
+      [metric]: { increment: 1 }
+    }
+  })
+}

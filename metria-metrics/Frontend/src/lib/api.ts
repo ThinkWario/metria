@@ -1,6 +1,6 @@
 // src/lib/api.ts
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://bobyads-backend-m.3awmod.easypanel.host/api'
+import { API_BASE_URL } from './constants'
 
 // Helperes for fetching API
 
@@ -98,3 +98,15 @@ export const getCustomersLtv = (from?: string, to?: string) =>
 export const getReturns = (from?: string, to?: string) => 
     fetchAPI(`/metrics/returns${from && to ? `?from=${from}&to=${to}` : ''}`)
 export const getSystemLogs = () => fetchAPI('/logs')
+
+// AI Agent API methods
+export const getAiAgent = () => fetchAPI('/bot/agent')
+export const updateAiAgent = (agentId: string, data: Record<string, unknown>) => fetchAPI(`/bot/agent/${agentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data)
+})
+export const getAiChannels = () => fetchAPI('/bot/channels')
+export const toggleChannelAi = (platform: string, enabled: boolean) => fetchAPI(`/bot/channels/${platform}/ai`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled })
+})

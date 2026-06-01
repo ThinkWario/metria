@@ -39,8 +39,11 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
                 // Attach workspace to request for planGate and other middlewares
                 ;(req as any).workspace = workspace
 
+                // TEMPORAL: Bypass de expiración para plan Starter
+                const isStarter = workspace.plan === 'STARTER'
+                
                 // If trial expired, update status
-                if (workspace.subscriptionStatus === 'TRIAL' && workspace.trialEndsAt && workspace.trialEndsAt < new Date()) {
+                if (!isStarter && workspace.subscriptionStatus === 'TRIAL' && workspace.trialEndsAt && workspace.trialEndsAt < new Date()) {
                     await prisma.workspace.update({
                         where: { id: workspace.id },
                         data: { subscriptionStatus: 'EXPIRED', status: 'SUSPENDED' }
@@ -48,7 +51,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
                     return res.status(403).json({ error: 'Tu periodo de prueba ha expirado. Por favor, selecciona un plan de pago.', code: 'TRIAL_EXPIRED' })
                 }
 
-                if (workspace.status === 'SUSPENDED') {
+                if (!isStarter && workspace.status === 'SUSPENDED') {
                     return res.status(403).json({ error: 'Tu cuenta está suspendida. Por favor, revisa tu suscripción.', code: 'SUBSCRIPTION_REQUIRED' })
                 }
             }

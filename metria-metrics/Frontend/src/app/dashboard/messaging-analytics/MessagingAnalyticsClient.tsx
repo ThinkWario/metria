@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { fetchAPI } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import {
   AreaChart,
   Area,
@@ -11,6 +12,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
+import { Sparkles } from 'lucide-react'
 
 interface Snapshot {
   id: string
@@ -21,6 +23,9 @@ interface Snapshot {
   newContacts: number
   conversationsOpened: number
   conversationsResolved: number
+  botHandledCount: number
+  botResolvedCount: number
+  humanHandoffCount: number
   dealsCreated: number
   dealsWon: number
   dealsWonValue: number
@@ -33,6 +38,9 @@ interface FunnelSummary {
   newContacts: number
   conversationsOpened: number
   conversationsResolved: number
+  botHandledCount: number
+  botResolvedCount: number
+  humanHandoffCount: number
   dealsCreated: number
   dealsWon: number
   dealsWonValue: number
@@ -121,6 +129,9 @@ export default function MessagingAnalyticsClient() {
     newContacts: 0,
     conversationsOpened: 0,
     conversationsResolved: 0,
+    botHandledCount: 0,
+    botResolvedCount: 0,
+    humanHandoffCount: 0,
     dealsCreated: 0,
     dealsWon: 0,
     dealsWonValue: 0,
@@ -130,21 +141,21 @@ export default function MessagingAnalyticsClient() {
 
   const kpiCards = [
     { label: 'Messages In', value: s.totalInbound.toLocaleString() },
-    { label: 'Messages Out', value: s.totalOutbound.toLocaleString() },
     { label: 'New Contacts', value: s.newContacts.toLocaleString() },
     { label: 'Chats Opened', value: s.conversationsOpened.toLocaleString() },
-    { label: 'Deals Won', value: s.dealsWon.toLocaleString() },
+    { label: 'AI Responses', value: s.botHandledCount.toLocaleString(), highlight: true },
+    { label: 'AI Resolution', value: convRate(s.botResolvedCount, s.botHandledCount), highlight: true },
     { label: 'Revenue Won', value: formatCurrency(s.dealsWonValue) },
   ]
 
   const chartData = (() => {
-    const byDate = new Map<string, { date: string; opened: number; resolved: number; inbound: number }>()
+    const byDate = new Map<string, { date: string; opened: number; resolved: number; ai: number }>()
     for (const snap of snapshots) {
       const d = snap.date.slice(0, 10)
-      const existing = byDate.get(d) ?? { date: d, opened: 0, resolved: 0, inbound: 0 }
+      const existing = byDate.get(d) ?? { date: d, opened: 0, resolved: 0, ai: 0 }
       existing.opened += snap.conversationsOpened
       existing.resolved += snap.conversationsResolved
-      existing.inbound += snap.totalInbound
+      existing.ai += snap.botHandledCount
       byDate.set(d, existing)
     }
     return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
@@ -153,7 +164,8 @@ export default function MessagingAnalyticsClient() {
   const funnelRows: { label: string; value: string | number; rate: string }[] = [
     { label: 'New Contacts', value: s.newContacts, rate: '—' },
     { label: 'Chats Opened', value: s.conversationsOpened, rate: convRate(s.conversationsOpened, s.newContacts) },
-    { label: 'Chats Resolved', value: s.conversationsResolved, rate: convRate(s.conversationsResolved, s.conversationsOpened) },
+    { label: 'AI Handled', value: s.botHandledCount, rate: convRate(s.botHandledCount, s.conversationsOpened) },
+    { label: 'Human Handoffs', value: s.humanHandoffCount, rate: convRate(s.humanHandoffCount, s.botHandledCount) },
     { label: 'Deals Created', value: s.dealsCreated, rate: convRate(s.dealsCreated, s.conversationsOpened) },
     { label: 'Deals Won', value: s.dealsWon, rate: convRate(s.dealsWon, s.dealsCreated) },
     { label: 'Revenue', value: formatCurrency(s.dealsWonValue), rate: formatSeconds(s.avgResponseSeconds) },
@@ -172,9 +184,15 @@ export default function MessagingAnalyticsClient() {
         {kpiCards.map((card) => (
           <div
             key={card.label}
-            className="rounded-xl border bg-card p-4 space-y-1 shadow-sm"
+            className={cn(
+              "rounded-xl border bg-card p-4 space-y-1 shadow-sm",
+              (card as any).highlight && "border-primary/20 bg-primary/5"
+            )}
           >
-            <p className="text-xs text-muted-foreground font-medium">{card.label}</p>
+            <p className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              {(card as any).highlight && <Sparkles className="w-3 h-3 text-primary" />}
+              {card.label}
+            </p>
             <p className="text-xl font-bold tabular-nums">{card.value}</p>
           </div>
         ))}
@@ -199,9 +217,9 @@ export default function MessagingAnalyticsClient() {
                   <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
                   <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
                 </linearGradient>
-                <linearGradient id="colorInbound" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                <linearGradient id="colorAi" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -238,10 +256,10 @@ export default function MessagingAnalyticsClient() {
               />
               <Area
                 type="monotone"
-                dataKey="inbound"
-                name="Messages In"
-                stroke="#f59e0b"
-                fill="url(#colorInbound)"
+                dataKey="ai"
+                name="AI Responses"
+                stroke="#6366f1"
+                fill="url(#colorAi)"
                 strokeWidth={2}
                 dot={false}
               />

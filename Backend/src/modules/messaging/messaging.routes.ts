@@ -9,7 +9,8 @@ import {
   getMessagesHandler,
   sendMessageHandler,
   getChannelsHandler,
-  upsertChannelConfigHandler
+  upsertChannelConfigHandler,
+  handoverToHumanHandler
 } from './messaging.controller'
 import { metaWebhookVerify as gatewayVerify, metaWebhook as gatewayWebhook } from './webhook.gateway'
 
@@ -26,5 +27,6 @@ router.post('/messaging/channels/:platform/config', authenticate, requirePlan('P
 router.get('/messaging/conversations', authenticate, requirePlan('PRO', 'SCALE'), getConversationsHandler)
 router.get('/messaging/conversations/:conversationId/messages', authenticate, requirePlan('PRO', 'SCALE'), getMessagesHandler)
 router.post('/messaging/conversations/:conversationId/messages', authenticate, requirePlan('PRO', 'SCALE'), sendMessageHandler)
+router.post('/messaging/conversations/:conversationId/handover', authenticate, requirePlan('PRO', 'SCALE'), handoverToHumanHandler)
 
 export default router

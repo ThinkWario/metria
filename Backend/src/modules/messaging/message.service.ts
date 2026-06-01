@@ -1,6 +1,11 @@
 import { prisma } from '../../lib/prisma'
 import { getIO } from '../../lib/socket'
 import { tryRunBotFlows } from '../bot/flow.engine'
+import { processAiResponse } from '../ai-agent/ai.service'
+import { trackAiMetric } from './inbox.service'
+import { sendWhatsAppMessage } from './channels/whatsapp.service'
+import { sendInstagramMessage } from './channels/instagram.service'
+import { sendTelegramMessage } from './channels/telegram.service'
 import type { InboundMessageData, ProcessedMessage } from './types'
 
 const PLATFORM_TO_SOURCE: Record<string, string> = {
@@ -11,6 +16,25 @@ const PLATFORM_TO_SOURCE: Record<string, string> = {
   MESSENGER: 'MESSENGER'
 }
 
+async function sendPlatformMessage(
+  platform: string,
+  config: any,
+  to: string,
+  text: string
+): Promise<void> {
+  switch (platform) {
+    case 'WHATSAPP':
+      await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, to, text)
+      break
+    case 'INSTAGRAM':
+      await sendInstagramMessage(config.pageAccessToken, to, text)
+      break
+    case 'TELEGRAM':
+      await sendTelegramMessage(config.botToken, to, text)
+      break
+  }
+}
+
 export async function processInboundMessage(data: InboundMessageData): Promise<ProcessedMessage> {
   const {
     workspaceId, channelId, externalConversationId, externalMessageId,
@@ -19,7 +43,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { platform: true }
+    select: { platform: true, isAiEnabled: true, config: true }
   })
   if (!channel) throw new Error(`Channel not found: ${channelId}`)
   const source = PLATFORM_TO_SOURCE[channel.platform] ?? 'MANUAL'
@@ -35,7 +59,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       status: 'LEAD'
     },
     update: {
-      sourceCampaignId: data.metadata?.campaign_id || contact?.sourceCampaignId
+      sourceCampaignId: data.metadata?.campaign_id || undefined
     }
   })
 
@@ -59,7 +83,8 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
         channelId,
         contactId: contact.id,
         externalId: externalConversationId,
-        status: 'OPEN'
+        status: 'OPEN',
+        isHandledByBot: true // Default to bot for new conversations
       },
       include: { contact: { select: { id: true, name: true, status: true, phone: true } } }
     })
@@ -86,10 +111,37 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     include: { channel: { select: { platform: true, config: true } } }
   })
 
-  tryRunBotFlows(workspaceId, channelId, {
-    ...updatedConv,
-    contactId: contact.id
-  }, content).catch(err => console.error('[BotEngine]', err))
+  // 1. Try AI Agent if enabled for channel
+  if (channel.isAiEnabled && updatedConv.isHandledByBot) {
+    try {
+      const aiResponse = await processAiResponse(workspaceId, conversation.id, content)
+      if (aiResponse) {
+        await sendPlatformMessage(channel.platform, channel.config, conversation.externalId, aiResponse)
+        
+        // Broadcast AI message via socket
+        const io = getIO()
+        io.to(`workspace:${workspaceId}`).emit('message:new', {
+          conversationId: conversation.id,
+          direction: 'OUTBOUND',
+          senderType: 'BOT',
+          content: aiResponse,
+          sentAt: new Date()
+        })
+
+        // Track AI metric
+        await trackAiMetric(workspaceId, channelId, 'botHandledCount')
+      }
+    } catch (err) {
+      console.error('[AI Agent Error]', err)
+      // Fallback to rules if AI fails? or just log
+    }
+  } else {
+    // 2. Fallback to classic Rules engine
+    tryRunBotFlows(workspaceId, channelId, {
+      ...updatedConv,
+      contactId: contact.id
+    }, content).catch(err => console.error('[BotEngine]', err))
+  }
 
   const io = getIO()
   const room = `workspace:${workspaceId}`

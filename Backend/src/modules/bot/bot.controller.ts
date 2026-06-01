@@ -74,3 +74,23 @@ export async function upsertBusinessHoursHandler(req: AuthRequest, res: Response
     res.json(await bh.upsertBusinessHours(req.user!.workspaceId!, req.body))
   } catch (err: any) { res.status(500).json({ error: err.message }) }
 }
+
+export async function getPrimaryAgentHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    res.json(await bs.getPrimaryAgent(req.user!.workspaceId!))
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
+export async function listAiChannelsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    res.json(await bs.listChannelsWithAiStatus(req.user!.workspaceId!))
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
+export async function toggleChannelAiHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { platform } = req.params
+    const { enabled } = req.body
+    res.json(await bs.toggleChannelAi(req.user!.workspaceId!, platform, enabled))
+  } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
+}

@@ -15,6 +15,9 @@ export async function aggregateChannelSnapshot(
     newContacts,
     conversationsOpened,
     conversationsResolved,
+    botHandledCount,
+    botResolvedCount,
+    humanHandoffCount,
     dealsCreated,
     dealsWon,
     dealsWonAgg,
@@ -34,6 +37,15 @@ export async function aggregateChannelSnapshot(
     }),
     prisma.conversation.count({
       where: { channelId, status: 'RESOLVED', updatedAt: { gte: start, lte: end } }
+    }),
+    prisma.message.count({
+      where: { conversation: { channelId }, direction: 'OUTBOUND', senderType: 'BOT', sentAt: { gte: start, lte: end } }
+    }),
+    prisma.conversation.count({
+      where: { channelId, status: 'RESOLVED', isHandledByBot: true, updatedAt: { gte: start, lte: end } }
+    }),
+    prisma.message.count({
+      where: { conversation: { channelId }, direction: 'OUTBOUND', senderType: 'SYSTEM', content: { contains: 'tomó el control' }, sentAt: { gte: start, lte: end } }
     }),
     prisma.deal.count({
       where: {
@@ -86,6 +98,9 @@ export async function aggregateChannelSnapshot(
       newContacts,
       conversationsOpened,
       conversationsResolved,
+      botHandledCount,
+      botResolvedCount,
+      humanHandoffCount,
       avgFirstResponseSeconds,
       dealsCreated,
       dealsWon,
@@ -98,6 +113,9 @@ export async function aggregateChannelSnapshot(
       newContacts,
       conversationsOpened,
       conversationsResolved,
+      botHandledCount,
+      botResolvedCount,
+      humanHandoffCount,
       avgFirstResponseSeconds,
       dealsCreated,
       dealsWon,
@@ -156,6 +174,9 @@ export async function getFunnelSummary(workspaceId: string, days = 90) {
     newContacts: s.newContacts ?? 0,
     conversationsOpened: opened,
     conversationsResolved: resolved,
+    botHandledCount: s.botHandledCount ?? 0,
+    botResolvedCount: s.botResolvedCount ?? 0,
+    humanHandoffCount: s.humanHandoffCount ?? 0,
     dealsCreated: s.dealsCreated ?? 0,
     dealsWon: s.dealsWon ?? 0,
     dealsWonValue: Number(s.dealsWonValue ?? 0),

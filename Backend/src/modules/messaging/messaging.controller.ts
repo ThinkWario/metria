@@ -207,3 +207,36 @@ export async function upsertChannelConfigHandler(req: Request, res: Response): P
     res.status(500).json({ error: 'Failed to upsert channel config' })
   }
 }
+export async function handoverToHumanHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+
+    await prisma.conversation.update({
+      where: { id: conversationId, workspaceId },
+      data: { isHandledByBot: false }
+    })
+
+    // Track metric
+    const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { channelId: true } })
+    if (conv) {
+      await trackAiMetric(workspaceId, conv.channelId, 'humanHandoffCount')
+    }
+
+    // Log system action
+    await prisma.message.create({
+      data: {
+        workspaceId,
+        conversationId,
+        direction: 'OUTBOUND',
+        senderType: 'SYSTEM',
+        content: 'El agente humano tomó el control de la conversación.',
+        isInternal: true
+      }
+    })
+    
+    res.json({ ok: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}

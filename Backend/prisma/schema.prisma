@@ -543,6 +543,9 @@ model BotAgent {
   name        String
   avatarUrl   String?    @map("avatar_url")
   description String?
+  promptBase  String?    @map("prompt_base")
+  tone        String     @default("neutral") // formal | friendly | neutral
+  provider    String     @default("gemini")
   isActive    Boolean    @default(true) @map("is_active")
   createdAt   DateTime   @default(now()) @map("created_at")
   workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -610,6 +613,9 @@ model ChannelAnalyticSnapshot {
   newContacts             Int       @default(0) @map("new_contacts")
   conversationsOpened     Int       @default(0) @map("conversations_opened")
   conversationsResolved   Int       @default(0) @map("conversations_resolved")
+  botHandledCount         Int       @default(0) @map("bot_handled_count")
+  botResolvedCount        Int       @default(0) @map("bot_resolved_count")
+  humanHandoffCount       Int       @default(0) @map("human_handoff_count")
   avgFirstResponseSeconds Int       @default(0) @map("avg_first_response_seconds")
   dealsCreated            Int       @default(0) @map("deals_created")
   dealsWon                Int       @default(0) @map("deals_won")

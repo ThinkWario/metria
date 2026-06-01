@@ -2,8 +2,7 @@
 
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://bobyads-backend-m.3awmod.easypanel.host/api'
+import { API_BASE_URL } from "@/lib/constants"
 
 export async function login(formData: FormData) {
     const email = formData.get("email")

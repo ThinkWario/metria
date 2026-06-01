@@ -19,9 +19,10 @@ export function requirePlan(...plans: string[]) {
         userEmail === 'admin@metria.com' || 
         userEmail === 'superadmin@metria.ai' ||
         req.user?.role === 'SUPER_ADMIN' ||
-        req.user?.role === 'ADMIN'
+        req.user?.role === 'ADMIN' ||
+        workspace?.plan === 'STARTER' // TEMPORAL: Permitir acceso total al plan Starter
     ) {
-      console.log(`[PlanGate] Bypass granted for user: ${userEmail} (Role: ${req.user?.role})`)
+      console.log(`[PlanGate] Bypass granted for user: ${userEmail} (Plan: ${workspace?.plan}, Role: ${req.user?.role})`)
       return next()
     }
 

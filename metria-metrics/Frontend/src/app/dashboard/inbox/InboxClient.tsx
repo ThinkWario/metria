@@ -48,6 +48,7 @@ export function InboxClient() {
         messages={messages}
         loading={loadingMsgs}
         onSend={sendMessage}
+        onHandover={handoverToHuman}
       />
       <ContactPanel contact={selectedConv?.contact ?? null} />
     </div>

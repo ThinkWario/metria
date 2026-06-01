@@ -24,6 +24,7 @@ import messagingRoutes from './modules/messaging/messaging.routes'
 import crmRoutes from './modules/crm/crm.routes'
 import botRoutes from './modules/bot/bot.routes'
 import analyticsRoutes from './modules/analytics/analytics.routes'
+import { startNurturingCron } from './modules/ai-agent/nurturing.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 
 const app = express()
@@ -65,6 +66,7 @@ app.use('/api', analyticsRoutes)
 
 // Start cron jobs
 startAnalyticsCron()
+startNurturingCron()
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

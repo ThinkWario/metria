@@ -16,6 +16,7 @@
 - **Typography**: Adherencia total a Kinetic Typography standards.
 
 ## ❌ Critical Fails (Immediate Fix Required)
+- **Production Crash (FIXED)**: El backend estaba en un loop de reinicio debido a un `TypeError` en `ai.service.ts`. Se corrigió el uso de `FunctionDeclarationSchemaType` por `SchemaType` en la librería `@google/generative-ai`.
 - **Infrastructure**: Las herramientas de base de datos de Easypanel (`PgWeb`, `DbGate`) están caídas o inaccesibles en producción (`Service is not reachable`). Esto impide la gestión administrativa manual.
 - **Functional Block**: El usuario principal está atrapado en un plan gratuito, lo que bloquea el Inbox y la inicialización de WebSockets en producción.
 
@@ -25,7 +26,8 @@
 ---
 
 ## 🛠️ Acciones Realizadas
-1. **Validación de Routing**: Confirmado mediante `curl` que los webhooks de Meta y Telegram están vivos en `bobyads-backend-m.3awmod.easypanel.host`.
+1. **Fix Crítico de Producción**: Reemplazado `FunctionDeclarationSchemaType` por `SchemaType` para resolver el crash del backend en `@google/generative-ai@0.24.1`.
+2. **Validación de Routing**: Confirmado mediante `curl` que los webhooks de Meta y Telegram están vivos en `bobyads-backend-m.3awmod.easypanel.host`.
 2. **Simulación Lógica**: Ejecutado `test-webhooks.ts` en local con éxito, confirmando que el backend procesa firmas HMAC y guarda mensajes correctamente.
 3. **Audit Script**: Desplegado `phase3_production_audit.spec.ts` para monitoreo continuo del estado de Vercel.
 

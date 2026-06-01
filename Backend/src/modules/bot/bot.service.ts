@@ -85,3 +85,32 @@ export async function deleteFlow(workspaceId: string, flowId: string) {
   if (!flow) throw new Error('Flow not found')
   await prisma.botFlow.delete({ where: { id: flowId, workspaceId } })
 }
+
+export async function getPrimaryAgent(workspaceId: string) {
+  let agent = await prisma.botAgent.findFirst({
+    where: { workspaceId },
+    orderBy: { createdAt: 'desc' }
+  })
+  if (!agent) {
+    agent = await prisma.botAgent.create({
+      data: { workspaceId, name: 'Asistente Metria', tone: 'neutral' }
+    })
+  }
+  return agent
+}
+
+export async function toggleChannelAi(workspaceId: string, platform: string, isAiEnabled: boolean) {
+  const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: platform.toUpperCase() } })
+  if (!channel) throw new Error('Channel not found')
+  return prisma.channel.update({
+    where: { id: channel.id },
+    data: { isAiEnabled }
+  })
+}
+
+export async function listChannelsWithAiStatus(workspaceId: string) {
+  return prisma.channel.findMany({
+    where: { workspaceId },
+    select: { platform: true, name: true, status: true, isAiEnabled: true }
+  })
+}

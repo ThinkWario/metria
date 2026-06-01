@@ -4,11 +4,17 @@ import { requirePlan } from '../../middleware/planGate'
 import {
   listAgentsHandler, createAgentHandler, updateAgentHandler, deleteAgentHandler,
   listFlowsHandler, createFlowHandler, updateFlowHandler, deleteFlowHandler,
-  getBusinessHoursHandler, upsertBusinessHoursHandler
+  getBusinessHoursHandler, upsertBusinessHoursHandler,
+  getPrimaryAgentHandler, listAiChannelsHandler, toggleChannelAiHandler
 } from './bot.controller'
 
 const router = Router()
 const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
+
+router.get('/bot/agent', ...auth, getPrimaryAgentHandler)
+router.patch('/bot/agent/:agentId', ...auth, updateAgentHandler)
+router.get('/bot/channels', ...auth, listAiChannelsHandler)
+router.patch('/bot/channels/:platform/ai', ...auth, toggleChannelAiHandler)
 
 router.get('/bots/agents', ...auth, listAgentsHandler)
 router.post('/bots/agents', ...auth, createAgentHandler)

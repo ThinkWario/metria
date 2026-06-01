@@ -44,7 +44,7 @@ export function UnconfiguredState({
             {/* CTA */}
             <button
                 onClick={() => router.push("/dashboard/settings?tab=integrations")}
-                className="flex items-center gap-2 px-8 py-3.5 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 active:scale-95 transition-all shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-primary/30 text-sm"
+                className="flex items-center gap-2 px-8 py-3.5 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 hover:scale-[1.04] active:scale-[0.95] transition-all shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_0_35px_rgba(16,185,129,0.5)] text-sm"
             >
                 <Settings2 className="w-4 h-4" />
                 Ir a Configuración Técnica

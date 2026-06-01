@@ -1,8 +1,7 @@
 "use server"
 
 import { cookies } from "next/headers"
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:4000/api'
+import { API_BASE_URL } from "@/lib/constants"
 
 export async function signup(formData: FormData) {
     const workspaceName = formData.get("workspaceName")

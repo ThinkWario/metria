@@ -9,6 +9,7 @@ export interface Conversation {
   status: 'OPEN' | 'PENDING' | 'CLOSED'
   messageCount: number
   lastMessageAt?: string
+  isHandledByBot: boolean
   contact: { 
     id: string; 
     name: string; 
@@ -26,7 +27,7 @@ export interface Message {
   id: string
   conversationId: string
   direction: 'INBOUND' | 'OUTBOUND'
-  senderType: 'CONTACT' | 'AGENT' | 'BOT'
+  senderType: 'CONTACT' | 'AGENT' | 'BOT' | 'SYSTEM'
   content?: string
   sentAt: string
 }
@@ -42,7 +43,6 @@ export function useInbox() {
   // Load conversations on mount
   useEffect(() => {
     fetchAPI('/messaging/conversations?status=OPEN')
-      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json() })
       .then((data: Conversation[]) => setConversations(data))
       .catch(console.error)
       .finally(() => setLoadingConvs(false))
@@ -53,7 +53,6 @@ export function useInbox() {
     if (!selectedId) { setMessages([]); return }
     setLoadingMsgs(true)
     fetchAPI(`/messaging/conversations/${selectedId}/messages`)
-      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json() })
       .then((data: Message[]) => setMessages(data))
       .catch(console.error)
       .finally(() => setLoadingMsgs(false))
@@ -90,18 +89,28 @@ export function useInbox() {
     if (!selectedId || !content.trim()) return
     setSendingMessage(true)
     try {
-      const res = await fetchAPI(`/messaging/conversations/${selectedId}/messages`, {
+      await fetchAPI(`/messaging/conversations/${selectedId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content.trim() })
       })
-      if (!res.ok) throw new Error(await res.text())
     } catch (err) {
       setSendingMessage(false)
       throw err
     }
     setSendingMessage(false)
   }, [selectedId])
+
+  const handoverToHuman = useCallback(async (conversationId: string) => {
+    try {
+      await fetchAPI(`/messaging/conversations/${conversationId}/handover`, {
+        method: 'POST'
+      })
+      // Update local state
+      setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, isHandledByBot: false } : c))
+    } catch (err) {
+      console.error('Handover failed', err)
+    }
+  }, [])
 
   return {
     conversations,
@@ -111,6 +120,7 @@ export function useInbox() {
     loadingConvs,
     loadingMsgs,
     sendingMessage,
-    sendMessage
+    sendMessage,
+    handoverToHuman
   }
 }
