@@ -24,7 +24,7 @@ export const MetaAIOrchestrator = () => {
                 .filter(([_, enabled]) => enabled)
                 .map(([key]) => key)
             
-            await fetchAPI('/api/meta-ai/sync', {
+            await fetchAPI('/meta-ai/sync', {
                 method: 'POST',
                 body: JSON.stringify({ entities })
             })

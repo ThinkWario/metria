@@ -2,90 +2,89 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
-async function main() {
-  const workspaceId = 'workspace-default'
-  
-  console.log('Poblando base de datos con datos de prueba premium...')
+async function seedDemoData() {
+  console.log('🌱 Seeding extended demo data for workspace-default...')
 
-  // 1. Asegurar que existe un Canal (WhatsApp)
-  const channel = await prisma.channel.upsert({
-    where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
-    update: { status: 'CONNECTED' },
+  const workspaceId = 'workspace-default'
+
+  // 1. Get the admin user
+  const admin = await prisma.user.findFirst({ where: { email: 'admin@metria.com' } })
+  if (!admin) {
+    console.error('❌ Admin user not found.')
+    return
+  }
+
+  // 2. Create a Pipeline if not exists
+  const pipeline = await prisma.pipeline.upsert({
+    where: { workspaceId_name: { workspaceId, name: 'Ventas Directas' } },
+    update: {},
     create: {
       workspaceId,
-      platform: 'WHATSAPP',
-      name: 'WhatsApp Business',
-      status: 'CONNECTED'
+      name: 'Ventas Directas',
+      isDefault: true
     }
   })
 
-  // 2. Crear Contactos Realistas
-  const contactData = [
-    { name: 'Juan Pérez', email: 'juan.perez@gmail.com', status: 'VIP', ltv: 1500.50, source: 'SHOPIFY' },
-    { name: 'María García', email: 'm.garcia@outlook.com', status: 'CUSTOMER', ltv: 450.20, source: 'META_AD' },
-    { name: 'Carlos Rodríguez', email: 'crodriguez@gmail.com', status: 'LEAD', ltv: 0, source: 'GOOGLE_AD' },
-    { name: 'Ana Martínez', email: 'ana.mtz@gmail.com', status: 'PROSPECT', ltv: 0, source: 'TIKTOK' },
-    { name: 'Roberto Gómez', email: 'roberto.gomez@empresa.com', status: 'CUSTOMER', ltv: 890.00, source: 'MANUAL' },
+  // 3. Create Pipeline Stages
+  const stages = [
+    { name: 'Lead', order: 0 },
+    { name: 'Cotización', order: 1 },
+    { name: 'Negociación', order: 2 },
+    { name: 'Cerrado Ganado', order: 3 }
   ]
 
-  for (const c of contactData) {
-    const contact = await prisma.contact.upsert({
-      where: { workspaceId_email: { workspaceId, email: c.email } },
-      update: { status: c.status, ltv: c.ltv },
+  const createdStages = []
+  for (const s of stages) {
+    const stage = await prisma.pipelineStage.upsert({
+      where: { pipelineId_name: { pipelineId: pipeline.id, name: s.name } },
+      update: { order: s.order },
       create: {
-        workspaceId,
-        name: c.name,
-        email: c.email,
-        status: c.status,
-        ltv: c.ltv,
-        source: c.source,
-        phone: `+57300${Math.floor(1000000 + Math.random() * 9000000)}`,
+        pipelineId: pipeline.id,
+        name: s.name,
+        order: s.order
       }
     })
+    createdStages.push(stage)
+  }
 
-    // 3. Crear una conversación para cada contacto
-    const conversation = await prisma.conversation.create({
-      data: {
-        workspaceId,
-        channelId: channel.id,
-        contactId: contact.id,
-        externalId: `ext_${contact.id}`,
-        status: Math.random() > 0.5 ? 'OPEN' : 'PENDING',
-        lastMessageAt: new Date(),
-      }
-    })
-
-    // 4. Crear mensajes para la conversación
-    await prisma.message.createMany({
-      data: [
-        {
-          workspaceId,
-          conversationId: conversation.id,
-          content: 'Hola, me gustaría saber más sobre sus productos.',
-          direction: 'INBOUND',
-          senderType: 'CONTACT',
-          sentAt: new Date(Date.now() - 3600000),
-        },
-        {
-          workspaceId,
-          conversationId: conversation.id,
-          content: '¡Hola! Claro que sí, ¿en qué podemos ayudarte hoy?',
-          direction: 'OUTBOUND',
-          senderType: 'AGENT',
-          sentAt: new Date(Date.now() - 1800000),
+  // 4. Create some Deals for our simulated contacts
+  const contacts = await prisma.contact.findMany({ where: { workspaceId } })
+  
+  for (let i = 0; i < contacts.length; i++) {
+    const contact = contacts[i]
+    await prisma.deal.upsert({
+        where: { id: `deal-demo-${contact.id}` },
+        update: {},
+        create: {
+            id: `deal-demo-${contact.id}`,
+            workspaceId,
+            contactId: contact.id,
+            pipelineId: pipeline.id,
+            stageId: createdStages[i % createdStages.length].id,
+            title: `Interés en ${i === 0 ? 'Limpiador' : 'Envíos'}`,
+            value: 50000 + (i * 10000),
+            status: 'OPEN'
         }
-      ]
     })
   }
 
-  console.log('¡Base de datos poblada exitosamente!')
+  // 5. Create some Tickets
+  for (let i = 0; i < 2; i++) {
+    await prisma.ticket.create({
+        data: {
+            workspaceId,
+            contactId: contacts[i].id,
+            title: i === 0 ? 'Problema con pago' : 'Duda sobre stock',
+            description: 'El cliente reporta una inconsistencia en el flujo demo.',
+            status: 'OPEN',
+            priority: 'HIGH'
+        }
+    })
+  }
+
+  console.log('✅ Extended demo data seeded successfully.')
 }
 
-main()
-  .catch((e) => {
-    console.error(e)
-    process.exit(1)
-  })
-  .finally(async () => {
-    await prisma.$disconnect()
-  })
+seedDemoData()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect())

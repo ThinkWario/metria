@@ -24,7 +24,7 @@ export const ChannelsClient = () => {
         setLoading(true)
         setError(null)
         try {
-            const data = await fetchAPI('/api/messaging/channels')
+            const data = await fetchAPI('/messaging/channels')
             setChannels(data)
         } catch (err: any) {
             setError(err.message || 'Failed to load channel statuses')

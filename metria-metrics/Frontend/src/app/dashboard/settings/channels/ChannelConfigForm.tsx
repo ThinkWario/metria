@@ -24,7 +24,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
         e.preventDefault()
         setLoading(true)
         try {
-            await fetchAPI(`/api/messaging/channels/${platform}/config`, {
+            await fetchAPI(`/messaging/channels/${platform}/config`, {
                 method: 'POST',
                 body: JSON.stringify(config),
             })
