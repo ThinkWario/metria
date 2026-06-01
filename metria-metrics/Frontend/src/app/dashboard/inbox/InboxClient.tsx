@@ -16,7 +16,8 @@ export function InboxClient() {
     messages,
     loadingConvs,
     loadingMsgs,
-    sendMessage
+    sendMessage,
+    handoverToHuman
   } = useInbox()
 
   const selectedConv = conversations.find(c => c.id === selectedId) ?? null
