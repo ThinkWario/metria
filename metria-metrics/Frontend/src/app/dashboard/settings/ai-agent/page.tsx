@@ -17,6 +17,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function AiAgentSettingsPage() {
     const queryClient = useQueryClient()
+    const [mounted, setMounted] = useState(false)
+
+    useEffect(() => {
+        setMounted(true)
+    }, [])
     
     // Queries
     const { data: agent, isLoading: isLoadingAgent } = useQuery({

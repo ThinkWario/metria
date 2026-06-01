@@ -28,7 +28,8 @@ import {
     ShieldAlert,
     Smartphone,
     MessageSquare,
-    Users
+    Users,
+    Bot
 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import Link from "next/link"

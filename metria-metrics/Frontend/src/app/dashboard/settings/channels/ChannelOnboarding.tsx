@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { Card, CardContent, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Steps } from '@/components/ui/steps' // Asumiendo que existe o crearemos un componente simple de pasos
 import { ChannelConfigForm } from './ChannelConfigForm'
 
 export const ChannelOnboarding = ({ onComplete }: { onComplete: () => void }) => {
@@ -17,7 +16,7 @@ export const ChannelOnboarding = ({ onComplete }: { onComplete: () => void }) =>
                 <h3 className="text-lg font-semibold capitalize">Setting up: {channels[step]}</h3>
                 <ChannelConfigForm 
                     platform={channels[step] as any} 
-                    onSuccess={() => {
+                    onSaveSuccess={() => {
                         if (step < channels.length - 1) setStep(step + 1)
                         else onComplete()
                     }}
