@@ -6,6 +6,7 @@ import { trackAiMetric } from './inbox.service'
 import { sendWhatsAppMessage } from './channels/whatsapp.service'
 import { sendInstagramMessage } from './channels/instagram.service'
 import { sendTelegramMessage } from './channels/telegram.service'
+import { LifecycleService } from '../crm/lifecycle.service'
 import type { InboundMessageData, ProcessedMessage } from './types'
 
 const PLATFORM_TO_SOURCE: Record<string, string> = {
@@ -104,6 +105,15 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       status: 'DELIVERED'
     }
   })
+
+  // Trigger CRM Lifecycle Logic (Async)
+  LifecycleService.handleSignal({
+    workspaceId,
+    contactId: contact.id,
+    platform: channel.platform,
+    content,
+    metadata: data.metadata
+  }).catch(err => console.error('[Lifecycle Signal Error]', err))
 
   const updatedConv = await prisma.conversation.update({
     where: { id: conversation.id },

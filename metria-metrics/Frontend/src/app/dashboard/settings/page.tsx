@@ -19,6 +19,7 @@ import { activatePayPalSubscription } from "@/app/onboarding/actions"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { useUserStore } from "@/store/useUserStore"
 import { BillingSection } from "@/components/settings/billing-section"
+import { IntegrationHub } from "@/components/settings/integration-hub"
 
 // Table structure for system event logs
 
@@ -72,6 +73,24 @@ function SettingsContent() {
             setStrictAttribution(globalSettings.strictAttribution || false)
         }
     }, [globalSettings])
+
+    // Handle OAuth Callback Messages
+    useEffect(() => {
+        const success = searchParams.get('success')
+        const error = searchParams.get('error')
+        const platform = searchParams.get('platform')
+
+        if (success === 'true') {
+            toast.success(`¡Conexión Exitosa!`, {
+                description: `Se ha enlazado correctamente con ${platform}.`
+            })
+            queryClient.invalidateQueries({ queryKey: ['settings', 'integrations'] })
+        } else if (error) {
+            toast.error("Fallo en la conexión", {
+                description: decodeURIComponent(error)
+            })
+        }
+    }, [searchParams, queryClient])
 
     useEffect(() => {
         if (user?.role === "OPERATOR") {
@@ -239,200 +258,21 @@ function SettingsContent() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-                {/* API Hub */}
-                <Card className="bg-card/30 backdrop-blur-xl border border-border/50 flex flex-col">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Unplug className="h-5 w-5 text-primary" />
-                            API Hub (Conexiones)
-                        </CardTitle>
-                        <CardDescription>Estado de integración con plataformas de terceros.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4 flex-1">
-                        {connections.map((api) => (
-                            <div key={api.id} className="flex items-center justify-between p-3 border border-border/50 rounded-lg bg-background/50 hover:bg-background/80 transition-colors">
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-full ${api.status === 'Connected' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
-                                        {api.status === 'Connected' ? <CheckCircle2 className="h-4 w-4" /> : <Database className="h-4 w-4" />}
-                                    </div>
-                                    <div>
-                                        <div className="font-medium text-sm">{api.name}</div>
-                                        <div className="text-[11px] text-muted-foreground">{api.type} • Sync: {api.lastSync ? new Date(api.lastSync).toLocaleString() : 'Nunca'}</div>
-                                    </div>
-                                </div>
-                                <Badge className={getStatusColorClass(api.status)}>
-                                    {mapStatus(api.status)}
-                                </Badge>
-                            </div>
-                        ))}
-                    </CardContent>
-                    <CardFooter>
-                        <Dialog open={isApiDialogOpen} onOpenChange={(open) => {
-                            if (!canEdit) return;
-                            setIsApiDialogOpen(open)
-                            if (open) {
-                                setApiForm({
-                                    platform: "shopify",
-                                    config: connections.find(c => c.platform === "shopify")?.config || {}
-                                })
-                            }
-                        }}>
-                            <DialogTrigger asChild>
-                                {canEdit && (
-                                    <Button variant="outline" className="w-full">
-                                        <Key className="mr-2 h-4 w-4" />
-                                        Actualizar Tokens de Acceso
-                                    </Button>
-                                )}
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-[425px]">
-                                <DialogHeader>
-                                    <DialogTitle>Editar Conexiones API</DialogTitle>
-                                    <DialogDescription>
-                                        Ingresa tus credenciales para enlazar Metria Metrics de forma segura.
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <div className="grid gap-4 py-4">
-                                    <div className="space-y-2">
-                                        <Label>Plataforma Origen</Label>
-                                        <Select value={apiForm.platform} onValueChange={(v) => {
-                                            setApiForm({
-                                                platform: v,
-                                                config: connections.find(c => c.platform === v)?.config || {}
-                                            })
-                                        }}>
-                                            <SelectTrigger>
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="shopify">Shopify (Admin API / Webhooks)</SelectItem>
-                                                <SelectItem value="meta">Meta Ads (Graph API)</SelectItem>
-                                                <SelectItem value="google">Google Ads API</SelectItem>
-                                                <SelectItem value="tiktok">TikTok Ads API</SelectItem>
-                                                <SelectItem value="dropi">Dropi Logistics</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-
-                                    {apiForm.platform === 'shopify' && (
-                                        <>
-                                            <div className="space-y-2">
-                                                <Label>Shopify Domain</Label>
-                                                <Input placeholder="tienda.myshopify.com" value={apiForm.config.domain || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, domain: e.target.value } })} />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Admin API Access Token (shpat_...)</Label>
-                                                <Input type="password" placeholder="shpat_..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {apiForm.platform === 'meta' && (
-                                        <>
-                                            <div className="space-y-2">
-                                                <Label>Ad Account ID (act_...)</Label>
-                                                <Input placeholder="act_123456789" value={apiForm.config.adAccountId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, adAccountId: e.target.value } })} />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>System User Access Token</Label>
-                                                <Input type="password" placeholder="EAAB..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {apiForm.platform === 'tiktok' && (
-                                        <>
-                                            <div className="space-y-2">
-                                                <Label>Advertiser ID</Label>
-                                                <Input placeholder="Ej. 123456789" value={apiForm.config.adAccountId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, adAccountId: e.target.value } })} />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Access Token (Marketing API)</Label>
-                                                <Input type="password" placeholder="Token de acceso..." value={apiForm.config.accessToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, accessToken: e.target.value } })} />
-                                            </div>
-                                            <div className="pt-4 border-t border-border/50">
-                                                <Label className="text-[#FE2C55] font-semibold flex items-center gap-2">
-                                                    <ShieldCheck className="h-4 w-4" />
-                                                    TikTok Events API (Opcional)
-                                                </Label>
-                                                <p className="text-[10px] text-muted-foreground mt-1 mb-3">
-                                                    Configura la Events API para medir el ROAS real ignorando bloqueadores de anuncios.
-                                                </p>
-                                                <div className="space-y-3">
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-[11px]">Pixel ID</Label>
-                                                        <Input placeholder="Ej. C123456789" value={apiForm.config.pixelId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, pixelId: e.target.value } })} />
-                                                    </div>
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-[11px]">Events API Access Token</Label>
-                                                        <Input type="password" placeholder="api_access_token..." value={apiForm.config.eventsToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, eventsToken: e.target.value } })} />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {apiForm.platform === 'google' && (
-                                        <>
-                                            <div className="space-y-2">
-                                                <Label>Customer ID (123-456-7890)</Label>
-                                                <Input placeholder="123-456-7890" value={apiForm.config.customerId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, customerId: e.target.value } })} />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Manager ID (MCC)</Label>
-                                                <Input placeholder="123-456-7890 (opcional, solo si usas cuenta Manager)" value={apiForm.config.managerId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, managerId: e.target.value } })} />
-                                                <p className="text-[10px] text-muted-foreground">Solo requerido si tu cuenta está bajo un MCC (Manager Account).</p>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Developer Token</Label>
-                                                <Input type="password" placeholder="..." value={apiForm.config.developerToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, developerToken: e.target.value } })} />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>OAuth Client ID</Label>
-                                                <Input type="text" placeholder="Tu Client ID de Google Cloud..." value={apiForm.config.clientId || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, clientId: e.target.value } })} />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>OAuth Client Secret</Label>
-                                                <Input type="password" placeholder="Tu Client Secret..." value={apiForm.config.clientSecret || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, clientSecret: e.target.value } })} />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label>Refresh Token</Label>
-                                                <Input type="password" placeholder="1//0g..." value={apiForm.config.refreshToken || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, refreshToken: e.target.value } })} />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {apiForm.platform === 'dropi' && (
-                                        <div className="space-y-4">
-                                            <div className="space-y-2">
-                                                <Label>API Key Dropi</Label>
-                                                <Input type="password" placeholder="Key Dropi..." value={apiForm.config.apiKey || ''} onChange={(e) => setApiForm({ ...apiForm, config: { ...apiForm.config, apiKey: e.target.value } })} />
-                                            </div>
-
-                                            <div className="pt-2 border-t border-border/50">
-                                                <Label className="text-primary font-medium">Webhook URL de Sincronización</Label>
-                                                <p className="text-xs text-muted-foreground mt-1 mb-2">
-                                                    Copia este enlace y configúralo en el panel de Dropi para recibir estados de paquetería automáticamente.
-                                                </p>
-                                                <div className="flex gap-2">
-                                                    <code className="flex-1 p-2 rounded bg-muted text-[10px] break-all border border-border/50 select-all">
-                                                        https://tu-dominio.com/api/dropi/webhooks/status?workspaceId={user?.workspaceId || ''}
-                                                    </code>
-                                                </div>
-                                                <p className="text-[10px] text-muted-foreground mt-2">
-                                                    (Reemplaza &quot;tu-dominio.com&quot; por el dominio real de tu API en producción)
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                                <DialogFooter>
-                                    <Button type="button" onClick={handleSaveTokens} disabled={saveTokensMutation.isPending}>{saveTokensMutation.isPending ? "Guardando..." : "Guardar Conexión"}</Button>
-                                </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
-                    </CardFooter>
-                </Card>
+                {/* Omni-OAuth Integration Hub */}
+                <div className="md:col-span-2">
+                    <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Unplug className="h-5 w-5 text-primary" />
+                                Centro de Integraciones (Omni-OAuth)
+                            </CardTitle>
+                            <CardDescription>Conecta tus fuentes de datos con un solo clic de forma segura.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <IntegrationHub integrations={integrationsData} token={localStorage.getItem('metria_token') || ''} />
+                        </CardContent>
+                    </Card>
+                </div>
 
                 <div className="space-y-6 flex flex-col">
                     {/* Global Settings */}

@@ -8,46 +8,46 @@ datasource db {
 }
 
 model Workspace {
-  id           String         @id @default(uuid())
-  name         String
-  logoUrl      String?        @map("logo_url")
-  isActive     Boolean        @default(true) @map("is_active")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
-  status             String         @default("ACTIVE")
-  plan               String         @default("STARTER") // STARTER, PRO, SCALE
-  subscriptionStatus String         @default("INCOMPLETE") // INCOMPLETE, TRIAL, ACTIVE, PAST_DUE, CANCELED
-  subscriptionId     String?        @unique @map("subscription_id")
-  trialEndsAt        DateTime?      @map("trial_ends_at")
-  paymentProvider    String?        @map("payment_provider") // PAYPAL, MERCADOPAGO
-  currentPeriodEnd   DateTime?      @map("current_period_end")
-  cancelAtPeriodEnd  Boolean        @default(false) @map("cancel_at_period_end")
-  adSpends     AdSpend[]
-  dailyMetrics DailyMetric[]
-  fixedCosts   FixedCost[]
-  settings     GlobalSetting?
-  integrations Integration[]
-  orders       Order[]
-  products     Product[]
-  shipments    Shipment[]
-  users        User[]
-  auditLogs    AuditLog[]
-  paymentLogs  PaymentLog[]
-  adProductMappings AdProductMapping[]
-  channels              Channel[]
-  contacts              Contact[]
-  contactTags           ContactTag[]
-  contactNotes          ContactNote[]
-  pipelines             Pipeline[]
-  deals                 Deal[]
-  tickets               Ticket[]
-  conversations         Conversation[]
-  messages              Message[]
-  botAgents             BotAgent[]
-  botFlows              BotFlow[]
-  quickReplies          QuickReply[]
-  businessHours         BusinessHours?
+  id                       String                    @id @default(uuid())
+  name                     String
+  isActive                 Boolean                   @default(true) @map("is_active")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  status                   String                    @default("ACTIVE")
+  logoUrl                  String?                   @map("logo_url")
+  plan                     String                    @default("STARTER")
+  subscriptionStatus       String                    @default("INCOMPLETE")
+  subscriptionId           String?                   @unique @map("subscription_id")
+  trialEndsAt              DateTime?                 @map("trial_ends_at")
+  cancelAtPeriodEnd        Boolean                   @default(false) @map("cancel_at_period_end")
+  currentPeriodEnd         DateTime?                 @map("current_period_end")
+  paymentProvider          String?                   @map("payment_provider")
+  adProductMappings        AdProductMapping[]
+  adSpends                 AdSpend[]
+  auditLogs                AuditLog[]
+  botAgents                BotAgent[]
+  botFlows                 BotFlow[]
+  businessHours            BusinessHours?
   channelAnalyticSnapshots ChannelAnalyticSnapshot[]
+  channels                 Channel[]
+  contactNotes             ContactNote[]
+  contactTags              ContactTag[]
+  contacts                 Contact[]
+  conversations            Conversation[]
+  dailyMetrics             DailyMetric[]
+  deals                    Deal[]
+  fixedCosts               FixedCost[]
+  settings                 GlobalSetting?
+  integrations             Integration[]
+  messages                 Message[]
+  orders                   Order[]
+  paymentLogs              PaymentLog[]
+  pipelines                Pipeline[]
+  products                 Product[]
+  quickReplies             QuickReply[]
+  shipments                Shipment[]
+  tickets                  Ticket[]
+  users                    User[]
 
   @@map("workspaces")
 }
@@ -56,45 +56,38 @@ model User {
   id                 String          @id @default(uuid())
   email              String          @unique
   passwordHash       String?
-  googleId           String?         @unique @map("google_id")
-  avatarUrl          String?         @map("avatar_url")
   name               String?
-  phone              String?
   role               String          @default("USER")
   workspaceId        String?         @map("workspace_id")
   createdAt          DateTime        @default(now()) @map("created_at")
   updatedAt          DateTime        @updatedAt @map("updated_at")
   mustChangePassword Boolean         @default(false) @map("must_change_password")
-  trialUsedAt        DateTime?      @map("trial_used_at")
-  workspace          Workspace?      @relation(fields: [workspaceId], references: [id])
-  preferences        UserPreference?
+  phone              String?
+  avatarUrl          String?         @map("avatar_url")
+  googleId           String?         @unique @map("google_id")
+  trialUsedAt        DateTime?       @map("trial_used_at")
   paymentLogs        PaymentLog[]
+  preferences        UserPreference?
+  workspace          Workspace?      @relation(fields: [workspaceId], references: [id])
 
   @@map("users")
 }
 
 model UserPreference {
-  id               String  @id @default(uuid())
-  userId           String  @unique @map("user_id")
-  theme            String  @default("system")
-  compactMode      Boolean @default(false) @map("compact_mode")
-  emailReports     Boolean @default(true) @map("email_reports")
-  
-  // Alert Status
-  alertMarginLow   Boolean @default(true) @map("alert_margin_low")
-  alertStockout    Boolean @default(false) @map("alert_stockout")
-  alertRoasLow     Boolean @default(true) @map("alert_roas_low")
-  alertDeliveryLow Boolean @default(true) @map("alert_delivery_low")
-  
-  // Thresholds
-  roasThreshold      Decimal @default(2.5) @map("roas_threshold") @db.Decimal(10, 2)
-  deliveryThreshold  Decimal @default(85.0) @map("delivery_threshold") @db.Decimal(10, 2)
-  
-  // Channels
-  webhookUrl       String? @map("webhook_url")
-  
-  defaultDateRange String  @default("7d") @map("default_date_range")
-  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String  @id @default(uuid())
+  userId            String  @unique @map("user_id")
+  theme             String  @default("system")
+  compactMode       Boolean @default(false) @map("compact_mode")
+  emailReports      Boolean @default(true) @map("email_reports")
+  alertMarginLow    Boolean @default(true) @map("alert_margin_low")
+  alertStockout     Boolean @default(false) @map("alert_stockout")
+  defaultDateRange  String  @default("7d") @map("default_date_range")
+  alertDeliveryLow  Boolean @default(true) @map("alert_delivery_low")
+  alertRoasLow      Boolean @default(true) @map("alert_roas_low")
+  deliveryThreshold Decimal @default(85.0) @map("delivery_threshold") @db.Decimal(10, 2)
+  roasThreshold     Decimal @default(2.5) @map("roas_threshold") @db.Decimal(10, 2)
+  webhookUrl        String? @map("webhook_url")
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_preferences")
 }
@@ -115,11 +108,11 @@ model GlobalSetting {
   timezone          String    @default("santiago")
   currency          String    @default("usd")
   strictAttribution Boolean   @default(false) @map("strict_attribution")
-  taxRate           Decimal   @default(0) @map("tax_rate") @db.Decimal(10, 2)
-  gatewayPercent    Decimal   @default(0) @map("gateway_percent") @db.Decimal(10, 2)
-  gatewayFixed      Decimal   @default(0) @map("gateway_fixed") @db.Decimal(10, 2)
-  customFees        Json      @default("[]") @map("custom_fees")
   updatedAt         DateTime  @updatedAt @map("updated_at")
+  gatewayFixed      Decimal   @default(0) @map("gateway_fixed") @db.Decimal(10, 2)
+  gatewayPercent    Decimal   @default(0) @map("gateway_percent") @db.Decimal(10, 2)
+  taxRate           Decimal   @default(0) @map("tax_rate") @db.Decimal(10, 2)
+  customFees        Json      @default("[]") @map("custom_fees")
   workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@map("global_settings")
@@ -172,18 +165,18 @@ model AdSpend {
   campaignName    String    @map("campaign_name")
   spend           Decimal   @db.Decimal(10, 2)
   impressions     Int       @default(0)
-  reach           Int       @default(0)
   clicks          Int       @default(0)
-  videoViews      Int       @default(0)
-  videoViewsP25   Int       @default(0) @map("video_views_p25")
-  videoViewsP50   Int       @default(0) @map("video_views_p50")
-  videoViewsP75   Int       @default(0) @map("video_views_p75")
-  videoViewsP100  Int       @default(0) @map("video_views_p100")
-  videoViews6s    Int       @default(0) @map("video_views_6s")
   conversions     Int       @default(0)
   conversionValue Decimal?  @map("conversion_value") @db.Decimal(10, 2)
   date            DateTime  @db.Date
   createdAt       DateTime  @default(now()) @map("created_at")
+  reach           Int       @default(0)
+  videoViews      Int       @default(0)
+  videoViews6s    Int       @default(0) @map("video_views_6s")
+  videoViewsP100  Int       @default(0) @map("video_views_p100")
+  videoViewsP25   Int       @default(0) @map("video_views_p25")
+  videoViewsP50   Int       @default(0) @map("video_views_p50")
+  videoViewsP75   Int       @default(0) @map("video_views_p75")
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, platform, campaignId, date])
@@ -203,8 +196,8 @@ model Shipment {
   shippingFee    Decimal?  @map("shipping_fee") @db.Decimal(10, 2)
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
-  order          Order?    @relation(fields: [workspaceId, orderId], references: [workspaceId, orderId])
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  order          Order?    @relation(fields: [workspaceId, orderId], references: [workspaceId, orderId])
 
   @@unique([workspaceId, guideId])
   @@index([workspaceId, status])
@@ -241,7 +234,6 @@ model FixedCost {
   @@map("fixed_costs")
 }
 
-
 model DailyMetric {
   id            String    @id @default(uuid())
   workspaceId   String    @map("workspace_id")
@@ -249,12 +241,12 @@ model DailyMetric {
   totalRevenue  Decimal   @default(0) @map("total_revenue") @db.Decimal(10, 2)
   metaAdSpend   Decimal   @default(0) @map("meta_ad_spend") @db.Decimal(10, 2)
   googleAdSpend Decimal   @default(0) @map("google_ad_spend") @db.Decimal(10, 2)
-  tiktokAdSpend Decimal   @default(0) @map("tiktok_ad_spend") @db.Decimal(10, 2)
   totalShipping Decimal   @default(0) @map("total_shipping") @db.Decimal(10, 2)
   totalCogs     Decimal   @default(0) @map("total_cogs") @db.Decimal(10, 2)
   netProfit     Decimal   @default(0) @map("net_profit") @db.Decimal(10, 2)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
+  tiktokAdSpend Decimal   @default(0) @map("tiktok_ad_spend") @db.Decimal(10, 2)
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, date])
@@ -262,14 +254,14 @@ model DailyMetric {
 }
 
 model AuditLog {
-  id          String    @id @default(uuid())
-  workspaceId String?   @map("workspace_id")
-  source      String    // Shopify, Meta, Dropi, etc.
-  event       String    // orders/create, sync, etc.
-  status      String    // 200 OK, 500 Error, etc.
-  message     String?   // Optional details
-  payload     Json?     // Optional raw event data
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id          String     @id @default(uuid())
+  workspaceId String?    @map("workspace_id")
+  source      String
+  event       String
+  status      String
+  message     String?
+  payload     Json?
+  createdAt   DateTime   @default(now()) @map("created_at")
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
@@ -277,21 +269,20 @@ model AuditLog {
 }
 
 model PaymentLog {
-  id            String    @id @default(uuid())
-  workspaceId   String?   @map("workspace_id")
-  userId        String?   @map("user_id")
-  provider      String    // MERCADOPAGO, PAYPAL
-  planType      String
-  status        String    // SUCCESS, REJECTED, ERROR, PENDING
-  amount        Decimal   @db.Decimal(10, 2)
-  currency      String    @default("CLP")
-  externalId    String?   @map("external_id")
-  responseRaw   Json?     @map("response_raw")
-  errorMessage  String?   @map("error_message")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  
-  workspace     Workspace? @relation(fields: [workspaceId], references: [id])
-  user          User?      @relation(fields: [userId], references: [id])
+  id           String     @id @default(uuid())
+  workspaceId  String?    @map("workspace_id")
+  userId       String?    @map("user_id")
+  provider     String
+  planType     String
+  status       String
+  amount       Decimal    @db.Decimal(10, 2)
+  currency     String     @default("CLP")
+  externalId   String?    @map("external_id")
+  responseRaw  Json?      @map("response_raw")
+  errorMessage String?    @map("error_message")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  user         User?      @relation(fields: [userId], references: [id])
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id])
 
   @@map("payment_logs")
 }
@@ -310,45 +301,45 @@ model AdProductMapping {
 }
 
 model Channel {
-  id           String    @id @default(uuid())
-  workspaceId  String    @map("workspace_id")
-  platform     String    // WHATSAPP | INSTAGRAM | TELEGRAM | TIKTOK
-  name         String
-  status       String    @default("DISCONNECTED") // CONNECTED | DISCONNECTED | ERROR
-  config       Json      @default("{}") // encrypted tokens, phone numbers, account IDs
-  lastActivity DateTime? @map("last_activity")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversations         Conversation[]
-  analyticSnapshots     ChannelAnalyticSnapshot[]
+  id                String                    @id @default(uuid())
+  workspaceId       String                    @map("workspace_id")
+  platform          String
+  name              String
+  status            String                    @default("DISCONNECTED")
+  config            Json                      @default("{}")
+  lastActivity      DateTime?                 @map("last_activity")
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @updatedAt @map("updated_at")
+  analyticSnapshots ChannelAnalyticSnapshot[]
+  workspace         Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations     Conversation[]
 
   @@unique([workspaceId, platform])
   @@map("channels")
 }
 
 model Contact {
-  id               String    @id @default(uuid())
-  workspaceId      String    @map("workspace_id")
-  name             String
-  email            String?
-  phone            String?
-  avatarUrl        String?   @map("avatar_url")
-  source           String    // SHOPIFY | WHATSAPP | INSTAGRAM | TELEGRAM | TIKTOK | META_AD | GOOGLE_AD | TIKTOK_AD | MANUAL
-  sourceCampaignId String?   @map("source_campaign_id")
-  shopifyCustomerId String?  @map("shopify_customer_id")
-  status           String    @default("LEAD") // LEAD | PROSPECT | CUSTOMER | VIP | CHURNED
-  ltv              Decimal   @default(0) @db.Decimal(10, 2)
-  healthScore      Int?      @map("health_score")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tags             ContactTag[]
-  contactNotes     ContactNote[]
-  deals            Deal[]
-  tickets          Ticket[]
-  conversations    Conversation[]
-  healthScores     ContactHealthScore[]
+  id                String               @id @default(uuid())
+  workspaceId       String               @map("workspace_id")
+  name              String
+  email             String?
+  phone             String?
+  avatarUrl         String?              @map("avatar_url")
+  source            String
+  sourceCampaignId  String?              @map("source_campaign_id")
+  shopifyCustomerId String?              @map("shopify_customer_id")
+  status            String               @default("LEAD")
+  ltv               Decimal              @default(0) @db.Decimal(10, 2)
+  healthScore       Int?                 @map("health_score")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  healthScores      ContactHealthScore[]
+  contactNotes      ContactNote[]
+  tags              ContactTag[]
+  workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations     Conversation[]
+  deals             Deal[]
+  tickets           Ticket[]
 
   @@unique([workspaceId, email])
   @@unique([workspaceId, phone])
@@ -357,27 +348,27 @@ model Contact {
 }
 
 model ContactTag {
-  id          String   @id @default(uuid())
-  workspaceId String   @map("workspace_id")
-  contactId   String   @map("contact_id")
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  contactId   String    @map("contact_id")
   name        String
-  color       String   @default("#6366f1")
+  color       String    @default("#6366f1")
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([contactId, name])
   @@map("contact_tags")
 }
 
 model ContactNote {
-  id          String   @id @default(uuid())
-  workspaceId String   @map("workspace_id")
-  contactId   String   @map("contact_id")
-  userId      String   @map("user_id")
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  contactId   String    @map("contact_id")
+  userId      String    @map("user_id")
   content     String
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([contactId, createdAt])
   @@map("contact_notes")
@@ -401,9 +392,9 @@ model Pipeline {
   name        String
   isDefault   Boolean         @default(false) @map("is_default")
   createdAt   DateTime        @default(now()) @map("created_at")
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  stages      PipelineStage[]
   deals       Deal[]
+  stages      PipelineStage[]
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, name])
   @@map("pipelines")
@@ -417,8 +408,8 @@ model PipelineStage {
   order      Int
   isWon      Boolean  @default(false) @map("is_won")
   isLost     Boolean  @default(false) @map("is_lost")
-  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   deals      Deal[]
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
 
   @@unique([pipelineId, name])
   @@unique([pipelineId, order])
@@ -435,17 +426,17 @@ model Deal {
   value            Decimal       @default(0) @db.Decimal(10, 2)
   currency         String        @default("USD")
   assignedToUserId String?       @map("assigned_to_user_id")
-  status           String        @default("OPEN") // OPEN | WON | LOST
+  status           String        @default("OPEN")
   wonAt            DateTime?     @map("won_at")
   lostAt           DateTime?     @map("lost_at")
   lostReason       String?       @map("lost_reason")
   sourceChannelId  String?       @map("source_channel_id")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
+  contact          Contact       @relation(fields: [contactId], references: [id])
+  pipeline         Pipeline      @relation(fields: [pipelineId], references: [id])
+  stage            PipelineStage @relation(fields: [stageId], references: [id])
   workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact          Contact       @relation(fields: [contactId], references: [id], onDelete: Restrict)
-  pipeline         Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
-  stage            PipelineStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
 
   @@index([workspaceId, status])
   @@map("deals")
@@ -459,43 +450,43 @@ model Ticket {
   conversationId   String?   @map("conversation_id")
   title            String
   description      String?
-  status           String    @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED | CLOSED
-  priority         String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  status           String    @default("OPEN")
+  priority         String    @default("MEDIUM")
   assignedToUserId String?   @map("assigned_to_user_id")
   slaDeadline      DateTime? @map("sla_deadline")
   resolvedAt       DateTime? @map("resolved_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
+  contact          Contact   @relation(fields: [contactId], references: [id])
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact          Contact   @relation(fields: [contactId], references: [id], onDelete: Restrict)
 
   @@index([workspaceId, status, priority])
   @@map("tickets")
 }
 
 model Conversation {
-  id               String    @id @default(uuid())
-  workspaceId      String    @map("workspace_id")
-  channelId        String    @map("channel_id")
-  contactId        String?   @map("contact_id")
-  externalId       String    @map("external_id")
-  status           String    @default("OPEN") // OPEN | PENDING | RESOLVED | SPAM
-  type             String    @default("GENERAL") // SUPPORT | SALES | GENERAL
-  assignedToUserId String?   @map("assigned_to_user_id")
-  assignedToBotId  String?   @map("assigned_to_bot_id")
-  isHandledByBot   Boolean   @default(false) @map("is_handled_by_bot")
-  messageCount     Int       @default(0) @map("message_count")
-  lastMessageAt    DateTime? @map("last_message_at")
-  firstResponseAt  DateTime? @map("first_response_at")
-  resolvedAt       DateTime? @map("resolved_at")
-  csatScore        Int?      @map("csat_score")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  channel          Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  contact          Contact?  @relation(fields: [contactId], references: [id])
-  messages         Message[]
+  id               String            @id @default(uuid())
+  workspaceId      String            @map("workspace_id")
+  channelId        String            @map("channel_id")
+  contactId        String?           @map("contact_id")
+  externalId       String            @map("external_id")
+  status           String            @default("OPEN")
+  type             String            @default("GENERAL")
+  assignedToUserId String?           @map("assigned_to_user_id")
+  assignedToBotId  String?           @map("assigned_to_bot_id")
+  isHandledByBot   Boolean           @default(false) @map("is_handled_by_bot")
+  messageCount     Int               @default(0) @map("message_count")
+  lastMessageAt    DateTime?         @map("last_message_at")
+  firstResponseAt  DateTime?         @map("first_response_at")
+  resolvedAt       DateTime?         @map("resolved_at")
+  csatScore        Int?              @map("csat_score")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
   tags             ConversationTag[]
+  channel          Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  contact          Contact?          @relation(fields: [contactId], references: [id])
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages         Message[]
 
   @@unique([workspaceId, channelId, externalId])
   @@index([workspaceId, status])
@@ -508,19 +499,19 @@ model Message {
   conversationId String       @map("conversation_id")
   workspaceId    String       @map("workspace_id")
   externalId     String?      @map("external_id")
-  direction      String       // INBOUND | OUTBOUND
-  senderType     String       @map("sender_type") // CONTACT | AGENT | BOT
+  direction      String
+  senderType     String       @map("sender_type")
   senderId       String?      @map("sender_id")
   content        String
   mediaUrl       String?      @map("media_url")
   mediaType      String?      @map("media_type")
-  status         String       @default("SENT") // SENT | DELIVERED | READ | FAILED
+  status         String       @default("SENT")
   isInternal     Boolean      @default(false) @map("is_internal")
   sentAt         DateTime     @default(now()) @map("sent_at")
   deliveredAt    DateTime?    @map("delivered_at")
   readAt         DateTime?    @map("read_at")
-  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, conversationId, sentAt])
   @@map("messages")
@@ -538,17 +529,17 @@ model ConversationTag {
 }
 
 model BotAgent {
-  id          String     @id @default(uuid())
-  workspaceId String     @map("workspace_id")
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
   name        String
-  avatarUrl   String?    @map("avatar_url")
+  avatarUrl   String?   @map("avatar_url")
   description String?
-  promptBase  String?    @map("prompt_base")
-  tone        String     @default("neutral") // formal | friendly | neutral
-  provider    String     @default("gemini")
-  isActive    Boolean    @default(true) @map("is_active")
-  createdAt   DateTime   @default(now()) @map("created_at")
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  promptBase  String?   @map("prompt_base")
+  provider    String    @default("gemini")
+  tone        String    @default("neutral")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   flows       BotFlow[]
 
   @@map("bot_agents")
@@ -559,15 +550,15 @@ model BotFlow {
   botAgentId   String    @map("bot_agent_id")
   workspaceId  String    @map("workspace_id")
   name         String
-  triggerType  String    @map("trigger_type") // KEYWORD | FIRST_MESSAGE | ORDER_STATUS | INTENT | BUSINESS_HRS
+  triggerType  String    @map("trigger_type")
   triggerValue String?   @map("trigger_value")
-  channel      String    @default("ALL") // WHATSAPP | INSTAGRAM | TELEGRAM | TIKTOK | ALL
-  actions      Json      // array of action objects — see spec section 8
+  channel      String    @default("ALL")
+  actions      Json
   priority     Int       @default(100)
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime  @default(now()) @map("created_at")
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   botAgent     BotAgent  @relation(fields: [botAgentId], references: [id], onDelete: Cascade)
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, isActive, priority])
   @@map("bot_flows")
@@ -613,16 +604,16 @@ model ChannelAnalyticSnapshot {
   newContacts             Int       @default(0) @map("new_contacts")
   conversationsOpened     Int       @default(0) @map("conversations_opened")
   conversationsResolved   Int       @default(0) @map("conversations_resolved")
-  botHandledCount         Int       @default(0) @map("bot_handled_count")
-  botResolvedCount        Int       @default(0) @map("bot_resolved_count")
-  humanHandoffCount       Int       @default(0) @map("human_handoff_count")
   avgFirstResponseSeconds Int       @default(0) @map("avg_first_response_seconds")
   dealsCreated            Int       @default(0) @map("deals_created")
   dealsWon                Int       @default(0) @map("deals_won")
   dealsWonValue           Decimal   @default(0) @map("deals_won_value") @db.Decimal(10, 2)
   csatAvg                 Decimal?  @map("csat_avg") @db.Decimal(3, 2)
-  workspace               Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botHandledCount         Int       @default(0) @map("bot_handled_count")
+  botResolvedCount        Int       @default(0) @map("bot_resolved_count")
+  humanHandoffCount       Int       @default(0) @map("human_handoff_count")
   channel                 Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  workspace               Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, channelId, date])
   @@map("channel_analytic_snapshots")

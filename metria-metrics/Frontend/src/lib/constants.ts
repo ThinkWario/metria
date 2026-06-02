@@ -8,3 +8,6 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://bobyads-
 
 // Derived base URL for sockets (remove /api suffix)
 export const SOCKET_URL = API_BASE_URL.replace(/\/api$/, '')
+
+// Base backend URL for direct redirects
+export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '')

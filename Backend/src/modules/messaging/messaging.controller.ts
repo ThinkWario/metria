@@ -8,6 +8,7 @@ import { getConversations as _getConversations, getMessages as _getMessages, sen
 import { verifyWhatsAppSignature, parseWhatsAppUpdate } from './channels/whatsapp.service'
 import { verifyInstagramSignature, parseInstagramUpdate } from './channels/instagram.service'
 import { verifyMessengerSignature, parseMessengerUpdate } from './channels/messenger.service'
+import { WhatsAppSessionManager } from '../../lib/whatsapp/WhatsAppManager'
 
 async function getActiveChannel(workspaceId: string, platform: string) {
   return prisma.channel.findFirst({ where: { workspaceId, platform, status: 'CONNECTED' } })
@@ -240,3 +241,26 @@ export async function handoverToHumanHandler(req: Request, res: Response): Promi
     res.status(500).json({ error: err.message })
   }
 }
+
+export async function initWhatsAppSessionHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const manager = WhatsAppSessionManager.getInstance()
+    await manager.initSession(workspaceId)
+    res.json({ ok: true, message: 'WhatsApp session initialization started' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+export async function disconnectWhatsAppSessionHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const manager = WhatsAppSessionManager.getInstance()
+    await manager.destroySession(workspaceId)
+    res.json({ ok: true, message: 'WhatsApp session disconnected' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+

@@ -11,6 +11,7 @@ import metaRoutes from './routes/meta'
 import googleRoutes from './routes/google'
 import tiktokRoutes from './routes/tiktok'
 import dropiRoutes from './routes/dropi'
+import oauthRoutes from './routes/oauth'
 import metricsRoutes from './routes/metrics'
 import valentinaRoutes from './routes/valentina'
 import settingsRoutes from './routes/settings'
@@ -51,6 +52,7 @@ app.use('/api/google', googleRoutes)
 app.use('/api/tiktok', tiktokRoutes)
 app.use('/api/dropi', dropiRoutes) // Includes /webhooks/status
 app.use('/api/metrics', metricsRoutes)
+app.use('/api/oauth', oauthRoutes)
 app.use('/api/ia', valentinaRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/users', usersRoutes)
