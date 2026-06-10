@@ -73,15 +73,24 @@ export class WhatsAppSessionManager {
     });
 
     // Event: Ready
-    client.on('ready', () => {
+    client.on('ready', async () => {
       console.log(`[WhatsApp] Client is ready for workspace: ${workspaceId}`);
       io.to(`workspace:${workspaceId}`).emit('whatsapp:ready');
       
-      // Update channel status in DB
-      prisma.channel.update({
+      // Update channel status in DB with isNative flag
+      await prisma.channel.update({
         where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
-        data: { status: 'CONNECTED', updatedAt: new Date() }
+        data: { 
+          status: 'CONNECTED', 
+          updatedAt: new Date(),
+          config: { isNative: true } // Mark as native for outbound routing
+        }
       }).catch(err => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, err));
+
+      // Initial Sync of recent chats
+      this.syncChats(workspaceId).catch(err => 
+        console.error(`[WhatsApp] Initial sync failed for ${workspaceId}:`, err)
+      );
     });
 
     // Event: Incoming Message
@@ -109,6 +118,44 @@ export class WhatsAppSessionManager {
     });
 
     this.clients.set(workspaceId, client);
+  }
+
+  /**
+   * Fetches recent chats from the phone and creates them in Metria.
+   */
+  public async syncChats(workspaceId: string): Promise<void> {
+    const client = this.clients.get(workspaceId);
+    if (!client) return;
+
+    console.log(`[WhatsApp] Syncing chats for ${workspaceId}...`);
+    const chats = await client.getChats();
+    const recentChats = chats.filter(c => !c.isGroup).slice(0, 20); // Sync last 20 individual chats
+
+    const { processInboundMessage } = await import('../../modules/messaging/message.service');
+
+    for (const chat of recentChats) {
+      const lastMsg = await chat.fetchMessages({ limit: 1 });
+      if (lastMsg.length > 0) {
+        await processInboundMessage({
+          workspaceId,
+          platform: 'WHATSAPP',
+          externalId: chat.id._serialized,
+          content: lastMsg[0].body,
+          fromName: chat.name || 'WhatsApp User',
+          timestamp: new Date(lastMsg[0].timestamp * 1000)
+        }).catch(() => {});
+      }
+    }
+    console.log(`[WhatsApp] Sync complete for ${workspaceId}`);
+  }
+
+  /**
+   * Sends a message through the native client.
+   */
+  public async sendMessage(workspaceId: string, to: string, content: string): Promise<void> {
+    const client = this.clients.get(workspaceId);
+    if (!client) throw new Error('WhatsApp session not active');
+    await client.sendMessage(to, content);
   }
 
   /**

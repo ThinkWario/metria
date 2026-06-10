@@ -86,8 +86,13 @@ export async function sendMessage(
   try {
     switch (channel.platform) {
       case 'WHATSAPP': {
-        const { sendWhatsAppMessage } = await import('./channels/whatsapp.service')
-        await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, contact.phone!, content)
+        if (config.isNative) {
+          const { WhatsAppSessionManager } = await import('../../lib/whatsapp/WhatsAppManager')
+          await WhatsAppSessionManager.getInstance().sendMessage(workspaceId, contact.phone!, content)
+        } else {
+          const { sendWhatsAppMessage } = await import('./channels/whatsapp.service')
+          await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, contact.phone!, content)
+        }
         break
       }
       case 'INSTAGRAM': {
