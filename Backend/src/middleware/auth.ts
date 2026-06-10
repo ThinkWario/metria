@@ -18,11 +18,19 @@ export interface AuthRequest extends Request {
 export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const authHeader = req.headers.authorization
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        let token: string | undefined
+
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.split(' ')[1]
+        } else if (req.query.token) {
+            // Support token in query params for browser redirects (OAuth flow)
+            token = req.query.token as string
+        }
+
+        if (!token) {
             return res.status(401).json({ error: 'Unauthorized: No token provided' })
         }
 
-        const token = authHeader.split(' ')[1]
         const decoded = jwt.verify(token, JWT_SECRET) as AuthRequest['user']
 
         req.user = decoded
