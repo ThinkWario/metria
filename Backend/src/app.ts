@@ -25,6 +25,7 @@ import messagingRoutes from './modules/messaging/messaging.routes'
 import crmRoutes from './modules/crm/crm.routes'
 import botRoutes from './modules/bot/bot.routes'
 import analyticsRoutes from './modules/analytics/analytics.routes'
+import knowledgeRoutes from './modules/knowledge/knowledge.routes'
 import { startNurturingCron } from './modules/ai-agent/nurturing.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 
@@ -40,8 +41,8 @@ app.use('/webhooks/shopify', express.raw({ type: 'application/json' }))
 app.use('/api/webhooks/whatsapp', express.raw({ type: 'application/json' }))
 app.use('/api/webhooks/instagram', express.raw({ type: 'application/json' }))
 
-// Standard JSON body parser for everything else
-app.use(express.json())
+// Standard JSON body parser for everything else (15mb for base64 PDF ingestion)
+app.use(express.json({ limit: '15mb' }))
 
 // Register API Routes
 app.use('/health', healthRoutes)
@@ -65,6 +66,7 @@ app.use('/api', botRoutes)
 app.use('/api', crmRoutes)
 app.use('/api', messagingRoutes)
 app.use('/api', analyticsRoutes)
+app.use('/api', knowledgeRoutes)
 
 // Start cron jobs
 startAnalyticsCron()
