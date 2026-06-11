@@ -27,7 +27,7 @@ import botRoutes from './modules/bot/bot.routes'
 import analyticsRoutes from './modules/analytics/analytics.routes'
 import knowledgeRoutes from './modules/knowledge/knowledge.routes'
 import schedulingRoutes from './modules/scheduling/scheduling.routes'
-import { startNurturingCron } from './modules/ai-agent/nurturing.cron'
+import { startFollowUpCron } from './modules/ai-agent/followup.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 
 const app = express()
@@ -72,7 +72,7 @@ app.use('/api', schedulingRoutes)
 
 // Start cron jobs
 startAnalyticsCron()
-startNurturingCron()
+startFollowUpCron()
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

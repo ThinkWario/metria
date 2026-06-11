@@ -62,6 +62,29 @@ export async function deleteFlowHandler(req: AuthRequest, res: Response): Promis
   } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
 }
 
+export async function listFollowUpRulesHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    res.json(await bs.listFollowUpRules(req.user!.workspaceId!, req.params.botId))
+  } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
+}
+
+export async function createFollowUpRuleHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { delayHours, order, isActive } = req.body
+    if (typeof delayHours !== 'number' || delayHours <= 0) {
+      res.status(400).json({ error: 'delayHours must be a positive number' }); return
+    }
+    res.status(201).json(await bs.createFollowUpRule(req.user!.workspaceId!, req.params.botId, { delayHours, order, isActive }))
+  } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
+}
+
+export async function deleteFollowUpRuleHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    await bs.deleteFollowUpRule(req.user!.workspaceId!, req.params.botId, req.params.ruleId)
+    res.status(204).send()
+  } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
+}
+
 export async function getBusinessHoursHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     const result = await bh.getBusinessHours(req.user!.workspaceId!)

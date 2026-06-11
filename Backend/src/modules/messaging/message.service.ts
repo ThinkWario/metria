@@ -36,6 +36,33 @@ async function sendPlatformMessage(
   }
 }
 
+/**
+ * Sends an outbound message through the conversation's channel, persists it,
+ * and broadcasts it via socket. Reusable by the AI follow-up engine.
+ */
+export async function sendOutboundPlatformMessage(
+  workspaceId: string,
+  conversationId: string,
+  text: string,
+  senderType: 'BOT' | 'AGENT' = 'BOT'
+) {
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId, workspaceId },
+    include: { channel: true }
+  })
+  if (!conv) throw new Error('Conversation not found')
+
+  await sendPlatformMessage(conv.channel.platform, conv.channel.config, conv.externalId, text)
+  const message = await prisma.message.create({
+    data: { workspaceId, conversationId, direction: 'OUTBOUND', senderType, content: text, status: 'SENT' }
+  })
+  await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } })
+  getIO().to(`workspace:${workspaceId}`).emit('message:new', {
+    conversationId, direction: 'OUTBOUND', senderType, content: text, sentAt: message.sentAt
+  })
+  return message
+}
+
 export async function processInboundMessage(data: InboundMessageData): Promise<ProcessedMessage> {
   const {
     workspaceId, channelId, externalConversationId, externalMessageId,
@@ -106,6 +133,15 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     }
   })
 
+  // The contact replied: cancel any pending AI follow-up jobs.
+  // Dynamic import breaks the circular dependency (followup.service imports this module).
+  try {
+    const { cancelPendingFollowUps } = await import('../ai-agent/followup.service')
+    await cancelPendingFollowUps(conversation.id)
+  } catch (err) {
+    console.error('[FollowUp] Failed to cancel pending follow-ups:', err)
+  }
+
   // Trigger CRM Lifecycle Logic (Async)
   LifecycleService.handleSignal({
     workspaceId,
@@ -140,6 +176,22 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
 
         // Track AI metric
         await trackAiMetric(workspaceId, channelId, 'botHandledCount')
+
+        // Schedule the next AI follow-up in the sequence (dynamic import: see note above)
+        try {
+          const botId = updatedConv.assignedToBotId
+            ?? (await prisma.botAgent.findFirst({
+              where: { workspaceId, isActive: true },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true }
+            }))?.id
+          if (botId) {
+            const { scheduleNextFollowUp } = await import('../ai-agent/followup.service')
+            await scheduleNextFollowUp(workspaceId, conversation.id, botId)
+          }
+        } catch (err) {
+          console.error('[FollowUp] Failed to schedule follow-up:', err)
+        }
       }
     } catch (err) {
       console.error('[AI Agent Error]', err)

@@ -86,6 +86,41 @@ export async function deleteFlow(workspaceId: string, flowId: string) {
   await prisma.botFlow.delete({ where: { id: flowId, workspaceId } })
 }
 
+export async function listFollowUpRules(workspaceId: string, botAgentId: string) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: botAgentId, workspaceId } })
+  if (!agent) throw new Error('Agent not found')
+  return prisma.followUpRule.findMany({
+    where: { workspaceId, botAgentId },
+    orderBy: { order: 'asc' }
+  })
+}
+
+export async function createFollowUpRule(
+  workspaceId: string,
+  botAgentId: string,
+  data: { delayHours: number; order?: number; isActive?: boolean }
+) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: botAgentId, workspaceId } })
+  if (!agent) throw new Error('Agent not found')
+  return prisma.followUpRule.create({
+    data: {
+      workspaceId,
+      botAgentId,
+      delayHours: data.delayHours,
+      order: data.order ?? 0,
+      isActive: data.isActive ?? true
+    }
+  })
+}
+
+export async function deleteFollowUpRule(workspaceId: string, botAgentId: string, ruleId: string) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: botAgentId, workspaceId } })
+  if (!agent) throw new Error('Agent not found')
+  const rule = await prisma.followUpRule.findFirst({ where: { id: ruleId, workspaceId, botAgentId } })
+  if (!rule) throw new Error('Rule not found')
+  await prisma.followUpRule.delete({ where: { id: ruleId } })
+}
+
 export async function getPrimaryAgent(workspaceId: string) {
   let agent = await prisma.botAgent.findFirst({
     where: { workspaceId },
