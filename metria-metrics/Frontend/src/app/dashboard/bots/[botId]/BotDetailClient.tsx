@@ -142,14 +142,22 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Flujos del Bot</h1>
-        {!showForm && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+            onClick={() => router.push(`/dashboard/bots/${botId}/setup`)}
+            className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-muted/30 transition-colors"
           >
-            Nuevo Flujo
+            Programa tu agente
           </button>
-        )}
+          {!showForm && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              Nuevo Flujo
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && (
