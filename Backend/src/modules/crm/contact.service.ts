@@ -89,6 +89,41 @@ export async function removeTag(workspaceId: string, contactId: string, tagId: s
   await prisma.contactTag.delete({ where: { id: tagId } })
 }
 
+const TEMPERATURES = ['COLD', 'WARM', 'HOT'] as const
+const LEAD_TYPES = ['CURIOUS', 'QUOTING', 'READY_TO_BUY', 'POST_SALE'] as const
+
+export async function updateQualification(
+  workspaceId: string,
+  contactId: string,
+  input: {
+    temperature?: typeof TEMPERATURES[number]
+    type?: typeof LEAD_TYPES[number]
+    score?: number
+    data?: Record<string, unknown>
+  }
+) {
+  if (input.temperature && !TEMPERATURES.includes(input.temperature)) throw new Error(`Invalid temperature: ${input.temperature}`)
+  if (input.type && !LEAD_TYPES.includes(input.type)) throw new Error(`Invalid lead type: ${input.type}`)
+  if (input.score !== undefined && (input.score < 0 || input.score > 100)) throw new Error('Score must be 0-100')
+
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
+  if (!contact) throw new Error('Contact not found')
+
+  const mergedData = input.data
+    ? { ...((contact.qualificationData as object) ?? {}), ...input.data }
+    : undefined
+
+  return prisma.contact.update({
+    where: { id: contact.id },
+    data: {
+      ...(input.temperature && { leadTemperature: input.temperature }),
+      ...(input.type && { leadType: input.type }),
+      ...(input.score !== undefined && { leadScore: input.score }),
+      ...(mergedData && { qualificationData: mergedData as any })
+    }
+  })
+}
+
 export async function calculateHealthScore(workspaceId: string, contactId: string) {
   const contact = await prisma.contact.findFirst({
     where: { id: contactId, workspaceId },

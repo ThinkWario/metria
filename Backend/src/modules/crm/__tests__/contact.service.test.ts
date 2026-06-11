@@ -9,7 +9,7 @@ vi.mock('../../../lib/prisma', () => ({
   }
 }))
 
-import { listContacts, getContact, updateContact, addNote, addTag, removeTag, calculateHealthScore } from '../contact.service'
+import { listContacts, getContact, updateContact, addNote, addTag, removeTag, calculateHealthScore, updateQualification } from '../contact.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
@@ -121,5 +121,37 @@ describe('calculateHealthScore', () => {
     expect(prisma.contact.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ healthScore: result.score }) })
     )
+  })
+})
+
+describe('updateQualification', () => {
+  it('updates qualification fields scoped to workspace and merges qualificationData', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({ id: CONTACT_ID, qualificationData: { is_owner: true } } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: CONTACT_ID } as any)
+
+    await updateQualification(WS, CONTACT_ID, {
+      temperature: 'HOT', type: 'READY_TO_BUY', score: 90, data: { monthly_kwh: '80000' }
+    })
+
+    expect(prisma.contact.findFirst).toHaveBeenCalledWith({ where: { id: CONTACT_ID, workspaceId: WS } })
+    expect(prisma.contact.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          leadTemperature: 'HOT',
+          leadType: 'READY_TO_BUY',
+          leadScore: 90,
+          qualificationData: { is_owner: true, monthly_kwh: '80000' }
+        })
+      })
+    )
+  })
+
+  it('throws when contact not found in workspace', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue(null)
+    await expect(updateQualification(WS, CONTACT_ID, { temperature: 'COLD' })).rejects.toThrow('Contact not found')
+  })
+
+  it('rejects invalid temperature value', async () => {
+    await expect(updateQualification(WS, CONTACT_ID, { temperature: 'LAVA' as any })).rejects.toThrow('Invalid temperature')
   })
 })
