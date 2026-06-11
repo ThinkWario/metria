@@ -1,76 +1,124 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai'
+import { SchemaType } from '@google/generative-ai'
 import { prisma } from '../../lib/prisma'
-import { updateContact } from '../crm/contact.service'
+import { updateContact, updateQualification, addTag } from '../crm/contact.service'
 import { createDeal } from '../crm/pipeline.service'
-
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '')
+import { getProvider } from './providers/provider.factory'
+import { compileSystemPrompt, type AgentProfile } from './promptCompiler'
+import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
+import { getAvailableSlots, scheduleAppointment } from '../scheduling/scheduling.service'
 
 /**
  * Tools available for the AI Agent
  */
-const tools = [
+const toolDeclarations = [
   {
-    functionDeclarations: [
-      {
-        name: 'qualify_lead',
-        description: 'Updates the contact status (LEAD, PROSPECT, CUSTOMER). Use PROSPECT when the lead shows clear intent to buy or asks for a quote.',
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            contactId: { type: SchemaType.STRING, description: 'The ID of the contact' },
-            status: { type: SchemaType.STRING, description: 'The new status (LEAD, PROSPECT, CUSTOMER)' }
-          },
-          required: ['contactId', 'status']
-        }
+    name: 'qualify_lead',
+    description: 'Updates the contact status (LEAD, PROSPECT, CUSTOMER). Use PROSPECT when the lead shows clear intent to buy or asks for a quote.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        contactId: { type: SchemaType.STRING, description: 'The ID of the contact' },
+        status: { type: SchemaType.STRING, description: 'The new status (LEAD, PROSPECT, CUSTOMER)' }
       },
-      {
-        name: 'create_deal',
-        description: 'Creates a sales opportunity in the pipeline. Use when the lead is ready for a formal offer.',
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            contactId: { type: SchemaType.STRING, description: 'The ID of the contact' },
-            title: { type: SchemaType.STRING, description: 'Brief title for the deal' },
-            value: { type: SchemaType.NUMBER, description: 'Estimated value of the deal' }
-          },
-          required: ['contactId', 'title', 'value']
-        }
+      required: ['contactId', 'status']
+    }
+  },
+  {
+    name: 'create_deal',
+    description: 'Creates a sales opportunity in the pipeline. Use when the lead is ready for a formal offer.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        contactId: { type: SchemaType.STRING, description: 'The ID of the contact' },
+        title: { type: SchemaType.STRING, description: 'Brief title for the deal' },
+        value: { type: SchemaType.NUMBER, description: 'Estimated value of the deal' }
       },
-      {
-        name: 'move_deal',
-        description: 'Moves an active deal to a different stage in the pipeline. Use when a milestone is reached (e.g. quote sent, meeting scheduled).',
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            contactId: { type: SchemaType.STRING, description: 'The ID of the contact' },
-            stageName: { type: SchemaType.STRING, description: 'The name of the target stage (e.g. "Cotización", "Cita")' }
-          },
-          required: ['contactId', 'stageName']
-        }
+      required: ['contactId', 'title', 'value']
+    }
+  },
+  {
+    name: 'move_deal',
+    description: 'Moves an active deal to a different stage in the pipeline. Use when a milestone is reached (e.g. quote sent, meeting scheduled).',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        contactId: { type: SchemaType.STRING, description: 'The ID of the contact' },
+        stageName: { type: SchemaType.STRING, description: 'The name of the target stage (e.g. "Cotización", "Cita")' }
       },
-      {
-        name: 'handover_to_human',
-        description: 'Disables the AI agent for this conversation and notifies a human agent. Use when requested or for complex issues.',
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            conversationId: { type: SchemaType.STRING, description: 'The ID of the conversation' }
-          },
-          required: ['conversationId']
-        }
+      required: ['contactId', 'stageName']
+    }
+  },
+  {
+    name: 'handover_to_human',
+    description: 'Disables the AI agent for this conversation and notifies a human agent. Use when requested or for complex issues.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        conversationId: { type: SchemaType.STRING, description: 'The ID of the conversation' }
       },
-      {
-        name: 'search_catalog',
-        description: 'Searches for products, prices and stock in the store catalog.',
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            query: { type: SchemaType.STRING, description: 'Search term for the product' }
-          },
-          required: ['query']
-        }
-      }
-    ]
+      required: ['conversationId']
+    }
+  },
+  {
+    name: 'search_catalog',
+    description: 'Searches for products, prices and stock in the store catalog.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        query: { type: SchemaType.STRING, description: 'Search term for the product' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'update_qualification',
+    description: 'Records lead qualification: temperature (COLD/WARM/HOT), type (CURIOUS/QUOTING/READY_TO_BUY/POST_SALE), score 0-100, and answers to qualification questions as data {key: answer}. Call whenever you learn a qualification answer or intent changes.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        contactId: { type: SchemaType.STRING },
+        temperature: { type: SchemaType.STRING, description: 'COLD | WARM | HOT' },
+        type: { type: SchemaType.STRING, description: 'CURIOUS | QUOTING | READY_TO_BUY | POST_SALE' },
+        score: { type: SchemaType.NUMBER, description: '0-100' },
+        data: { type: SchemaType.OBJECT, description: 'Answers keyed by qualification question key' }
+      },
+      required: ['contactId']
+    }
+  },
+  {
+    name: 'tag_contact',
+    description: 'Adds a tag to the contact for CRM segmentation (e.g. "lead-caliente", "financiamiento", "postventa").',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        contactId: { type: SchemaType.STRING },
+        name: { type: SchemaType.STRING },
+        color: { type: SchemaType.STRING, description: 'Optional hex color' }
+      },
+      required: ['contactId', 'name']
+    }
+  },
+  {
+    name: 'get_available_slots',
+    description: 'Returns the next available appointment slots. Use BEFORE offering times to the customer.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: { type: { type: SchemaType.STRING, description: 'SITE_VISIT | CALL' } },
+      required: ['type']
+    }
+  },
+  {
+    name: 'schedule_appointment',
+    description: 'Books an appointment at a confirmed time. Only use times returned by get_available_slots.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        contactId: { type: SchemaType.STRING },
+        isoDateTime: { type: SchemaType.STRING, description: 'ISO 8601 datetime' },
+        type: { type: SchemaType.STRING, description: 'SITE_VISIT | CALL' }
+      },
+      required: ['contactId', 'isoDateTime', 'type']
+    }
   }
 ]
 
@@ -87,77 +135,56 @@ export async function processAiResponse(
       channel: { select: { platform: true } }
     }
   })
-
   if (!conversation || !conversation.isHandledByBot) return null
 
-  // Fetch AI configuration
   const agent = await prisma.botAgent.findFirst({
     where: { workspaceId, isActive: true },
     orderBy: { createdAt: 'desc' }
   })
-
   if (!agent) return null
 
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
-    tools: tools as any
+  const profile = ((agent as any).config?.profile ?? null) as AgentProfile | null
+  const knowledge = await retrieveRelevantChunks(workspaceId, userContent).catch(() => [])
+
+  const deal = conversation.contact
+    ? await prisma.deal.findFirst({
+        where: { contactId: conversation.contact.id, workspaceId, status: 'OPEN' },
+        orderBy: { createdAt: 'desc' },
+        include: { stage: true }
+      })
+    : null
+
+  const system = compileSystemPrompt({
+    agent: { name: agent.name, tone: agent.tone, promptBase: agent.promptBase },
+    profile,
+    knowledgeChunks: knowledge.map(k => k.content),
+    contact: conversation.contact as any,
+    deal: deal as any
   })
 
-  const history = conversation.messages.map(msg => ({
-    role: msg.senderType === 'CONTACT' ? 'user' : 'model',
-    parts: [{ text: msg.content }]
-  }))
+  const history = conversation.messages
+    .filter(m => !m.isInternal)
+    .map(m => ({ role: m.senderType === 'CONTACT' ? 'user' as const : 'assistant' as const, content: m.content }))
 
-  const products = await prisma.product.findMany({ where: { workspaceId }, take: 20 })
-  const catalogContext = products.map(p => `${p.name}: $${p.price} (SKU: ${p.sku})`).join('\n')
-
-  const systemInstruction = `Eres un agente de ventas experto llamado ${agent.name}.
-Tu tono es ${agent.tone}.
-Instrucciones base: ${agent.promptBase || 'Ayuda al cliente con sus dudas y trata de cerrar una venta.'}
-
-Tu objetivo principal es mover al cliente a través del embudo de ventas:
-1. Identificar necesidad.
-2. Cotizar (usa search_catalog).
-3. Agendar o cerrar.
-
-Contexto del catálogo:
-${catalogContext}
-
-Información del cliente:
-Nombre: ${conversation.contact?.name || 'Desconocido'}
-Status actual: ${conversation.contact?.status || 'LEAD'}
-
-Reglas:
-1. Si el cliente quiere comprar o cotizar, califícalo como PROSPECT.
-2. Si el cliente alcanza un hito (pide cotización, acepta visita), usa move_deal para posicionarlo en el pipeline.
-3. Si el cliente pide hablar con un humano, usa handover_to_human.
-4. Sé conciso y directo.
-5. Usa search_catalog si necesitas más detalles de productos.
-`
-
-  const chat = model.startChat({
-    history: history as any,
-    systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] }
+  const provider = getProvider(agent.provider)
+  let result = await provider.chat({
+    system,
+    messages: [...history, { role: 'user', content: userContent }],
+    tools: toolDeclarations
   })
 
-  const result = await chat.sendMessage(userContent)
-  const response = result.response
-  const call = response.functionCalls()?.[0]
-
-  if (call) {
-    const toolResult = await handleToolCall(workspaceId, conversationId, call)
-    
-    // Send tool result back to model to get final response
-    const finalResult = await chat.sendMessage([{
-      functionResponse: {
-        name: call.name,
-        response: toolResult
-      }
-    }])
-    return finalResult.response.text()
+  // tool loop (max 5 rounds to avoid infinite loops)
+  let rounds = 0
+  while (result.toolCalls.length > 0 && rounds < 5) {
+    const responses: { name: string; response: object }[] = []
+    for (const call of result.toolCalls) {
+      const toolResult = await handleToolCall(workspaceId, conversationId, call)
+      responses.push({ name: call.name, response: toolResult })
+    }
+    result = await result.submitToolResults(responses)
+    rounds++
   }
-
-  return response.text()
+  return result.text
 }
 
 async function handleToolCall(workspaceId: string, conversationId: string, call: any) {
@@ -227,6 +254,34 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
           take: 5
         })
         return { products: matches.map(p => ({ name: p.name, price: p.price, sku: p.sku })) }
+
+      case 'update_qualification':
+        await updateQualification(workspaceId, args.contactId, {
+          temperature: args.temperature, type: args.type, score: args.score, data: args.data
+        })
+        await logAiAction(workspaceId, conversationId, `Calificó al lead: ${args.temperature ?? ''} ${args.type ?? ''} score=${args.score ?? '-'}`)
+        return { success: true }
+
+      case 'tag_contact':
+        await addTag(workspaceId, args.contactId, args.name, args.color ?? '#f59e0b')
+        await logAiAction(workspaceId, conversationId, `Etiquetó al contacto: ${args.name}`)
+        return { success: true }
+
+      case 'get_available_slots': {
+        const slots = await getAvailableSlots(workspaceId, args.type ?? 'SITE_VISIT', new Date(), 14)
+        return { slots: slots.slice(0, 6).map(s => s.toISOString()) }
+      }
+
+      case 'schedule_appointment': {
+        const appt = await scheduleAppointment(workspaceId, {
+          contactId: args.contactId,
+          type: args.type ?? 'SITE_VISIT',
+          scheduledAt: new Date(args.isoDateTime),
+          createdBy: 'BOT'
+        })
+        await logAiAction(workspaceId, conversationId, `Agendó cita ${args.type} para ${args.isoDateTime}`)
+        return { success: true, appointmentId: appt.id, scheduledAt: appt.scheduledAt }
+      }
 
       default:
         return { error: 'Unknown tool' }
