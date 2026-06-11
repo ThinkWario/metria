@@ -6,7 +6,8 @@ import {
   listFlowsHandler, createFlowHandler, updateFlowHandler, deleteFlowHandler,
   getBusinessHoursHandler, upsertBusinessHoursHandler,
   getPrimaryAgentHandler, listAiChannelsHandler, toggleChannelAiHandler,
-  listFollowUpRulesHandler, createFollowUpRuleHandler, deleteFollowUpRuleHandler
+  listFollowUpRulesHandler, createFollowUpRuleHandler, deleteFollowUpRuleHandler,
+  applyTemplateHandler
 } from './bot.controller'
 
 const router = Router()
@@ -26,6 +27,8 @@ router.get('/bots/agents/:agentId/flows', ...auth, listFlowsHandler)
 router.post('/bots/agents/:agentId/flows', ...auth, createFlowHandler)
 router.patch('/bots/flows/:flowId', ...auth, updateFlowHandler)
 router.delete('/bots/flows/:flowId', ...auth, deleteFlowHandler)
+
+router.post('/bots/:botId/apply-template', ...auth, applyTemplateHandler)
 
 router.get('/bots/:botId/followup-rules', ...auth, listFollowUpRulesHandler)
 router.post('/bots/:botId/followup-rules', ...auth, createFollowUpRuleHandler)

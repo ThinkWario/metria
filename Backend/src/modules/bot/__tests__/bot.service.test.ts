@@ -3,11 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
     botAgent: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    botFlow: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() }
+    botFlow: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    followUpRule: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), delete: vi.fn() },
+    channel: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() }
   }
 }))
 
-import { listAgents, createAgent, updateAgent, deleteAgent, listFlows, createFlow, updateFlow, deleteFlow } from '../bot.service'
+import { listAgents, createAgent, updateAgent, deleteAgent, listFlows, createFlow, updateFlow, deleteFlow, applyTemplate } from '../bot.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
@@ -114,5 +116,38 @@ describe('deleteFlow', () => {
   it('throws if flow not found', async () => {
     vi.mocked(prisma.botFlow.findFirst).mockResolvedValue(null)
     await expect(deleteFlow(WS, 'f1')).rejects.toThrow('Flow not found')
+  })
+})
+
+describe('applyTemplate', () => {
+  it('happy path: updates config.profile with SOLAR_TEMPLATE', async () => {
+    vi.mocked(prisma.botAgent.findFirst).mockResolvedValue({ id: 'a1', config: {} } as any)
+    vi.mocked(prisma.botAgent.update).mockResolvedValue({ id: 'a1' } as any)
+
+    const result = await applyTemplate(WS, 'a1', 'solar')
+
+    expect(prisma.botAgent.findFirst).toHaveBeenCalledWith({ where: { id: 'a1', workspaceId: WS } })
+    expect(prisma.botAgent.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1' },
+        data: expect.objectContaining({
+          config: expect.objectContaining({
+            profile: expect.objectContaining({
+              scheduling: { enabled: true, types: ['SITE_VISIT'] }
+            })
+          })
+        })
+      })
+    )
+    expect(result).toEqual({ id: 'a1' })
+  })
+
+  it('throws 400-style error for unknown template', async () => {
+    await expect(applyTemplate(WS, 'a1', 'nonexistent')).rejects.toThrow('Unknown template: nonexistent')
+  })
+
+  it('throws Agent not found when bot does not belong to workspace', async () => {
+    vi.mocked(prisma.botAgent.findFirst).mockResolvedValue(null)
+    await expect(applyTemplate(WS, 'a1', 'solar')).rejects.toThrow('Agent not found')
   })
 })

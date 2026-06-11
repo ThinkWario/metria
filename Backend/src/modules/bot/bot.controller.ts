@@ -117,3 +117,16 @@ export async function toggleChannelAiHandler(req: AuthRequest, res: Response): P
     res.json(await bs.toggleChannelAi(req.user!.workspaceId!, platform, enabled))
   } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
 }
+
+export async function applyTemplateHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { template } = req.body
+    if (!template) { res.status(400).json({ error: 'template is required' }); return }
+    res.json(await bs.applyTemplate(req.user!.workspaceId!, req.params.botId, template))
+  } catch (err: any) {
+    const status = err.message.includes('not found') || err.message.includes('not found')
+      ? notFound(err.message)
+      : err.message.startsWith('Unknown template') ? 400 : 500
+    res.status(status).json({ error: err.message })
+  }
+}
