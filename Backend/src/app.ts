@@ -26,6 +26,7 @@ import crmRoutes from './modules/crm/crm.routes'
 import botRoutes from './modules/bot/bot.routes'
 import analyticsRoutes from './modules/analytics/analytics.routes'
 import knowledgeRoutes from './modules/knowledge/knowledge.routes'
+import schedulingRoutes from './modules/scheduling/scheduling.routes'
 import { startNurturingCron } from './modules/ai-agent/nurturing.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 
@@ -67,6 +68,7 @@ app.use('/api', crmRoutes)
 app.use('/api', messagingRoutes)
 app.use('/api', analyticsRoutes)
 app.use('/api', knowledgeRoutes)
+app.use('/api', schedulingRoutes)
 
 // Start cron jobs
 startAnalyticsCron()
