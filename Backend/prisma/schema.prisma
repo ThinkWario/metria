@@ -48,6 +48,10 @@ model Workspace {
   shipments                Shipment[]
   tickets                  Ticket[]
   users                    User[]
+  knowledgeDocuments       KnowledgeDocument[]
+  appointments             Appointment[]
+  availabilityRules        AvailabilityRule[]
+  followUpRules            FollowUpRule[]
 
   @@map("workspaces")
 }
@@ -331,11 +335,16 @@ model Contact {
   status            String               @default("LEAD")
   ltv               Decimal              @default(0) @db.Decimal(10, 2)
   healthScore       Int?                 @map("health_score")
+  leadScore         Int?                 @map("lead_score")
+  leadTemperature   String?              @map("lead_temperature")   // COLD | WARM | HOT
+  leadType          String?              @map("lead_type")          // CURIOUS | QUOTING | READY_TO_BUY | POST_SALE
+  qualificationData Json?                @map("qualification_data")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
   healthScores      ContactHealthScore[]
   contactNotes      ContactNote[]
   tags              ContactTag[]
+  appointments      Appointment[]
   workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations     Conversation[]
   deals             Deal[]
@@ -539,6 +548,7 @@ model BotAgent {
   promptBase  String?   @map("prompt_base")
   provider    String    @default("gemini")
   tone        String    @default("neutral")
+  config      Json      @default("{}")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   flows       BotFlow[]
 
@@ -617,4 +627,94 @@ model ChannelAnalyticSnapshot {
 
   @@unique([workspaceId, channelId, date])
   @@map("channel_analytic_snapshots")
+}
+
+model KnowledgeDocument {
+  id          String           @id @default(uuid())
+  workspaceId String           @map("workspace_id")
+  botAgentId  String?          @map("bot_agent_id")
+  name        String
+  sourceType  String           @map("source_type")      // PDF | TEXT | FAQ
+  status      String           @default("PROCESSING")   // PROCESSING | READY | ERROR
+  error       String?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  chunks      KnowledgeChunk[]
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id          String            @id @default(uuid())
+  documentId  String            @map("document_id")
+  workspaceId String            @map("workspace_id")
+  content     String
+  embedding   Float[]
+  order       Int
+  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("knowledge_chunks")
+}
+
+model AvailabilityRule {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  dayOfWeek   Int       @map("day_of_week")              // 0=Sunday .. 6
+  startTime   String    @map("start_time")               // "09:00"
+  endTime     String    @map("end_time")                 // "18:00"
+  slotMinutes Int       @default(60) @map("slot_minutes")
+  apptType    String    @default("SITE_VISIT") @map("appt_type") // SITE_VISIT | CALL
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("availability_rules")
+}
+
+model Appointment {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  contactId   String    @map("contact_id")
+  dealId      String?   @map("deal_id")
+  type        String    @default("SITE_VISIT")           // SITE_VISIT | CALL
+  scheduledAt DateTime  @map("scheduled_at")
+  durationMin Int       @default(60) @map("duration_min")
+  status      String    @default("SCHEDULED")            // SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
+  notes       String?
+  createdBy   String    @map("created_by")               // 'BOT' | userId
+  createdAt   DateTime  @default(now()) @map("created_at")
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, scheduledAt])
+  @@map("appointments")
+}
+
+model FollowUpRule {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  botAgentId  String    @map("bot_agent_id")
+  delayHours  Int       @map("delay_hours")
+  order       Int       @default(0)
+  isActive    Boolean   @default(true) @map("is_active")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, isActive])
+  @@map("follow_up_rules")
+}
+
+model FollowUpJob {
+  id             String    @id @default(uuid())
+  workspaceId    String    @map("workspace_id")
+  conversationId String    @map("conversation_id")
+  ruleId         String    @map("rule_id")
+  scheduledAt    DateTime  @map("scheduled_at")
+  status         String    @default("PENDING")           // PENDING | SENT | CANCELLED
+  sentAt         DateTime? @map("sent_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([status, scheduledAt])
+  @@index([conversationId, status])
+  @@map("follow_up_jobs")
 }
