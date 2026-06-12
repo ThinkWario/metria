@@ -1,0 +1,3 @@
+﻿*.dll.node.tmp*
+test-results/
+Backend/test-results/
