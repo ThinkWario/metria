@@ -3,6 +3,9 @@ import type { ChatMessage, ChatResult, LLMProvider, ToolDeclaration } from './ty
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '')
 
+const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-2.5-flash'
+const EMBED_MODEL = process.env.GEMINI_EMBED_MODEL || 'gemini-embedding-001'
+
 function wrapResult(chat: any, response: any): ChatResult {
   const calls = response.functionCalls() || []
   return {
@@ -19,7 +22,7 @@ function wrapResult(chat: any, response: any): ChatResult {
 export const geminiProvider: LLMProvider = {
   async chat({ system, messages, tools }) {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: CHAT_MODEL,
       tools: [{ functionDeclarations: tools }] as any
     })
     const history = messages.slice(0, -1).map(m => ({
@@ -36,7 +39,7 @@ export const geminiProvider: LLMProvider = {
   },
 
   async embed(texts) {
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' })
+    const model = genAI.getGenerativeModel({ model: EMBED_MODEL })
     const res = await model.batchEmbedContents({
       requests: texts.map(t => ({ content: { role: 'user', parts: [{ text: t }] } }))
     })
