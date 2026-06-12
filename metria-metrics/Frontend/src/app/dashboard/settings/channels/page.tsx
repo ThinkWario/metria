@@ -1,27 +1,20 @@
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
 import { ChannelsClient } from './ChannelsClient'
-import { ChannelOnboarding } from './ChannelOnboarding'
 import { Separator } from '@/components/ui/separator'
 
 export default function ChannelsPage() {
-    const [isOnboarding, setIsOnboarding] = useState(true)
-
     return (
         <div className="container mx-auto py-8 px-4 space-y-8">
             <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold tracking-tight">Channel Settings</h1>
+                <h1 className="text-3xl font-bold tracking-tight">Canales</h1>
                 <p className="text-muted-foreground">
-                    Connect and configure your messaging platforms.
+                    Conecta tus canales de mensajería. WhatsApp se conecta en segundos escaneando un código QR.
                 </p>
             </div>
             <Separator />
-            {isOnboarding ? (
-                <ChannelOnboarding onComplete={() => setIsOnboarding(false)} />
-            ) : (
-                <ChannelsClient />
-            )}
+            <ChannelsClient />
         </div>
     )
 }

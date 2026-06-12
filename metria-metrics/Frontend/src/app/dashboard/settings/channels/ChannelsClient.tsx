@@ -27,7 +27,7 @@ export const ChannelsClient = () => {
             const data = await fetchAPI('/messaging/channels')
             setChannels(data)
         } catch (err: any) {
-            setError(err.message || 'Failed to load channel statuses')
+            setError(err.message || 'No se pudo cargar el estado de los canales')
         } finally {
             setLoading(false)
         }
@@ -67,7 +67,7 @@ export const ChannelsClient = () => {
                         className="ml-4 mt-2 h-8 px-3 text-xs"
                         onClick={fetchChannels}
                     >
-                        Retry
+                        Reintentar
                     </Button>
                 </AlertDescription>
             </Alert>

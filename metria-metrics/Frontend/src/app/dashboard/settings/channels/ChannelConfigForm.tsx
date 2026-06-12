@@ -28,10 +28,10 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                 method: 'POST',
                 body: JSON.stringify(config),
             })
-            toast.success(`${platform.charAt(0).toUpperCase() + platform.slice(1)} configuration saved`)
+            toast.success(`Configuración de ${platform.charAt(0).toUpperCase() + platform.slice(1)} guardada`)
             if (onSaveSuccess) onSaveSuccess()
         } catch (error: any) {
-            toast.error(error.message || 'Failed to save configuration')
+            toast.error(error.message || 'No se pudo guardar la configuración')
         } finally {
             setLoading(false)
         }
@@ -42,14 +42,17 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
             case 'whatsapp':
                 return (
                     <>
+                        <p className="text-xs text-muted-foreground rounded-md bg-muted p-2">
+                            Estos campos son solo para la API Cloud oficial de Meta. Si conectaste con código QR, no necesitas completarlos.
+                        </p>
                         <div className="grid gap-2">
-                            <Label htmlFor="phoneNumber">Phone Number</Label>
+                            <Label htmlFor="phoneNumber">Número de teléfono</Label>
                             <Input
                                 id="phoneNumber"
                                 name="phoneNumber"
                                 value={config.phoneNumber || ''}
                                 onChange={handleInputChange}
-                                placeholder="e.g. +1234567890"
+                                placeholder="ej: +56912345678"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -60,7 +63,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 type="password"
                                 value={config.appSecret || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Meta App Secret"
+                                placeholder="App Secret de Meta"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -70,7 +73,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 name="verifyToken"
                                 value={config.verifyToken || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Webhook Verify Token"
+                                placeholder="Token de verificación del webhook"
                             />
                         </div>
                     </>
@@ -86,7 +89,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 type="password"
                                 value={config.accessToken || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Meta Access Token"
+                                placeholder="Access Token de Meta"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -96,7 +99,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 name="pageId"
                                 value={config.pageId || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Instagram Page ID"
+                                placeholder="ID de la página de Instagram"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -107,7 +110,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 type="password"
                                 value={config.appSecret || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Meta App Secret"
+                                placeholder="App Secret de Meta"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -117,7 +120,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 name="verifyToken"
                                 value={config.verifyToken || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Webhook Verify Token"
+                                placeholder="Token de verificación del webhook"
                             />
                         </div>
                     </>
@@ -133,7 +136,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 type="password"
                                 value={config.botToken || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Telegram Bot Token"
+                                placeholder="Token del bot de Telegram"
                             />
                         </div>
                     </>
@@ -149,7 +152,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 type="password"
                                 value={config.pageAccessToken || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Page Access Token"
+                                placeholder="Page Access Token de Meta"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -159,7 +162,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 name="pageId"
                                 value={config.pageId || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Messenger Page ID"
+                                placeholder="ID de la página de Messenger"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -170,7 +173,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 type="password"
                                 value={config.appSecret || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Meta App Secret"
+                                placeholder="App Secret de Meta"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -180,7 +183,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 name="verifyToken"
                                 value={config.verifyToken || ''}
                                 onChange={handleInputChange}
-                                placeholder="Enter Webhook Verify Token"
+                                placeholder="Token de verificación del webhook"
                             />
                         </div>
                     </>
@@ -194,7 +197,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
         <form onSubmit={handleSave} className="space-y-4">
             {renderFields()}
             <Button type="submit" disabled={loading} className="w-full">
-                {loading ? 'Saving...' : 'Save Configuration'}
+                {loading ? 'Guardando...' : 'Guardar configuración'}
             </Button>
         </form>
     )
