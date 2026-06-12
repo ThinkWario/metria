@@ -18,7 +18,13 @@ export async function getConversations(workspaceId: string, opts: GetConversatio
       ...(cursor && { id: { lt: cursor } })
     },
     include: {
-      contact: { select: { id: true, name: true, status: true, phone: true, avatarUrl: true } },
+      contact: {
+        select: {
+          id: true, name: true, status: true, phone: true, avatarUrl: true,
+          email: true, ltv: true, source: true,
+          leadScore: true, leadTemperature: true, leadType: true
+        }
+      },
       channel: { select: { id: true, platform: true, name: true } }
     },
     orderBy: { lastMessageAt: 'desc' },
