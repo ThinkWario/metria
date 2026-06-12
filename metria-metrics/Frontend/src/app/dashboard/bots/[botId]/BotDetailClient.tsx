@@ -2,6 +2,14 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
+import { toast } from 'sonner'
+
+interface FollowUpRule {
+  id: string
+  delayHours: number
+  order: number
+  isActive: boolean
+}
 
 interface BotFlow {
   id: string
@@ -42,6 +50,10 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
   const [formTriggerValue, setFormTriggerValue] = useState('')
   const [formMessageContent, setFormMessageContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [followUpRules, setFollowUpRules] = useState<FollowUpRule[]>([])
+  const [rulesLoading, setRulesLoading] = useState(true)
+  const [newDelayHours, setNewDelayHours] = useState('')
+  const [addingRule, setAddingRule] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -51,6 +63,7 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
   useEffect(() => {
     if (!mounted) return
     loadFlows()
+    loadFollowUpRules()
   }, [mounted])
 
   const loadFlows = async () => {
@@ -63,6 +76,55 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
       setFlows([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadFollowUpRules = async () => {
+    setRulesLoading(true)
+    try {
+      const data = await fetchAPI(`/bots/${botId}/followup-rules`)
+      setFollowUpRules(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('Error loading follow-up rules:', error)
+      setFollowUpRules([])
+    } finally {
+      setRulesLoading(false)
+    }
+  }
+
+  const handleAddRule = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const delayHours = Number(newDelayHours)
+    if (!Number.isFinite(delayHours) || delayHours <= 0) return
+
+    setAddingRule(true)
+    try {
+      const nextOrder = followUpRules.reduce((max, r) => Math.max(max, r.order), -1) + 1
+      const created = await fetchAPI(`/bots/${botId}/followup-rules`, {
+        method: 'POST',
+        body: JSON.stringify({ delayHours, order: nextOrder })
+      })
+      setFollowUpRules(prev => [...prev, created].sort((a, b) => a.order - b.order))
+      setNewDelayHours('')
+      toast.success('Seguimiento agregado')
+    } catch (error) {
+      console.error('Error creating follow-up rule:', error)
+      toast.error('No se pudo agregar el seguimiento')
+    } finally {
+      setAddingRule(false)
+    }
+  }
+
+  const handleDeleteRule = async (ruleId: string) => {
+    const previous = followUpRules
+    setFollowUpRules(prev => prev.filter(r => r.id !== ruleId))
+    try {
+      await fetchAPI(`/bots/${botId}/followup-rules/${ruleId}`, { method: 'DELETE' })
+      toast.success('Seguimiento eliminado')
+    } catch (error) {
+      console.error('Error deleting follow-up rule:', error)
+      setFollowUpRules(previous)
+      toast.error('No se pudo eliminar el seguimiento')
     }
   }
 
@@ -302,6 +364,76 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
           ))}
         </div>
       )}
+
+      <div className="border rounded-lg p-4 space-y-4">
+        <div>
+          <h2 className="text-lg font-bold">Seguimientos</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Secuencia de mensajes de seguimiento que el agente envía cuando un lead deja de responder.
+          </p>
+        </div>
+
+        {rulesLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="h-12 rounded-lg bg-muted/40 animate-pulse" />
+            ))}
+          </div>
+        ) : followUpRules.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground text-sm">
+            Sin seguimientos configurados. Agrega el primero.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {followUpRules.map((rule, index) => (
+              <div
+                key={rule.id}
+                className="border rounded-lg px-4 py-3 flex items-center justify-between hover:bg-muted/20 transition-colors"
+              >
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0">
+                    {index + 1}º
+                  </span>
+                  <span className="font-medium">
+                    {index + 1}º después de {rule.delayHours}h
+                  </span>
+                  {!rule.isActive && (
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">Inactivo</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDeleteRule(rule.id)}
+                  className="px-3 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                >
+                  Eliminar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={handleAddRule} className="flex items-end gap-2">
+          <div>
+            <label className="block text-sm font-medium mb-1">Horas de espera</label>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={newDelayHours}
+              onChange={e => setNewDelayHours(e.target.value)}
+              placeholder="Ej: 24"
+              className="w-32 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={addingRule || !newDelayHours.trim() || Number(newDelayHours) <= 0}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {addingRule ? 'Agregando...' : 'Agregar'}
+          </button>
+        </form>
+      </div>
     </div>
   )
 }

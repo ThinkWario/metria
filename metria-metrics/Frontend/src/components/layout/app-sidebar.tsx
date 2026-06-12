@@ -29,7 +29,8 @@ import {
     Smartphone,
     MessageSquare,
     Users,
-    Bot
+    Bot,
+    CalendarDays
 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import Link from "next/link"
@@ -54,6 +55,7 @@ const menuItems: MenuItem[] = [
     { title: "Centro de Control", icon: BarChart3, url: "/dashboard" },
     { title: "Inbox (Chats)", icon: MessageSquare, url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "CRM", icon: Users, url: "/dashboard/crm", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Citas", icon: CalendarDays, url: "/dashboard/crm/appointments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Configuración IA", icon: Bot, url: "/dashboard/settings/ai-agent", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Canales de Mensajería", icon: MessageSquare, url: "/dashboard/settings/channels", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Finanzas E-commerce", icon: Wallet, url: "/dashboard/finances", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
