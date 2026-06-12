@@ -3,16 +3,20 @@ import { prisma } from '../../lib/prisma'
 export interface ListContactsOpts {
   search?: string
   status?: string
+  leadTemperature?: string
+  leadType?: string
   limit?: number
   cursor?: string
 }
 
 export async function listContacts(workspaceId: string, opts: ListContactsOpts = {}) {
-  const { search, status, limit = 50, cursor } = opts
+  const { search, status, leadTemperature, leadType, limit = 50, cursor } = opts
   return prisma.contact.findMany({
     where: {
       workspaceId,
       ...(status && { status }),
+      ...(leadTemperature && { leadTemperature }),
+      ...(leadType && { leadType }),
       ...(search && {
         OR: [
           { name: { contains: search, mode: 'insensitive' } },

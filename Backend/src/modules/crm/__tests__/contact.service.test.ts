@@ -30,6 +30,24 @@ describe('listContacts', () => {
     expect(result).toEqual(mockContacts)
   })
 
+  it('passes leadTemperature and leadType filters into the where clause', async () => {
+    vi.mocked(prisma.contact.findMany).mockResolvedValue([])
+    await listContacts(WS, { leadTemperature: 'HOT', leadType: 'READY_TO_BUY' })
+    expect(prisma.contact.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workspaceId: WS, leadTemperature: 'HOT', leadType: 'READY_TO_BUY' })
+      })
+    )
+  })
+
+  it('omits qualification filters from where clause when not provided', async () => {
+    vi.mocked(prisma.contact.findMany).mockResolvedValue([])
+    await listContacts(WS, {})
+    const arg = vi.mocked(prisma.contact.findMany).mock.calls[0][0] as any
+    expect(arg.where).not.toHaveProperty('leadTemperature')
+    expect(arg.where).not.toHaveProperty('leadType')
+  })
+
   it('passes search filter as OR clause', async () => {
     vi.mocked(prisma.contact.findMany).mockResolvedValue([])
     await listContacts(WS, { search: 'ana' })

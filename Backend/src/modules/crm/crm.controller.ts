@@ -13,8 +13,8 @@ function notFoundStatus(msg: string) {
 export async function listContactsHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     const workspaceId = req.user!.workspaceId!
-    const { search, status, cursor, limit } = req.query as Record<string, string>
-    res.json(await cs.listContacts(workspaceId, { search, status, cursor, limit: limit ? parseInt(limit, 10) : undefined }))
+    const { search, status, leadTemperature, leadType, cursor, limit } = req.query as Record<string, string>
+    res.json(await cs.listContacts(workspaceId, { search, status, leadTemperature, leadType, cursor, limit: limit ? parseInt(limit, 10) : undefined }))
   } catch (err: any) { res.status(500).json({ error: err.message }) }
 }
 
