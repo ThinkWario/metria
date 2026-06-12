@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
+import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 
 const STATUS_COLOR: Record<string, string> = {
   LEAD: 'bg-blue-100 text-blue-700', PROSPECT: 'bg-purple-100 text-purple-700',
@@ -24,6 +25,7 @@ type Tab = 'resumen' | 'conversaciones' | 'deals' | 'tickets' | 'notas'
 interface Contact {
   id: string; name: string; email: string | null; phone: string | null; status: string
   ltv: string; healthScore: number | null; source: string; createdAt: string
+  leadScore: number | null; leadTemperature: string | null; leadType: string | null
   tags: { id: string; name: string; color: string }[]
   contactNotes: { id: string; content: string; createdAt: string; userId: string }[]
   deals: { id: string; title: string; value: string; status: string; stage: { name: string; color: string } }[]
@@ -45,7 +47,6 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   useEffect(() => {
     if (!mounted) return
     fetchAPI(`/crm/contacts/${contactId}`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(setContact)
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -55,13 +56,10 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
     if (!noteContent.trim()) return
     setSavingNote(true)
     try {
-      const res = await fetchAPI(`/crm/contacts/${contactId}/notes`, {
+      const newNote = await fetchAPI(`/crm/contacts/${contactId}/notes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: noteContent.trim() })
       })
-      if (!res.ok) throw new Error('Failed to save note')
-      const newNote = await res.json()
       setContact(prev => prev ? { ...prev, contactNotes: [newNote, ...prev.contactNotes] } : prev)
       setNoteContent('')
     } catch (err) {
@@ -113,6 +111,11 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
         <span className={`ml-2 text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[contact.status] ?? 'bg-muted'}`}>
           {STATUS_LABEL[contact.status] ?? contact.status}
         </span>
+        <LeadQualificationBadge
+          temperature={contact.leadTemperature}
+          type={contact.leadType}
+          score={contact.leadScore}
+        />
       </div>
 
       {/* Tabs */}

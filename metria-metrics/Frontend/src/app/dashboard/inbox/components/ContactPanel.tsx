@@ -3,6 +3,7 @@ import type { Conversation } from '@/hooks/useInbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 import { DollarSign, Mail, Phone, Calendar, Info, ShieldCheck, Tag } from 'lucide-react'
 
 type Contact = Conversation['contact']
@@ -43,9 +44,17 @@ export function ContactPanel({ contact }: Props) {
             <ShieldCheck className="w-4 h-4 text-blue-500" />
         </div>
         
-        <Badge className={`rounded-full px-3 py-1 font-black text-[10px] uppercase tracking-wider mb-6 border-none ${STATUS_COLOR[contact.status] || 'bg-muted text-muted-foreground'}`}>
+        <Badge className={`rounded-full px-3 py-1 font-black text-[10px] uppercase tracking-wider mb-3 border-none ${STATUS_COLOR[contact.status] || 'bg-muted text-muted-foreground'}`}>
             {contact.status}
         </Badge>
+
+        <div className="mb-6 flex justify-center">
+            <LeadQualificationBadge
+                temperature={contact.leadTemperature}
+                type={contact.leadType}
+                score={contact.leadScore}
+            />
+        </div>
 
         <div className="grid grid-cols-2 gap-3 w-full">
             <Card className="bg-background/40 border-border/40 rounded-2xl shadow-inner">

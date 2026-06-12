@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   LEAD: { label: 'Lead', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', variant: 'secondary' },
@@ -29,6 +30,9 @@ interface Contact {
   ltv: string | number
   source: string
   avatarUrl: string | null
+  leadScore: number | null
+  leadTemperature: string | null
+  leadType: string | null
   _count: { conversations: number; deals: number; tickets: number }
 }
 
@@ -38,6 +42,8 @@ export default function CrmContactsClient() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [temperatureFilter, setTemperatureFilter] = useState('ALL')
+  const [typeFilter, setTypeFilter] = useState('ALL')
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
@@ -47,14 +53,15 @@ export default function CrmContactsClient() {
     const params = new URLSearchParams()
     if (search) params.set('search', search)
     if (statusFilter && statusFilter !== 'ALL') params.set('status', statusFilter)
-    
+    if (temperatureFilter && temperatureFilter !== 'ALL') params.set('leadTemperature', temperatureFilter)
+    if (typeFilter && typeFilter !== 'ALL') params.set('leadType', typeFilter)
+
     setLoading(true)
     fetchAPI(`/crm/contacts?${params}`)
-      .then(r => r.json())
-      .then(setContacts)
+      .then(data => setContacts(Array.isArray(data) ? data : []))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [mounted, search, statusFilter])
+  }, [mounted, search, statusFilter, temperatureFilter, typeFilter])
 
   if (!mounted) return <div className="p-8 space-y-6"><Skeleton className="h-40 w-full" /><Skeleton className="h-96 w-full" /></div>
 
@@ -117,6 +124,29 @@ export default function CrmContactsClient() {
                             <SelectItem value="VIP">VIPs</SelectItem>
                         </SelectContent>
                     </Select>
+                    <Select value={temperatureFilter} onValueChange={setTemperatureFilter}>
+                        <SelectTrigger className="w-[160px] bg-background/50 rounded-xl border-border/40">
+                            <SelectValue placeholder="Temperatura" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ALL">Todas</SelectItem>
+                            <SelectItem value="HOT">Caliente</SelectItem>
+                            <SelectItem value="WARM">Tibio</SelectItem>
+                            <SelectItem value="COLD">Frío</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select value={typeFilter} onValueChange={setTypeFilter}>
+                        <SelectTrigger className="w-[190px] bg-background/50 rounded-xl border-border/40">
+                            <SelectValue placeholder="Tipo de lead" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ALL">Todos</SelectItem>
+                            <SelectItem value="CURIOUS">Curioso</SelectItem>
+                            <SelectItem value="QUOTING">Cotizando</SelectItem>
+                            <SelectItem value="READY_TO_BUY">Listo para comprar</SelectItem>
+                            <SelectItem value="POST_SALE">Postventa</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
             </div>
         </CardHeader>
@@ -165,14 +195,21 @@ export default function CrmContactsClient() {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        {contact.status && (
-                                            <Badge 
-                                                variant={STATUS_CONFIG[contact.status]?.variant || 'outline'}
-                                                className={`rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${STATUS_CONFIG[contact.status]?.color}`}
-                                            >
-                                                {STATUS_CONFIG[contact.status]?.label || contact.status}
-                                            </Badge>
-                                        )}
+                                        <div className="flex flex-col gap-1.5">
+                                            {contact.status && (
+                                                <Badge
+                                                    variant={STATUS_CONFIG[contact.status]?.variant || 'outline'}
+                                                    className={`w-fit rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${STATUS_CONFIG[contact.status]?.color}`}
+                                                >
+                                                    {STATUS_CONFIG[contact.status]?.label || contact.status}
+                                                </Badge>
+                                            )}
+                                            <LeadQualificationBadge
+                                                temperature={contact.leadTemperature}
+                                                type={contact.leadType}
+                                                score={contact.leadScore}
+                                            />
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex flex-col items-end">

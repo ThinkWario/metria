@@ -18,6 +18,9 @@ export interface Conversation {
     status: string;
     ltv: number | string;
     source: string;
+    leadScore?: number | null;
+    leadTemperature?: string | null;
+    leadType?: string | null;
   }
   channel: { id: string; platform: string; name: string }
   createdAt: string
