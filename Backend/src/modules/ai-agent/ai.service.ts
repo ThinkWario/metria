@@ -131,7 +131,8 @@ export async function processAiResponse(
     where: { id: conversationId, workspaceId },
     include: {
       contact: true,
-      messages: { orderBy: { sentAt: 'asc' }, take: 10 },
+      // latest 10 messages (not the oldest 10) — reversed back to chronological below
+      messages: { orderBy: { sentAt: 'desc' }, take: 10 },
       channel: { select: { platform: true } }
     }
   })
@@ -162,9 +163,15 @@ export async function processAiResponse(
     deal: deal as any
   })
 
-  const history = conversation.messages
+  const history = [...conversation.messages]
+    .reverse() // fetched newest-first; restore chronological order
     .filter(m => !m.isInternal)
     .map(m => ({ role: m.senderType === 'CONTACT' ? 'user' as const : 'assistant' as const, content: m.content }))
+
+  // The inbound message is persisted before processAiResponse runs, so it can already be
+  // the last history item — drop it to avoid sending the user turn twice.
+  const last = history[history.length - 1]
+  if (last && last.role === 'user' && last.content === userContent) history.pop()
 
   const provider = getProvider(agent.provider)
   let result = await provider.chat({

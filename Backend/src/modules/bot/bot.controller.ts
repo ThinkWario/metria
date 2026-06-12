@@ -30,7 +30,7 @@ export async function updateAgentHandler(req: AuthRequest, res: Response): Promi
 export async function deleteAgentHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     await bs.deleteAgent(req.user!.workspaceId!, req.params.agentId)
-    res.status(204).send()
+    res.json({ ok: true })
   } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
 }
 
@@ -58,7 +58,7 @@ export async function updateFlowHandler(req: AuthRequest, res: Response): Promis
 export async function deleteFlowHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     await bs.deleteFlow(req.user!.workspaceId!, req.params.flowId)
-    res.status(204).send()
+    res.json({ ok: true })
   } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
 }
 
@@ -81,7 +81,7 @@ export async function createFollowUpRuleHandler(req: AuthRequest, res: Response)
 export async function deleteFollowUpRuleHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     await bs.deleteFollowUpRule(req.user!.workspaceId!, req.params.botId, req.params.ruleId)
-    res.status(204).send()
+    res.json({ ok: true })
   } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
 }
 
@@ -124,8 +124,8 @@ export async function applyTemplateHandler(req: AuthRequest, res: Response): Pro
     if (!template) { res.status(400).json({ error: 'template is required' }); return }
     res.json(await bs.applyTemplate(req.user!.workspaceId!, req.params.botId, template))
   } catch (err: any) {
-    const status = err.message.includes('not found') || err.message.includes('not found')
-      ? notFound(err.message)
+    const status = err.message.toLowerCase().includes('not found')
+      ? 404
       : err.message.startsWith('Unknown template') ? 400 : 500
     res.status(status).json({ error: err.message })
   }

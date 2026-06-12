@@ -24,10 +24,15 @@ export async function ingestDocument(workspaceId: string, input: IngestInput) {
   try {
     let text = input.content
     if (input.sourceType === 'PDF') {
-      // @ts-expect-error — @types/pdf-parse not available on npm, no types package exists
-      const pdfParse = (await import('pdf-parse')).default
-      const parsed = await pdfParse(Buffer.from(input.content, 'base64'))
-      text = parsed.text
+      // pdf-parse v2 exposes a PDFParse class (no default export)
+      const { PDFParse } = await import('pdf-parse')
+      const parser = new PDFParse({ data: new Uint8Array(Buffer.from(input.content, 'base64')) })
+      try {
+        const result = await parser.getText()
+        text = result.text
+      } finally {
+        await parser.destroy().catch(() => {})
+      }
     }
 
     const chunks = chunkText(text)

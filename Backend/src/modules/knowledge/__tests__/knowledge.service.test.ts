@@ -10,7 +10,14 @@ const embedMock = vi.fn()
 vi.mock('../../ai-agent/providers/provider.factory', () => ({
   getProvider: () => ({ embed: embedMock, chat: vi.fn() })
 }))
-vi.mock('pdf-parse', () => ({ default: vi.fn(async () => ({ text: 'pdf text content' })) }))
+// pdf-parse v2 exports a PDFParse class (no default export)
+const getTextMock = vi.fn(async () => ({ text: 'pdf text content' }))
+const destroyMock = vi.fn(async () => undefined)
+const pdfParseCtor = vi.fn(function (this: any) {
+  this.getText = getTextMock
+  this.destroy = destroyMock
+})
+vi.mock('pdf-parse', () => ({ PDFParse: pdfParseCtor }))
 
 import { ingestDocument, deleteDocument } from '../knowledge.service'
 import { prisma } from '../../../lib/prisma'
@@ -29,6 +36,27 @@ describe('ingestDocument', () => {
       expect.objectContaining({
         data: expect.arrayContaining([
           expect.objectContaining({ workspaceId: 'ws-1', documentId: 'doc-1', embedding: [0.1, 0.2] })
+        ])
+      })
+    )
+    expect(prisma.knowledgeDocument.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'READY' }) })
+    )
+  })
+
+  it('extracts text from PDFs via the pdf-parse v2 PDFParse class', async () => {
+    const base64 = Buffer.from('%PDF-1.4 fake').toString('base64')
+    await ingestDocument('ws-1', { name: 'doc.pdf', sourceType: 'PDF', content: base64 })
+
+    expect(pdfParseCtor).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.any(Uint8Array) })
+    )
+    expect(getTextMock).toHaveBeenCalled()
+    expect(destroyMock).toHaveBeenCalled()
+    expect(prisma.knowledgeChunk.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.arrayContaining([
+          expect.objectContaining({ content: expect.stringContaining('pdf text content') })
         ])
       })
     )

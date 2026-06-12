@@ -9,7 +9,8 @@ vi.mock('../../../lib/prisma', () => ({
       create: vi.fn(),
       update: vi.fn()
     },
-    message: { create: vi.fn() }
+    message: { create: vi.fn() },
+    botAgent: { findFirst: vi.fn() }
   }
 }))
 
@@ -20,9 +21,23 @@ vi.mock('../../../lib/socket', () => ({
   }))
 }))
 
+vi.mock('../../ai-agent/ai.service', () => ({ processAiResponse: vi.fn(async () => null) }))
+vi.mock('../../ai-agent/followup.service', () => ({
+  cancelPendingFollowUps: vi.fn(async () => undefined),
+  scheduleNextFollowUp: vi.fn(async () => undefined)
+}))
+vi.mock('../inbox.service', () => ({ trackAiMetric: vi.fn(async () => undefined) }))
+vi.mock('../../bot/flow.engine', () => ({ tryRunBotFlows: vi.fn(async () => undefined) }))
+vi.mock('../../crm/lifecycle.service', () => ({ LifecycleService: { handleSignal: vi.fn(async () => undefined) } }))
+vi.mock('../channels/whatsapp.service', () => ({ sendWhatsAppMessage: vi.fn(async () => undefined) }))
+vi.mock('../channels/instagram.service', () => ({ sendInstagramMessage: vi.fn(async () => undefined) }))
+vi.mock('../channels/telegram.service', () => ({ sendTelegramMessage: vi.fn(async () => undefined) }))
+
 import { processInboundMessage } from '../message.service'
 import { prisma } from '../../../lib/prisma'
 import { getIO } from '../../../lib/socket'
+import { processAiResponse } from '../../ai-agent/ai.service'
+import { sendTelegramMessage } from '../channels/telegram.service'
 
 const WORKSPACE_ID = 'ws-1'
 const CHANNEL_ID = 'ch-1'
@@ -131,5 +146,47 @@ describe('processInboundMessage', () => {
     expect(mockIO.to).toHaveBeenCalledWith(`workspace:${WORKSPACE_ID}`)
     expect(mockIO.emit).toHaveBeenCalledWith('conversation:new', expect.objectContaining({ id: 'conv-new' }))
     expect(mockIO.emit).toHaveBeenCalledWith('message:new', expect.objectContaining({ id: 'msg-3' }))
+  })
+
+  it('persists the AI bot reply and bumps lastMessageAt (inbound AI path)', async () => {
+    const mockChannel = { id: CHANNEL_ID, platform: 'TELEGRAM', isAiEnabled: true, config: { botToken: 'tok' } }
+    const mockContact = { id: 'contact-1', name: 'Juan', status: 'LEAD', phone: '+56912345678' }
+    const mockConversation = {
+      id: 'conv-ai', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
+      externalId: 'ext-conv-1', status: 'OPEN', messageCount: 2,
+      isHandledByBot: true, contact: mockContact, createdAt: new Date()
+    }
+    const inboundMsg = { id: 'msg-in', conversationId: 'conv-ai', direction: 'INBOUND', senderType: 'CONTACT', content: baseData.content, sentAt: new Date() }
+    const botMsg = { id: 'msg-bot', conversationId: 'conv-ai', direction: 'OUTBOUND', senderType: 'BOT', content: 'Tu pedido va en camino', sentAt: new Date() }
+
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue({
+      ...mockConversation, messageCount: 3, assignedToBotId: 'bot-1',
+      channel: { platform: 'TELEGRAM', config: { botToken: 'tok' } }
+    } as any)
+    vi.mocked(prisma.message.create)
+      .mockResolvedValueOnce(inboundMsg as any) // inbound persist
+      .mockResolvedValueOnce(botMsg as any) // bot reply persist
+    vi.mocked(processAiResponse).mockResolvedValueOnce('Tu pedido va en camino')
+
+    await processInboundMessage(baseData)
+
+    // reply was sent through the platform...
+    expect(sendTelegramMessage).toHaveBeenCalledWith('tok', 'ext-conv-1', 'Tu pedido va en camino')
+    // ...AND persisted as an OUTBOUND BOT message
+    expect(prisma.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          conversationId: 'conv-ai', direction: 'OUTBOUND', senderType: 'BOT',
+          content: 'Tu pedido va en camino', status: 'SENT'
+        })
+      })
+    )
+    // conversation freshness updated after the bot reply
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'conv-ai' }, data: { lastMessageAt: expect.any(Date) } })
+    )
   })
 })

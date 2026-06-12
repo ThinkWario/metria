@@ -94,6 +94,36 @@ describe('processAiResponse (rewired)', () => {
     expect(result).toBe('Agendado')
   })
 
+  it('fetches the LATEST messages and sends history chronologically without duplicating the inbound turn', async () => {
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+      id: CONV, workspaceId: WS, isHandledByBot: true,
+      contact: { id: 'c1', name: 'Ana', status: 'LEAD', leadTemperature: null, leadType: null, leadScore: null, qualificationData: null },
+      // newest-first, as returned by orderBy: { sentAt: 'desc' } — includes the just-persisted inbound
+      messages: [
+        { senderType: 'CONTACT', content: 'Quiero cotizar', isInternal: false },
+        { senderType: 'BOT', content: '¿En qué te ayudo?', isInternal: false },
+        { senderType: 'CONTACT', content: 'Hola', isInternal: false }
+      ],
+      channel: { platform: 'WHATSAPP' }
+    } as any)
+    chatMock.mockResolvedValue({ text: 'ok', toolCalls: [], submitToolResults: vi.fn() })
+
+    await processAiResponse(WS, CONV, 'Quiero cotizar')
+
+    // query asks for the latest messages, not the oldest
+    expect(prisma.conversation.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({ messages: { orderBy: { sentAt: 'desc' }, take: 10 } })
+      })
+    )
+    // chronological order, inbound message appears exactly once (as the final user turn)
+    expect(chatMock.mock.calls[0][0].messages).toEqual([
+      { role: 'user', content: 'Hola' },
+      { role: 'assistant', content: '¿En qué te ayudo?' },
+      { role: 'user', content: 'Quiero cotizar' }
+    ])
+  })
+
   it('returns null when conversation not handled by bot', async () => {
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue({ id: CONV, isHandledByBot: false } as any)
     expect(await processAiResponse(WS, CONV, 'x')).toBeNull()

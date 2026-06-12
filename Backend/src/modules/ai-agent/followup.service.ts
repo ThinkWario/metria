@@ -53,12 +53,22 @@ export async function processDueFollowUps() {
     if (claimed.count === 0) continue
 
     try {
-      // business-hours guardrail: never ping a contact outside the workspace's hours
-      const bh = await getBusinessHours(job.workspaceId)
-      if (bh && isOutsideBusinessHours(bh)) {
+      // business-hours guardrail: never ping a contact outside the workspace's hours.
+      // If the check itself fails, requeue (+30min) instead of leaving the job stuck in SENT unsent.
+      try {
+        const bh = await getBusinessHours(job.workspaceId)
+        if (bh && isOutsideBusinessHours(bh)) {
+          await prisma.followUpJob.updateMany({
+            where: { id: job.id },
+            data: { status: 'PENDING', sentAt: null, scheduledAt: new Date(Date.now() + 2 * 3600_000) }
+          })
+          continue
+        }
+      } catch (bhErr) {
+        console.error(`[FollowUp] Business-hours check failed for job ${job.id}, requeueing +30min:`, bhErr)
         await prisma.followUpJob.updateMany({
           where: { id: job.id },
-          data: { status: 'PENDING', sentAt: null, scheduledAt: new Date(Date.now() + 2 * 3600_000) }
+          data: { status: 'PENDING', sentAt: null, scheduledAt: new Date(Date.now() + 30 * 60_000) }
         })
         continue
       }
@@ -77,8 +87,16 @@ export async function processDueFollowUps() {
 
       await sendOutboundPlatformMessage(job.workspaceId, job.conversationId, text, 'BOT')
 
-      if (conv.assignedToBotId) {
-        await scheduleNextFollowUp(job.workspaceId, job.conversationId, conv.assignedToBotId)
+      // Same fallback as message.service: if the conversation has no assigned bot,
+      // use the workspace's most recent active bot so the sequence continues.
+      const botId = conv.assignedToBotId
+        ?? (await prisma.botAgent.findFirst({
+          where: { workspaceId: job.workspaceId, isActive: true },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true }
+        }))?.id
+      if (botId) {
+        await scheduleNextFollowUp(job.workspaceId, job.conversationId, botId)
       }
     } catch (err) {
       console.error(`[FollowUp] Failed job ${job.id}:`, err)

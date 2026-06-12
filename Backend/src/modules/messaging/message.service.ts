@@ -163,15 +163,32 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       const aiResponse = await processAiResponse(workspaceId, conversation.id, content)
       if (aiResponse) {
         await sendPlatformMessage(channel.platform, channel.config, conversation.externalId, aiResponse)
-        
+
+        // Persist the bot reply (the send already happened above, so write directly)
+        const botMessage = await prisma.message.create({
+          data: {
+            workspaceId,
+            conversationId: conversation.id,
+            direction: 'OUTBOUND',
+            senderType: 'BOT',
+            content: aiResponse,
+            status: 'SENT'
+          }
+        })
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { lastMessageAt: new Date() }
+        })
+
         // Broadcast AI message via socket
         const io = getIO()
         io.to(`workspace:${workspaceId}`).emit('message:new', {
+          id: botMessage.id,
           conversationId: conversation.id,
           direction: 'OUTBOUND',
           senderType: 'BOT',
           content: aiResponse,
-          sentAt: new Date()
+          sentAt: botMessage.sentAt
         })
 
         // Track AI metric
