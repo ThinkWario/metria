@@ -44,7 +44,10 @@ export const fetchAPI = async (endpoint: string, options: RequestInit = {}) => {
             throw new Error(msg)
         }
 
-        return await response.json()
+        // Some endpoints (DELETE) respond 204 No Content — don't try to parse JSON
+        if (response.status === 204) return null
+        const text = await response.text()
+        return text ? JSON.parse(text) : null
     } catch (error) {
         console.error(`Error fetching ${endpoint}:`, error)
         throw error
