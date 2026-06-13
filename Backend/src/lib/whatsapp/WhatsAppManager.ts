@@ -80,16 +80,22 @@ export class WhatsAppSessionManager {
     client.on('ready', async () => {
       console.log(`[WhatsApp] Client is ready for workspace: ${workspaceId}`);
       io.to(`workspace:${workspaceId}`).emit('whatsapp:ready');
-      
-      // Update channel status in DB with isNative flag
-      await prisma.channel.update({
+
+      // Upsert channel row — native QR never creates it via API setup
+      await prisma.channel.upsert({
         where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
-        data: { 
-          status: 'CONNECTED', 
-          updatedAt: new Date(),
-          config: { isNative: true } // Mark as native for outbound routing
+        create: {
+          workspaceId,
+          platform: 'WHATSAPP',
+          name: 'WhatsApp',
+          status: 'CONNECTED',
+          config: { isNative: true, isAiEnabled: true }
+        },
+        update: {
+          status: 'CONNECTED',
+          config: { isNative: true, isAiEnabled: true }
         }
-      }).catch(err => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, err));
+      }).catch(err => console.error(`[WhatsApp] DB Upsert Error (${workspaceId}):`, err));
 
       // Initial Sync of recent chats
       this.syncChats(workspaceId).catch(err => 
@@ -109,10 +115,11 @@ export class WhatsAppSessionManager {
       console.log(`[WhatsApp] Disconnected workspace ${workspaceId}:`, reason);
       this.clients.delete(workspaceId);
       io.to(`workspace:${workspaceId}`).emit('whatsapp:disconnected', { reason });
-      
-      prisma.channel.update({
-        where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
-        data: { status: 'DISCONNECTED', updatedAt: new Date() }
+
+      // updateMany is safe even if no row exists yet
+      prisma.channel.updateMany({
+        where: { workspaceId, platform: 'WHATSAPP' },
+        data: { status: 'DISCONNECTED' }
       }).catch(err => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, err));
     });
 
@@ -136,21 +143,36 @@ export class WhatsAppSessionManager {
     if (!client) return;
 
     console.log(`[WhatsApp] Syncing chats for ${workspaceId}...`);
+
+    const channel = await prisma.channel.findUnique({
+      where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
+      select: { id: true }
+    });
+    if (!channel) {
+      console.error(`[WhatsApp] Channel row missing for ${workspaceId} — skipping sync`);
+      return;
+    }
+
     const chats = await client.getChats();
-    const recentChats = chats.filter(c => !c.isGroup).slice(0, 20); // Sync last 20 individual chats
+    // Skip groups and WhatsApp internal addresses
+    const recentChats = chats
+      .filter(c => !c.isGroup && !c.id._serialized.includes('broadcast'))
+      .slice(0, 20);
 
     const { processInboundMessage } = await import('../../modules/messaging/message.service');
 
     for (const chat of recentChats) {
       const lastMsg = await chat.fetchMessages({ limit: 1 });
-      if (lastMsg.length > 0) {
+      if (lastMsg.length > 0 && lastMsg[0].body) {
+        const senderPhone = chat.id._serialized.replace('@c.us', '');
         await processInboundMessage({
           workspaceId,
-          platform: 'WHATSAPP',
-          externalId: chat.id._serialized,
-          content: lastMsg[0].body,
-          fromName: chat.name || 'WhatsApp User',
-          timestamp: new Date(lastMsg[0].timestamp * 1000)
+          channelId: channel.id,
+          externalConversationId: chat.id._serialized,
+          externalMessageId: lastMsg[0].id._serialized,
+          senderExternalId: senderPhone,
+          senderName: chat.name || 'WhatsApp User',
+          content: lastMsg[0].body
         }).catch(() => {});
       }
     }
@@ -170,17 +192,32 @@ export class WhatsAppSessionManager {
    * Bridges inbound messages to Metria's internal processing logic.
    */
   private async handleInboundMessage(workspaceId: string, msg: WWebMessage) {
+    // Ignore WhatsApp internal broadcasts (status updates, etc.)
+    if (msg.from === 'status@broadcast' || msg.from?.includes('broadcast')) return;
+    // Ignore empty messages
+    if (!msg.body) return;
+
     try {
-      // Import dynamically to avoid circular dependencies if any
+      const channel = await prisma.channel.findUnique({
+        where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
+        select: { id: true }
+      });
+      if (!channel) {
+        console.error(`[WhatsApp] Channel row missing for ${workspaceId} — message dropped`);
+        return;
+      }
+
       const { processInboundMessage } = await import('../../modules/messaging/message.service');
-      
+      const senderPhone = msg.from.replace('@c.us', '');
+
       await processInboundMessage({
         workspaceId,
-        platform: 'WHATSAPP',
-        externalId: msg.from,
-        content: msg.body,
-        fromName: msg.author || 'WhatsApp User',
-        timestamp: new Date()
+        channelId: channel.id,
+        externalConversationId: msg.from,
+        externalMessageId: msg.id._serialized,
+        senderExternalId: senderPhone,
+        senderName: (msg as any)._data?.notifyName || msg.author || 'WhatsApp User',
+        content: msg.body
       });
     } catch (err) {
       console.error(`[WhatsApp] Error processing inbound message for ${workspaceId}:`, err);

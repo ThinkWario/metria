@@ -71,7 +71,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { platform: true, isAiEnabled: true, config: true }
+    select: { platform: true, config: true }
   })
   if (!channel) throw new Error(`Channel not found: ${channelId}`)
   const source = PLATFORM_TO_SOURCE[channel.platform] ?? 'MANUAL'
@@ -157,8 +157,8 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     include: { channel: { select: { platform: true, config: true } } }
   })
 
-  // 1. Try AI Agent if enabled for channel
-  if (channel.isAiEnabled && updatedConv.isHandledByBot) {
+  // 1. Try AI Agent if enabled for channel (isAiEnabled stored in config JSON)
+  if ((channel.config as any)?.isAiEnabled && updatedConv.isHandledByBot) {
     try {
       const aiResponse = await processAiResponse(workspaceId, conversation.id, content)
       if (aiResponse) {
