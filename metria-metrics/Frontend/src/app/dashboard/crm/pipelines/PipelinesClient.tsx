@@ -30,7 +30,6 @@ export default function PipelinesClient() {
   useEffect(() => {
     if (!mounted) return
     fetchAPI('/crm/pipelines')
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then((data: Pipeline[]) => {
         setPipelines(data)
         if (data.length > 0) setSelectedPipelineId(data[0].id)
@@ -43,7 +42,6 @@ export default function PipelinesClient() {
     if (!mounted || !selectedPipelineId) return
     setLoadingDeals(true)
     fetchAPI(`/crm/deals?pipelineId=${selectedPipelineId}`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(setDeals)
       .catch(console.error)
       .finally(() => setLoadingDeals(false))
@@ -52,13 +50,10 @@ export default function PipelinesClient() {
   async function handleMove(dealId: string, stageId: string) {
     setMovingDealId(dealId)
     try {
-      const res = await fetchAPI(`/crm/deals/${dealId}/move`, {
+      const updated = await fetchAPI(`/crm/deals/${dealId}/move`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stageId })
       })
-      if (!res.ok) throw new Error('Move failed')
-      const updated = await res.json()
       setDeals(prev => prev.map(d => d.id === dealId ? { ...d, stage: updated.stage ?? d.stage, status: updated.status ?? d.status } : d))
     } catch (err) {
       console.error(err)

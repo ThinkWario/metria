@@ -306,6 +306,18 @@ var init_ticket_service = __esm({
 });
 
 // src/modules/crm/contact.service.ts
+async function createContact(workspaceId, data) {
+  return prisma.contact.create({
+    data: {
+      workspaceId,
+      name: data.name,
+      email: data.email || null,
+      phone: data.phone || null,
+      status: data.status || "LEAD",
+      source: "MANUAL"
+    }
+  });
+}
 async function listContacts(workspaceId, opts = {}) {
   const { search, status, leadTemperature, leadType, limit = 50, cursor } = opts;
   return prisma.contact.findMany({
@@ -1013,15 +1025,18 @@ async function processAiResponse(workspaceId, conversationId, userContent) {
     tools: toolDeclarations
   });
   let rounds = 0;
+  let handoverCalled = false;
   while (result.toolCalls.length > 0 && rounds < 5) {
     const responses = [];
     for (const call of result.toolCalls) {
+      if (call.name === "handover_to_human") handoverCalled = true;
       const toolResult = await handleToolCall(workspaceId, conversationId, call);
       responses.push({ name: call.name, response: toolResult });
     }
     result = await result.submitToolResults(responses);
     rounds++;
   }
+  if (handoverCalled) return null;
   return result.text;
 }
 async function handleToolCall(workspaceId, conversationId, call) {
@@ -6764,6 +6779,18 @@ async function getContactHandler(req, res) {
     res.status(notFoundStatus(err.message)).json({ error: err.message });
   }
 }
+async function createContactHandler(req, res) {
+  try {
+    const { name, email, phone, status } = req.body;
+    if (!name?.trim()) {
+      res.status(400).json({ error: "name is required" });
+      return;
+    }
+    res.status(201).json(await createContact(req.user.workspaceId, { name, email, phone, status }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
 async function updateContactHandler(req, res) {
   try {
     res.json(await updateContact(req.user.workspaceId, req.params.contactId, req.body));
@@ -6912,6 +6939,7 @@ async function resolveTicketHandler(req, res) {
 var router18 = (0, import_express18.Router)();
 var auth = [authenticate, requirePlan("PRO", "SCALE")];
 router18.get("/crm/contacts", ...auth, listContactsHandler);
+router18.post("/crm/contacts", ...auth, createContactHandler);
 router18.get("/crm/contacts/:contactId", ...auth, getContactHandler);
 router18.patch("/crm/contacts/:contactId", ...auth, updateContactHandler);
 router18.post("/crm/contacts/:contactId/notes", ...auth, addNoteHandler);

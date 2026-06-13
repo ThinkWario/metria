@@ -24,6 +24,14 @@ export async function getContactHandler(req: AuthRequest, res: Response): Promis
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
+export async function createContactHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { name, email, phone, status } = req.body
+    if (!name?.trim()) { res.status(400).json({ error: 'name is required' }); return }
+    res.status(201).json(await cs.createContact(req.user!.workspaceId!, { name, email, phone, status }))
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
 export async function updateContactHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     res.json(await cs.updateContact(req.user!.workspaceId!, req.params.contactId, req.body))

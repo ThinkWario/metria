@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { authenticate } from '../../middleware/auth'
 import { requirePlan } from '../../middleware/planGate'
 import {
-  listContactsHandler, getContactHandler, updateContactHandler,
+  listContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
   listPipelinesHandler, createPipelineHandler,
   listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler,
@@ -14,6 +14,7 @@ const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
 
 // Contacts
 router.get('/crm/contacts', ...auth, listContactsHandler)
+router.post('/crm/contacts', ...auth, createContactHandler)
 router.get('/crm/contacts/:contactId', ...auth, getContactHandler)
 router.patch('/crm/contacts/:contactId', ...auth, updateContactHandler)
 router.post('/crm/contacts/:contactId/notes', ...auth, addNoteHandler)

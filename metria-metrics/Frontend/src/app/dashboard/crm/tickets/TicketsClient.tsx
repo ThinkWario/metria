@@ -41,7 +41,6 @@ export default function TicketsClient() {
     if (priorityFilter) params.set('priority', priorityFilter)
     setLoading(true)
     fetchAPI(`/crm/tickets?${params}`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(setTickets)
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -50,8 +49,7 @@ export default function TicketsClient() {
   async function handleResolve(ticketId: string) {
     setResolvingId(ticketId)
     try {
-      const res = await fetchAPI(`/crm/tickets/${ticketId}/resolve`, { method: 'POST' })
-      if (!res.ok) throw new Error('Resolve failed')
+      await fetchAPI(`/crm/tickets/${ticketId}/resolve`, { method: 'POST' })
       setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'RESOLVED' } : t))
     } catch (err) {
       console.error(err)

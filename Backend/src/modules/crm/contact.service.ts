@@ -9,6 +9,19 @@ export interface ListContactsOpts {
   cursor?: string
 }
 
+export async function createContact(workspaceId: string, data: { name: string; email?: string; phone?: string; status?: string }) {
+  return prisma.contact.create({
+    data: {
+      workspaceId,
+      name: data.name,
+      email: data.email || null,
+      phone: data.phone || null,
+      status: (data.status as any) || 'LEAD',
+      source: 'MANUAL'
+    }
+  })
+}
+
 export async function listContacts(workspaceId: string, opts: ListContactsOpts = {}) {
   const { search, status, leadTemperature, leadType, limit = 50, cursor } = opts
   return prisma.contact.findMany({

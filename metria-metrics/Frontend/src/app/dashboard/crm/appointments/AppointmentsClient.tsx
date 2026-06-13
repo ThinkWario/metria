@@ -123,6 +123,9 @@ export default function AppointmentsClient() {
         <p className="text-sm text-muted-foreground max-w-xs">
           Cuando tu agente o tu equipo agenden visitas o llamadas, aparecerán aquí.
         </p>
+        <Button variant="outline" className="rounded-xl gap-2 mt-2" onClick={() => window.open('https://wa.me/', '_blank')}>
+          <Phone className="w-4 h-4" /> Agendar por WhatsApp
+        </Button>
       </div>
     )
   }

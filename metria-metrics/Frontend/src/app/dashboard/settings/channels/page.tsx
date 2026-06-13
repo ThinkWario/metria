@@ -1,8 +1,12 @@
-'use client'
-
+import type { Metadata } from 'next'
 import React from 'react'
 import { ChannelsClient } from './ChannelsClient'
 import { Separator } from '@/components/ui/separator'
+
+export const metadata: Metadata = {
+    title: 'Canales de Mensajería | Metria',
+    description: 'Conecta WhatsApp, Instagram, Telegram y más canales de mensajería'
+}
 
 export default function ChannelsPage() {
     return (

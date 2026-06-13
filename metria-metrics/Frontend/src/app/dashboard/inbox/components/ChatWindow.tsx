@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Send, MoreVertical, Phone, Video, Search, ShieldCheck, Bot, Hand } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Badge } from '@/components/ui/badge'
@@ -32,8 +33,8 @@ export function ChatWindow({ conversation, messages, loading, onSend, onHandover
     try {
       await onSend(input)
       setInput('')
-    } catch {
-      // toast error
+    } catch (err: any) {
+      toast.error(err?.message || 'No se pudo enviar el mensaje')
     } finally {
       setSending(false)
     }
@@ -92,10 +93,10 @@ export function ChatWindow({ conversation, messages, loading, onSend, onHandover
                     Tomar Control
                 </Button>
             )}
-            <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Phone className="w-4 h-4" /></Button>
-            <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Video className="w-4 h-4" /></Button>
-            <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Search className="w-4 h-4" /></Button>
-            <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><MoreVertical className="w-4 h-4" /></Button>
+            <Button aria-label="Llamar" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Phone className="w-4 h-4" /></Button>
+            <Button aria-label="Videollamada" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Video className="w-4 h-4" /></Button>
+            <Button aria-label="Buscar en conversación" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Search className="w-4 h-4" /></Button>
+            <Button aria-label="Más opciones" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><MoreVertical className="w-4 h-4" /></Button>
         </div>
       </header>
 

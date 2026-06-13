@@ -5,13 +5,16 @@ import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
+import { toast } from 'sonner'
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   LEAD: { label: 'Lead', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', variant: 'secondary' },
@@ -44,6 +47,9 @@ export default function CrmContactsClient() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [temperatureFilter, setTemperatureFilter] = useState('ALL')
   const [typeFilter, setTypeFilter] = useState('ALL')
+  const [newContactOpen, setNewContactOpen] = useState(false)
+  const [newContactForm, setNewContactForm] = useState({ name: '', email: '', phone: '', status: 'LEAD' })
+  const [newContactSaving, setNewContactSaving] = useState(false)
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
@@ -63,6 +69,26 @@ export default function CrmContactsClient() {
       .finally(() => setLoading(false))
   }, [mounted, search, statusFilter, temperatureFilter, typeFilter])
 
+  async function handleCreateContact(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newContactForm.name.trim()) return
+    setNewContactSaving(true)
+    try {
+      const created = await fetchAPI('/crm/contacts', {
+        method: 'POST',
+        body: JSON.stringify(newContactForm)
+      })
+      setContacts(prev => [created, ...prev])
+      setNewContactOpen(false)
+      setNewContactForm({ name: '', email: '', phone: '', status: 'LEAD' })
+      toast.success('Contacto creado')
+    } catch (err: any) {
+      toast.error(err.message || 'Error al crear contacto')
+    } finally {
+      setNewContactSaving(false)
+    }
+  }
+
   if (!mounted) return <div className="p-8 space-y-6"><Skeleton className="h-40 w-full" /><Skeleton className="h-96 w-full" /></div>
 
   const metrics = {
@@ -81,11 +107,48 @@ export default function CrmContactsClient() {
           <p className="text-muted-foreground">Gestiona tus contactos y maximiza su valor de vida (LTV).</p>
         </div>
         <div className="flex items-center gap-2">
-            <Button className="rounded-xl gap-2 shadow-lg shadow-primary/20">
+            <Button className="rounded-xl gap-2 shadow-lg shadow-primary/20" onClick={() => setNewContactOpen(true)}>
                 <Plus className="w-4 h-4" /> Nuevo Contacto
             </Button>
         </div>
       </div>
+
+      <Dialog open={newContactOpen} onOpenChange={setNewContactOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nuevo Contacto</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateContact} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="nc-name">Nombre *</Label>
+              <Input id="nc-name" required value={newContactForm.name} onChange={e => setNewContactForm(f => ({ ...f, name: e.target.value }))} placeholder="Nombre completo" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="nc-phone">WhatsApp / Teléfono</Label>
+              <Input id="nc-phone" value={newContactForm.phone} onChange={e => setNewContactForm(f => ({ ...f, phone: e.target.value }))} placeholder="+56912345678" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="nc-email">Email</Label>
+              <Input id="nc-email" type="email" value={newContactForm.email} onChange={e => setNewContactForm(f => ({ ...f, email: e.target.value }))} placeholder="correo@ejemplo.com" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="nc-status">Estado</Label>
+              <Select value={newContactForm.status} onValueChange={v => setNewContactForm(f => ({ ...f, status: v }))}>
+                <SelectTrigger id="nc-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LEAD">Lead</SelectItem>
+                  <SelectItem value="PROSPECT">Prospecto</SelectItem>
+                  <SelectItem value="CUSTOMER">Cliente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNewContactOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={newContactSaving}>{newContactSaving ? 'Guardando...' : 'Crear Contacto'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Metrics Bento Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

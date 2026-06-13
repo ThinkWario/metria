@@ -182,15 +182,19 @@ export async function processAiResponse(
 
   // tool loop (max 5 rounds to avoid infinite loops)
   let rounds = 0
+  let handoverCalled = false
   while (result.toolCalls.length > 0 && rounds < 5) {
     const responses: { name: string; response: object }[] = []
     for (const call of result.toolCalls) {
+      if (call.name === 'handover_to_human') handoverCalled = true
       const toolResult = await handleToolCall(workspaceId, conversationId, call)
       responses.push({ name: call.name, response: toolResult })
     }
     result = await result.submitToolResults(responses)
     rounds++
   }
+  // Handover already wrote a system message — suppress AI text reply to avoid duplicate
+  if (handoverCalled) return null
   return result.text
 }
 

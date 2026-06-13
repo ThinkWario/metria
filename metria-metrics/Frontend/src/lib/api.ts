@@ -41,6 +41,13 @@ export const fetchAPI = async (endpoint: string, options: RequestInit = {}) => {
                 }
             }
 
+            // Token missing or expired — clear localStorage and redirect to logout so the
+            // httpOnly session cookie is also cleared (prevents the login→dashboard redirect loop)
+            if (response.status === 401 && typeof window !== 'undefined') {
+                localStorage.removeItem('metria_token')
+                window.location.href = '/api/auth/logout'
+            }
+
             throw new Error(msg)
         }
 
