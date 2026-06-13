@@ -118,6 +118,10 @@ export class WhatsAppSessionManager {
 
     client.initialize().catch(err => {
       console.error(`[WhatsApp] Initialization failed for ${workspaceId}:`, err);
+      // Remove the dead client so the next init attempt can retry instead of
+      // hitting the "session already exists" early-return forever
+      this.clients.delete(workspaceId);
+      client.destroy().catch(() => {});
       io.to(`workspace:${workspaceId}`).emit('whatsapp:error', { message: 'Initialization failed' });
     });
 
