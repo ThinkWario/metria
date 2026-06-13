@@ -3,8 +3,6 @@ import { authenticate } from '../../middleware/auth'
 import { requirePlan } from '../../middleware/planGate'
 import {
   telegramWebhook,
-  metaWebhookVerify,
-  metaWebhook,
   getConversationsHandler,
   getMessagesHandler,
   sendMessageHandler,
