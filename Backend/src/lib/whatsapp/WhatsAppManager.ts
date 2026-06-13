@@ -41,6 +41,7 @@ export class WhatsAppSessionManager {
       }),
       puppeteer: {
         headless: true,
+        protocolTimeout: 120000,
         // In containers, point to system Chromium (e.g. /usr/bin/chromium)
         ...(process.env.PUPPETEER_EXECUTABLE_PATH
           ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }

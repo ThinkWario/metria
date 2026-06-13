@@ -21,11 +21,18 @@ async function sendPlatformMessage(
   platform: string,
   config: any,
   to: string,
-  text: string
+  text: string,
+  workspaceId?: string
 ): Promise<void> {
   switch (platform) {
     case 'WHATSAPP':
-      await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, to, text)
+      if ((config as any)?.isNative && workspaceId) {
+        // QR-connected via whatsapp-web.js — bypass Cloud API (no OAuth token)
+        const { WhatsAppSessionManager } = await import('../../lib/whatsapp/WhatsAppManager')
+        await WhatsAppSessionManager.getInstance().sendMessage(workspaceId, to, text)
+      } else {
+        await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, to, text)
+      }
       break
     case 'INSTAGRAM':
       await sendInstagramMessage(config.pageAccessToken, to, text)
@@ -52,7 +59,7 @@ export async function sendOutboundPlatformMessage(
   })
   if (!conv) throw new Error('Conversation not found')
 
-  await sendPlatformMessage(conv.channel.platform, conv.channel.config, conv.externalId, text)
+  await sendPlatformMessage(conv.channel.platform, conv.channel.config, conv.externalId, text, workspaceId)
   const message = await prisma.message.create({
     data: { workspaceId, conversationId, direction: 'OUTBOUND', senderType, content: text, status: 'SENT' }
   })
@@ -162,7 +169,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     try {
       const aiResponse = await processAiResponse(workspaceId, conversation.id, content)
       if (aiResponse) {
-        await sendPlatformMessage(channel.platform, channel.config, conversation.externalId, aiResponse)
+        await sendPlatformMessage(channel.platform, channel.config, conversation.externalId, aiResponse, workspaceId)
 
         // Persist the bot reply (the send already happened above, so write directly)
         const botMessage = await prisma.message.create({

@@ -198,10 +198,17 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
   const { name, args } = call
   console.log(`[AI Agent] Tool call: ${name}`, args)
 
+  // Resolve real IDs from DB — prevent AI model from hallucinating contactId / conversationId
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { contactId: true }
+  })
+  const contactId = conv?.contactId ?? args.contactId
+
   try {
     switch (name) {
       case 'qualify_lead':
-        await updateContact(workspaceId, args.contactId, { status: args.status })
+        await updateContact(workspaceId, contactId, { status: args.status })
         await logAiAction(workspaceId, conversationId, `Calificó al lead como ${args.status}`)
         return { success: true, message: `Status updated to ${args.status}` }
 
@@ -213,7 +220,7 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         if (!firstStage) return { success: false, error: 'No pipeline stages found' }
 
         await createDeal(workspaceId, {
-          contactId: args.contactId,
+          contactId,
           pipelineId: pipeline!.id,
           stageId: firstStage.id,
           title: args.title,
@@ -224,7 +231,7 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
 
       case 'move_deal':
         const deal = await prisma.deal.findFirst({
-          where: { contactId: args.contactId, workspaceId, status: 'OPEN' },
+          where: { contactId, workspaceId, status: 'OPEN' },
           orderBy: { createdAt: 'desc' }
         })
         if (!deal) return { success: false, error: 'No active deal found for this contact' }
@@ -263,14 +270,14 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         return { products: matches.map(p => ({ name: p.name, price: p.price, sku: p.sku })) }
 
       case 'update_qualification':
-        await updateQualification(workspaceId, args.contactId, {
+        await updateQualification(workspaceId, contactId, {
           temperature: args.temperature, type: args.type, score: args.score, data: args.data
         })
         await logAiAction(workspaceId, conversationId, `Calificó al lead: ${args.temperature ?? ''} ${args.type ?? ''} score=${args.score ?? '-'}`)
         return { success: true }
 
       case 'tag_contact':
-        await addTag(workspaceId, args.contactId, args.name, args.color ?? '#f59e0b')
+        await addTag(workspaceId, contactId, args.name, args.color ?? '#f59e0b')
         await logAiAction(workspaceId, conversationId, `Etiquetó al contacto: ${args.name}`)
         return { success: true }
 
@@ -281,7 +288,7 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
 
       case 'schedule_appointment': {
         const appt = await scheduleAppointment(workspaceId, {
-          contactId: args.contactId,
+          contactId,
           type: args.type ?? 'SITE_VISIT',
           scheduledAt: new Date(args.isoDateTime),
           createdBy: 'BOT'

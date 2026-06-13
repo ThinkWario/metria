@@ -46,9 +46,10 @@ var init_prisma = __esm({
 
 // src/lib/socket.ts
 function initSocket(httpServer) {
+  const origins = (process.env.FRONTEND_URL || "http://localhost:3000").split(",").map((o) => o.trim()).filter(Boolean);
   _io = new import_socket.Server(httpServer, {
     cors: {
-      origin: process.env.FRONTEND_URL || "http://localhost:3000",
+      origin: origins,
       credentials: true
     }
   });
@@ -306,11 +307,13 @@ var init_ticket_service = __esm({
 
 // src/modules/crm/contact.service.ts
 async function listContacts(workspaceId, opts = {}) {
-  const { search, status, limit = 50, cursor } = opts;
+  const { search, status, leadTemperature, leadType, limit = 50, cursor } = opts;
   return prisma.contact.findMany({
     where: {
       workspaceId,
       ...status && { status },
+      ...leadTemperature && { leadTemperature },
+      ...leadType && { leadType },
       ...search && {
         OR: [
           { name: { contains: search, mode: "insensitive" } },
@@ -377,6 +380,23 @@ async function removeTag(workspaceId, contactId, tagId) {
   if (!tag) throw new Error("Tag not found");
   await prisma.contactTag.delete({ where: { id: tagId } });
 }
+async function updateQualification(workspaceId, contactId, input) {
+  if (input.temperature && !TEMPERATURES.includes(input.temperature)) throw new Error(`Invalid temperature: ${input.temperature}`);
+  if (input.type && !LEAD_TYPES.includes(input.type)) throw new Error(`Invalid lead type: ${input.type}`);
+  if (input.score !== void 0 && (input.score < 0 || input.score > 100)) throw new Error("Score must be 0-100");
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } });
+  if (!contact) throw new Error("Contact not found");
+  const mergedData = input.data ? { ...contact.qualificationData ?? {}, ...input.data } : void 0;
+  return prisma.contact.update({
+    where: { id: contact.id },
+    data: {
+      ...input.temperature && { leadTemperature: input.temperature },
+      ...input.type && { leadType: input.type },
+      ...input.score !== void 0 && { leadScore: input.score },
+      ...mergedData && { qualificationData: mergedData }
+    }
+  });
+}
 async function calculateHealthScore(workspaceId, contactId) {
   const contact = await prisma.contact.findFirst({
     where: { id: contactId, workspaceId },
@@ -404,10 +424,13 @@ async function calculateHealthScore(workspaceId, contactId) {
   await prisma.contact.update({ where: { id: contactId, workspaceId }, data: { healthScore: score } });
   return { score, factors };
 }
+var TEMPERATURES, LEAD_TYPES;
 var init_contact_service = __esm({
   "src/modules/crm/contact.service.ts"() {
     "use strict";
     init_prisma();
+    TEMPERATURES = ["COLD", "WARM", "HOT"];
+    LEAD_TYPES = ["CURIOUS", "QUOTING", "READY_TO_BUY", "POST_SALE"];
   }
 });
 
@@ -666,13 +689,297 @@ var init_pipeline_service = __esm({
   }
 });
 
+// src/modules/ai-agent/providers/gemini.provider.ts
+function wrapResult(chat, response) {
+  const calls = response.functionCalls() || [];
+  return {
+    text: calls.length ? null : response.text(),
+    toolCalls: calls.map((c) => ({ name: c.name, args: c.args })),
+    async submitToolResults(results) {
+      const parts = results.map((r) => ({ functionResponse: { name: r.name, response: r.response } }));
+      const next = await chat.sendMessage(parts);
+      return wrapResult(chat, next.response);
+    }
+  };
+}
+var import_generative_ai, genAI, CHAT_MODEL, EMBED_MODEL, geminiProvider;
+var init_gemini_provider = __esm({
+  "src/modules/ai-agent/providers/gemini.provider.ts"() {
+    "use strict";
+    import_generative_ai = require("@google/generative-ai");
+    genAI = new import_generative_ai.GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || "");
+    CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || "gemini-2.5-flash";
+    EMBED_MODEL = process.env.GEMINI_EMBED_MODEL || "gemini-embedding-001";
+    geminiProvider = {
+      async chat({ system, messages, tools }) {
+        const model = genAI.getGenerativeModel({
+          model: CHAT_MODEL,
+          tools: [{ functionDeclarations: tools }]
+        });
+        const history = messages.slice(0, -1).map((m) => ({
+          role: m.role === "user" ? "user" : "model",
+          parts: [{ text: m.content }]
+        }));
+        const last = messages[messages.length - 1];
+        const chat = model.startChat({
+          history,
+          systemInstruction: { role: "system", parts: [{ text: system }] }
+        });
+        const result = await chat.sendMessage(last?.content ?? "");
+        return wrapResult(chat, result.response);
+      },
+      async embed(texts) {
+        const model = genAI.getGenerativeModel({ model: EMBED_MODEL });
+        const res = await model.batchEmbedContents({
+          requests: texts.map((t) => ({ content: { role: "user", parts: [{ text: t }] } }))
+        });
+        return res.embeddings.map((e) => e.values);
+      }
+    };
+  }
+});
+
+// src/modules/ai-agent/providers/provider.factory.ts
+function getProvider(name) {
+  const key = name || "gemini";
+  const provider = providers[key];
+  if (!provider) throw new Error(`Unknown LLM provider: ${key}`);
+  return provider;
+}
+var providers;
+var init_provider_factory = __esm({
+  "src/modules/ai-agent/providers/provider.factory.ts"() {
+    "use strict";
+    init_gemini_provider();
+    providers = {
+      gemini: geminiProvider
+    };
+  }
+});
+
+// src/modules/ai-agent/promptCompiler.ts
+function compileSystemPrompt({ agent, profile, knowledgeChunks, contact, deal }) {
+  const sections = [];
+  sections.push(`Eres ${agent.name}, agente de ventas experto. Tono: ${agent.tone}.`);
+  if (agent.promptBase) sections.push(`Instrucciones base: ${agent.promptBase}`);
+  if (profile?.business?.description) {
+    sections.push(`NEGOCIO:
+${profile.business.description}${profile.business.coverage ? `
+Cobertura: ${profile.business.coverage}` : ""}`);
+  }
+  if (profile?.offer?.length) {
+    sections.push(`OFERTA (no inventes precios fuera de esta lista):
+${profile.offer.map((o) => `- ${o.name}${o.price ? `: ${o.price}` : ""}`).join("\n")}`);
+  }
+  if (knowledgeChunks.length) {
+    sections.push(`CONOCIMIENTO DEL NEGOCIO (usa esto para responder; si no est\xE1 aqu\xED ni en la oferta, no lo afirmes):
+${knowledgeChunks.map((c) => `- ${c}`).join("\n")}`);
+  }
+  if (contact) {
+    const qualified = contact.qualificationData ?? {};
+    const pending = (profile?.qualificationQuestions ?? []).filter((q) => qualified[q.key] === void 0);
+    sections.push(`LEAD ACTUAL:
+Nombre: ${contact.name}
+Status: ${contact.status}
+Temperatura: ${contact.leadTemperature ?? "sin calificar"} | Tipo: ${contact.leadType ?? "sin calificar"} | Score: ${contact.leadScore ?? "-"}`);
+    if (pending.length) {
+      sections.push(`PREGUNTAS DE CALIFICACI\xD3N PENDIENTES (obt\xE9n estas respuestas de forma natural, m\xE1ximo una por mensaje, nunca como interrogatorio):
+${pending.map((q) => `- [${q.key}] ${q.question}`).join("\n")}`);
+    }
+  }
+  if (deal) {
+    sections.push(`DEAL ACTIVO: "${deal.title}" en etapa "${deal.stage?.name ?? "inicial"}". Tu trabajo es empujarlo a la siguiente etapa.`);
+  }
+  if (profile?.objections?.length) {
+    sections.push(`MANEJO DE OBJECIONES:
+${profile.objections.map((o) => `- Si dice "${o.objection}" \u2192 responde en l\xEDnea con: ${o.response}`).join("\n")}`);
+  }
+  sections.push(`PLAYBOOK DE CIERRE (sigue las etapas en orden):
+1. Saludo breve y c\xE1lido.
+2. Descubrimiento: obt\xE9n las respuestas de calificaci\xF3n pendientes.
+3. Presenta la soluci\xF3n adecuada de la OFERTA seg\xFAn sus respuestas.
+4. Maneja objeciones con los argumentos dados.
+5. Cierre: ${profile?.scheduling?.enabled ? "agenda una cita con schedule_appointment (ofrece horarios reales con get_available_slots)" : "crea o avanza el deal"} y confirma el siguiente paso.
+
+REGLAS DURAS:
+- Cada vez que obtengas una respuesta de calificaci\xF3n o detectes cambio de intenci\xF3n, llama update_qualification y tag_contact.
+- No inventes precios, plazos ni garant\xEDas que no est\xE9n en OFERTA o CONOCIMIENTO.
+- Si el cliente se molesta o pide un humano, usa handover_to_human.
+- S\xE9 conciso: mensajes cortos estilo WhatsApp.${!profile ? "\n- Ayuda al cliente y trata de cerrar una venta." : ""}`);
+  return sections.join("\n\n");
+}
+var init_promptCompiler = __esm({
+  "src/modules/ai-agent/promptCompiler.ts"() {
+    "use strict";
+  }
+});
+
+// src/modules/knowledge/retrieval.service.ts
+function cosineSimilarity(a, b) {
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+async function retrieveRelevantChunks(workspaceId, query, opts = {}) {
+  const topK = opts.topK ?? 5;
+  const minScore = opts.minScore ?? 0.5;
+  const chunks = await prisma.knowledgeChunk.findMany({
+    where: { workspaceId, document: { status: "READY" } },
+    select: { content: true, embedding: true }
+  });
+  if (chunks.length === 0) return [];
+  const [queryEmbedding] = await getProvider().embed([query]);
+  return chunks.map((c) => ({ content: c.content, score: cosineSimilarity(queryEmbedding, c.embedding) })).filter((c) => c.score >= minScore).sort((a, b) => b.score - a.score).slice(0, topK);
+}
+var init_retrieval_service = __esm({
+  "src/modules/knowledge/retrieval.service.ts"() {
+    "use strict";
+    init_prisma();
+    init_provider_factory();
+  }
+});
+
+// src/modules/scheduling/scheduling.service.ts
+async function getWorkspaceTimezone(workspaceId) {
+  try {
+    const bh = await prisma.businessHours.findUnique({ where: { workspaceId }, select: { timezone: true } });
+    return bh?.timezone || void 0;
+  } catch {
+    return void 0;
+  }
+}
+function toWallClock(d, tz) {
+  if (!tz) return d;
+  return new Date(d.toLocaleString("en-US", { timeZone: tz }));
+}
+function parseHHmm(time) {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+function findRuleForTime(rules, day, minutes) {
+  return rules.find((r) => {
+    if (r.dayOfWeek !== day) return false;
+    return minutes >= parseHHmm(r.startTime) && minutes + r.slotMinutes <= parseHHmm(r.endTime);
+  });
+}
+async function getAvailableSlots(workspaceId, type, fromDate, daysAhead = 7) {
+  const rules = await prisma.availabilityRule.findMany({ where: { workspaceId, apptType: type } });
+  if (rules.length === 0) return [];
+  const tz = await getWorkspaceTimezone(workspaceId);
+  const until = new Date(fromDate);
+  until.setDate(until.getDate() + daysAhead);
+  const existing = await prisma.appointment.findMany({
+    where: {
+      workspaceId,
+      status: { in: ["SCHEDULED", "CONFIRMED"] },
+      scheduledAt: { gte: fromDate, lt: until }
+    },
+    select: { scheduledAt: true, durationMin: true }
+  });
+  const busy = existing.map((a) => ({
+    start: a.scheduledAt.getTime(),
+    end: a.scheduledAt.getTime() + a.durationMin * 6e4
+  }));
+  const overlapsBusy = (start, end) => busy.some((b) => start < b.end && b.start < end);
+  const slots = [];
+  const now = /* @__PURE__ */ new Date();
+  for (let d = 0; d < daysAhead; d++) {
+    const day = new Date(fromDate);
+    day.setDate(day.getDate() + d);
+    const dayWall = toWallClock(day, tz);
+    const offset = day.getTime() - dayWall.getTime();
+    for (const rule of rules.filter((r) => r.dayOfWeek === dayWall.getDay())) {
+      const [sh, sm] = rule.startTime.split(":").map(Number);
+      const [eh, em] = rule.endTime.split(":").map(Number);
+      const cursorWall = new Date(dayWall);
+      cursorWall.setHours(sh, sm, 0, 0);
+      const endWall = new Date(dayWall);
+      endWall.setHours(eh, em, 0, 0);
+      let cursorMs = cursorWall.getTime() + offset;
+      const endMs = endWall.getTime() + offset;
+      const stepMs = rule.slotMinutes * 6e4;
+      while (cursorMs + stepMs <= endMs) {
+        if (cursorMs > now.getTime() && !overlapsBusy(cursorMs, cursorMs + stepMs)) {
+          slots.push(new Date(cursorMs));
+        }
+        cursorMs += stepMs;
+      }
+    }
+  }
+  return slots.sort((a, b) => a.getTime() - b.getTime());
+}
+async function scheduleAppointment(workspaceId, input) {
+  const contact = await prisma.contact.findFirst({ where: { id: input.contactId, workspaceId } });
+  if (!contact) throw new Error("Contact not found");
+  const rules = await prisma.availabilityRule.findMany({ where: { workspaceId, apptType: input.type } });
+  const tz = await getWorkspaceTimezone(workspaceId);
+  const wall = toWallClock(input.scheduledAt, tz);
+  const day = wall.getDay();
+  const minutes = wall.getHours() * 60 + wall.getMinutes();
+  const matchedRule = findRuleForTime(rules, day, minutes);
+  if (!matchedRule) throw new Error("Requested time is outside availability");
+  const dayStart = new Date(input.scheduledAt);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  const sameDay = await prisma.appointment.findMany({
+    where: { workspaceId, status: { in: ["SCHEDULED", "CONFIRMED"] }, scheduledAt: { gte: dayStart, lt: dayEnd } },
+    select: { scheduledAt: true, durationMin: true }
+  });
+  const requested = input.scheduledAt.getTime();
+  const duration = matchedRule.slotMinutes * 6e4;
+  const collision = sameDay.some((a) => {
+    const start = a.scheduledAt.getTime();
+    return requested < start + a.durationMin * 6e4 && start < requested + duration;
+  });
+  if (collision) throw new Error("Slot already taken");
+  return prisma.appointment.create({
+    data: {
+      workspaceId,
+      contactId: contact.id,
+      dealId: input.dealId ?? null,
+      type: input.type,
+      scheduledAt: input.scheduledAt,
+      durationMin: duration / 6e4,
+      createdBy: input.createdBy,
+      notes: input.notes ?? null
+    }
+  });
+}
+async function listAppointments(workspaceId, from, to) {
+  return prisma.appointment.findMany({
+    where: { workspaceId, ...from || to ? { scheduledAt: { ...from && { gte: from }, ...to && { lt: to } } } : {} },
+    include: { contact: { select: { id: true, name: true, phone: true } } },
+    orderBy: { scheduledAt: "asc" }
+  });
+}
+async function updateAppointmentStatus(workspaceId, id, status) {
+  const valid = ["SCHEDULED", "CONFIRMED", "COMPLETED", "CANCELLED", "NO_SHOW"];
+  if (!valid.includes(status)) throw new Error(`Invalid status: ${status}`);
+  const appt = await prisma.appointment.findFirst({ where: { id, workspaceId } });
+  if (!appt) throw new Error("Appointment not found");
+  return prisma.appointment.update({ where: { id: appt.id }, data: { status } });
+}
+var init_scheduling_service = __esm({
+  "src/modules/scheduling/scheduling.service.ts"() {
+    "use strict";
+    init_prisma();
+  }
+});
+
 // src/modules/ai-agent/ai.service.ts
 async function processAiResponse(workspaceId, conversationId, userContent) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId, workspaceId },
     include: {
       contact: true,
-      messages: { orderBy: { sentAt: "asc" }, take: 10 },
+      // latest 10 messages (not the oldest 10) — reversed back to chronological below
+      messages: { orderBy: { sentAt: "desc" }, take: 10 },
       channel: { select: { platform: true } }
     }
   });
@@ -682,65 +989,53 @@ async function processAiResponse(workspaceId, conversationId, userContent) {
     orderBy: { createdAt: "desc" }
   });
   if (!agent) return null;
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    tools
+  const profile = agent.config?.profile ?? null;
+  const knowledge = await retrieveRelevantChunks(workspaceId, userContent).catch(() => []);
+  const deal = conversation.contact ? await prisma.deal.findFirst({
+    where: { contactId: conversation.contact.id, workspaceId, status: "OPEN" },
+    orderBy: { createdAt: "desc" },
+    include: { stage: true }
+  }) : null;
+  const system = compileSystemPrompt({
+    agent: { name: agent.name, tone: agent.tone, promptBase: agent.promptBase },
+    profile,
+    knowledgeChunks: knowledge.map((k) => k.content),
+    contact: conversation.contact,
+    deal
   });
-  const history = conversation.messages.map((msg) => ({
-    role: msg.senderType === "CONTACT" ? "user" : "model",
-    parts: [{ text: msg.content }]
-  }));
-  const products = await prisma.product.findMany({ where: { workspaceId }, take: 20 });
-  const catalogContext = products.map((p) => `${p.name}: $${p.price} (SKU: ${p.sku})`).join("\n");
-  const systemInstruction = `Eres un agente de ventas experto llamado ${agent.name}.
-Tu tono es ${agent.tone}.
-Instrucciones base: ${agent.promptBase || "Ayuda al cliente con sus dudas y trata de cerrar una venta."}
-
-Tu objetivo principal es mover al cliente a trav\xE9s del embudo de ventas:
-1. Identificar necesidad.
-2. Cotizar (usa search_catalog).
-3. Agendar o cerrar.
-
-Contexto del cat\xE1logo:
-${catalogContext}
-
-Informaci\xF3n del cliente:
-Nombre: ${conversation.contact?.name || "Desconocido"}
-Status actual: ${conversation.contact?.status || "LEAD"}
-
-Reglas:
-1. Si el cliente quiere comprar o cotizar, calif\xEDcalo como PROSPECT.
-2. Si el cliente alcanza un hito (pide cotizaci\xF3n, acepta visita), usa move_deal para posicionarlo en el pipeline.
-3. Si el cliente pide hablar con un humano, usa handover_to_human.
-4. S\xE9 conciso y directo.
-5. Usa search_catalog si necesitas m\xE1s detalles de productos.
-`;
-  const chat = model.startChat({
-    history,
-    systemInstruction: { role: "system", parts: [{ text: systemInstruction }] }
+  const history = [...conversation.messages].reverse().filter((m) => !m.isInternal).map((m) => ({ role: m.senderType === "CONTACT" ? "user" : "assistant", content: m.content }));
+  const last = history[history.length - 1];
+  if (last && last.role === "user" && last.content === userContent) history.pop();
+  const provider = getProvider(agent.provider);
+  let result = await provider.chat({
+    system,
+    messages: [...history, { role: "user", content: userContent }],
+    tools: toolDeclarations
   });
-  const result = await chat.sendMessage(userContent);
-  const response = result.response;
-  const call = response.functionCalls()?.[0];
-  if (call) {
-    const toolResult = await handleToolCall(workspaceId, conversationId, call);
-    const finalResult = await chat.sendMessage([{
-      functionResponse: {
-        name: call.name,
-        response: toolResult
-      }
-    }]);
-    return finalResult.response.text();
+  let rounds = 0;
+  while (result.toolCalls.length > 0 && rounds < 5) {
+    const responses = [];
+    for (const call of result.toolCalls) {
+      const toolResult = await handleToolCall(workspaceId, conversationId, call);
+      responses.push({ name: call.name, response: toolResult });
+    }
+    result = await result.submitToolResults(responses);
+    rounds++;
   }
-  return response.text();
+  return result.text;
 }
 async function handleToolCall(workspaceId, conversationId, call) {
   const { name, args } = call;
   console.log(`[AI Agent] Tool call: ${name}`, args);
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { contactId: true }
+  });
+  const contactId = conv?.contactId ?? args.contactId;
   try {
     switch (name) {
       case "qualify_lead":
-        await updateContact(workspaceId, args.contactId, { status: args.status });
+        await updateContact(workspaceId, contactId, { status: args.status });
         await logAiAction(workspaceId, conversationId, `Calific\xF3 al lead como ${args.status}`);
         return { success: true, message: `Status updated to ${args.status}` };
       case "create_deal":
@@ -749,7 +1044,7 @@ async function handleToolCall(workspaceId, conversationId, call) {
         const firstStage = stages[0];
         if (!firstStage) return { success: false, error: "No pipeline stages found" };
         await createDeal(workspaceId, {
-          contactId: args.contactId,
+          contactId,
           pipelineId: pipeline.id,
           stageId: firstStage.id,
           title: args.title,
@@ -759,7 +1054,7 @@ async function handleToolCall(workspaceId, conversationId, call) {
         return { success: true, deal: args.title };
       case "move_deal":
         const deal = await prisma.deal.findFirst({
-          where: { contactId: args.contactId, workspaceId, status: "OPEN" },
+          where: { contactId, workspaceId, status: "OPEN" },
           orderBy: { createdAt: "desc" }
         });
         if (!deal) return { success: false, error: "No active deal found for this contact" };
@@ -792,6 +1087,33 @@ async function handleToolCall(workspaceId, conversationId, call) {
           take: 5
         });
         return { products: matches.map((p) => ({ name: p.name, price: p.price, sku: p.sku })) };
+      case "update_qualification":
+        await updateQualification(workspaceId, contactId, {
+          temperature: args.temperature,
+          type: args.type,
+          score: args.score,
+          data: args.data
+        });
+        await logAiAction(workspaceId, conversationId, `Calific\xF3 al lead: ${args.temperature ?? ""} ${args.type ?? ""} score=${args.score ?? "-"}`);
+        return { success: true };
+      case "tag_contact":
+        await addTag(workspaceId, contactId, args.name, args.color ?? "#f59e0b");
+        await logAiAction(workspaceId, conversationId, `Etiquet\xF3 al contacto: ${args.name}`);
+        return { success: true };
+      case "get_available_slots": {
+        const slots = await getAvailableSlots(workspaceId, args.type ?? "SITE_VISIT", /* @__PURE__ */ new Date(), 14);
+        return { slots: slots.slice(0, 6).map((s) => s.toISOString()) };
+      }
+      case "schedule_appointment": {
+        const appt = await scheduleAppointment(workspaceId, {
+          contactId,
+          type: args.type ?? "SITE_VISIT",
+          scheduledAt: new Date(args.isoDateTime),
+          createdBy: "BOT"
+        });
+        await logAiAction(workspaceId, conversationId, `Agend\xF3 cita ${args.type} para ${args.isoDateTime}`);
+        return { success: true, appointmentId: appt.id, scheduledAt: appt.scheduledAt };
+      }
       default:
         return { error: "Unknown tool" };
     }
@@ -812,78 +1134,127 @@ async function logAiAction(workspaceId, conversationId, content) {
     }
   });
 }
-var import_generative_ai, genAI, tools;
+var import_generative_ai2, toolDeclarations;
 var init_ai_service = __esm({
   "src/modules/ai-agent/ai.service.ts"() {
     "use strict";
-    import_generative_ai = require("@google/generative-ai");
+    import_generative_ai2 = require("@google/generative-ai");
     init_prisma();
     init_contact_service();
     init_pipeline_service();
-    genAI = new import_generative_ai.GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || "");
-    tools = [
+    init_provider_factory();
+    init_promptCompiler();
+    init_retrieval_service();
+    init_scheduling_service();
+    toolDeclarations = [
       {
-        functionDeclarations: [
-          {
-            name: "qualify_lead",
-            description: "Updates the contact status (LEAD, PROSPECT, CUSTOMER). Use PROSPECT when the lead shows clear intent to buy or asks for a quote.",
-            parameters: {
-              type: import_generative_ai.SchemaType.OBJECT,
-              properties: {
-                contactId: { type: import_generative_ai.SchemaType.STRING, description: "The ID of the contact" },
-                status: { type: import_generative_ai.SchemaType.STRING, description: "The new status (LEAD, PROSPECT, CUSTOMER)" }
-              },
-              required: ["contactId", "status"]
-            }
+        name: "qualify_lead",
+        description: "Updates the contact status (LEAD, PROSPECT, CUSTOMER). Use PROSPECT when the lead shows clear intent to buy or asks for a quote.",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            contactId: { type: import_generative_ai2.SchemaType.STRING, description: "The ID of the contact" },
+            status: { type: import_generative_ai2.SchemaType.STRING, description: "The new status (LEAD, PROSPECT, CUSTOMER)" }
           },
-          {
-            name: "create_deal",
-            description: "Creates a sales opportunity in the pipeline. Use when the lead is ready for a formal offer.",
-            parameters: {
-              type: import_generative_ai.SchemaType.OBJECT,
-              properties: {
-                contactId: { type: import_generative_ai.SchemaType.STRING, description: "The ID of the contact" },
-                title: { type: import_generative_ai.SchemaType.STRING, description: "Brief title for the deal" },
-                value: { type: import_generative_ai.SchemaType.NUMBER, description: "Estimated value of the deal" }
-              },
-              required: ["contactId", "title", "value"]
-            }
+          required: ["contactId", "status"]
+        }
+      },
+      {
+        name: "create_deal",
+        description: "Creates a sales opportunity in the pipeline. Use when the lead is ready for a formal offer.",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            contactId: { type: import_generative_ai2.SchemaType.STRING, description: "The ID of the contact" },
+            title: { type: import_generative_ai2.SchemaType.STRING, description: "Brief title for the deal" },
+            value: { type: import_generative_ai2.SchemaType.NUMBER, description: "Estimated value of the deal" }
           },
-          {
-            name: "move_deal",
-            description: "Moves an active deal to a different stage in the pipeline. Use when a milestone is reached (e.g. quote sent, meeting scheduled).",
-            parameters: {
-              type: import_generative_ai.SchemaType.OBJECT,
-              properties: {
-                contactId: { type: import_generative_ai.SchemaType.STRING, description: "The ID of the contact" },
-                stageName: { type: import_generative_ai.SchemaType.STRING, description: 'The name of the target stage (e.g. "Cotizaci\xF3n", "Cita")' }
-              },
-              required: ["contactId", "stageName"]
-            }
+          required: ["contactId", "title", "value"]
+        }
+      },
+      {
+        name: "move_deal",
+        description: "Moves an active deal to a different stage in the pipeline. Use when a milestone is reached (e.g. quote sent, meeting scheduled).",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            contactId: { type: import_generative_ai2.SchemaType.STRING, description: "The ID of the contact" },
+            stageName: { type: import_generative_ai2.SchemaType.STRING, description: 'The name of the target stage (e.g. "Cotizaci\xF3n", "Cita")' }
           },
-          {
-            name: "handover_to_human",
-            description: "Disables the AI agent for this conversation and notifies a human agent. Use when requested or for complex issues.",
-            parameters: {
-              type: import_generative_ai.SchemaType.OBJECT,
-              properties: {
-                conversationId: { type: import_generative_ai.SchemaType.STRING, description: "The ID of the conversation" }
-              },
-              required: ["conversationId"]
-            }
+          required: ["contactId", "stageName"]
+        }
+      },
+      {
+        name: "handover_to_human",
+        description: "Disables the AI agent for this conversation and notifies a human agent. Use when requested or for complex issues.",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            conversationId: { type: import_generative_ai2.SchemaType.STRING, description: "The ID of the conversation" }
           },
-          {
-            name: "search_catalog",
-            description: "Searches for products, prices and stock in the store catalog.",
-            parameters: {
-              type: import_generative_ai.SchemaType.OBJECT,
-              properties: {
-                query: { type: import_generative_ai.SchemaType.STRING, description: "Search term for the product" }
-              },
-              required: ["query"]
-            }
-          }
-        ]
+          required: ["conversationId"]
+        }
+      },
+      {
+        name: "search_catalog",
+        description: "Searches for products, prices and stock in the store catalog.",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            query: { type: import_generative_ai2.SchemaType.STRING, description: "Search term for the product" }
+          },
+          required: ["query"]
+        }
+      },
+      {
+        name: "update_qualification",
+        description: "Records lead qualification: temperature (COLD/WARM/HOT), type (CURIOUS/QUOTING/READY_TO_BUY/POST_SALE), score 0-100, and answers to qualification questions as data {key: answer}. Call whenever you learn a qualification answer or intent changes.",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            contactId: { type: import_generative_ai2.SchemaType.STRING },
+            temperature: { type: import_generative_ai2.SchemaType.STRING, description: "COLD | WARM | HOT" },
+            type: { type: import_generative_ai2.SchemaType.STRING, description: "CURIOUS | QUOTING | READY_TO_BUY | POST_SALE" },
+            score: { type: import_generative_ai2.SchemaType.NUMBER, description: "0-100" },
+            data: { type: import_generative_ai2.SchemaType.OBJECT, description: "Answers keyed by qualification question key" }
+          },
+          required: ["contactId"]
+        }
+      },
+      {
+        name: "tag_contact",
+        description: 'Adds a tag to the contact for CRM segmentation (e.g. "lead-caliente", "financiamiento", "postventa").',
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            contactId: { type: import_generative_ai2.SchemaType.STRING },
+            name: { type: import_generative_ai2.SchemaType.STRING },
+            color: { type: import_generative_ai2.SchemaType.STRING, description: "Optional hex color" }
+          },
+          required: ["contactId", "name"]
+        }
+      },
+      {
+        name: "get_available_slots",
+        description: "Returns the next available appointment slots. Use BEFORE offering times to the customer.",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: { type: { type: import_generative_ai2.SchemaType.STRING, description: "SITE_VISIT | CALL" } },
+          required: ["type"]
+        }
+      },
+      {
+        name: "schedule_appointment",
+        description: "Books an appointment at a confirmed time. Only use times returned by get_available_slots.",
+        parameters: {
+          type: import_generative_ai2.SchemaType.OBJECT,
+          properties: {
+            contactId: { type: import_generative_ai2.SchemaType.STRING },
+            isoDateTime: { type: import_generative_ai2.SchemaType.STRING, description: "ISO 8601 datetime" },
+            type: { type: import_generative_ai2.SchemaType.STRING, description: "SITE_VISIT | CALL" }
+          },
+          required: ["contactId", "isoDateTime", "type"]
+        }
       }
     ];
   }
@@ -931,6 +1302,9 @@ var init_WhatsAppManager = __esm({
           }),
           puppeteer: {
             headless: true,
+            protocolTimeout: 12e4,
+            // In containers, point to system Chromium (e.g. /usr/bin/chromium)
+            ...process.env.PUPPETEER_EXECUTABLE_PATH ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH } : {},
             args: [
               "--no-sandbox",
               "--disable-setuid-sandbox",
@@ -959,34 +1333,41 @@ var init_WhatsAppManager = __esm({
         client.on("ready", async () => {
           console.log(`[WhatsApp] Client is ready for workspace: ${workspaceId}`);
           io.to(`workspace:${workspaceId}`).emit("whatsapp:ready");
-          await prisma.channel.update({
+          await prisma.channel.upsert({
             where: { workspaceId_platform: { workspaceId, platform: "WHATSAPP" } },
-            data: {
+            create: {
+              workspaceId,
+              platform: "WHATSAPP",
+              name: "WhatsApp",
               status: "CONNECTED",
-              updatedAt: /* @__PURE__ */ new Date(),
-              config: { isNative: true }
-              // Mark as native for outbound routing
+              config: { isNative: true, isAiEnabled: true }
+            },
+            update: {
+              status: "CONNECTED",
+              config: { isNative: true, isAiEnabled: true }
             }
-          }).catch((err) => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, err));
+          }).catch((err) => console.error(`[WhatsApp] DB Upsert Error (${workspaceId}):`, err));
           this.syncChats(workspaceId).catch(
             (err) => console.error(`[WhatsApp] Initial sync failed for ${workspaceId}:`, err)
           );
         });
         client.on("message", async (msg) => {
-          console.log(`[WhatsApp] New message from ${msg.from} in workspace ${workspaceId}`);
           this.handleInboundMessage(workspaceId, msg);
         });
         client.on("disconnected", (reason) => {
           console.log(`[WhatsApp] Disconnected workspace ${workspaceId}:`, reason);
           this.clients.delete(workspaceId);
           io.to(`workspace:${workspaceId}`).emit("whatsapp:disconnected", { reason });
-          prisma.channel.update({
-            where: { workspaceId_platform: { workspaceId, platform: "WHATSAPP" } },
-            data: { status: "DISCONNECTED", updatedAt: /* @__PURE__ */ new Date() }
+          prisma.channel.updateMany({
+            where: { workspaceId, platform: "WHATSAPP" },
+            data: { status: "DISCONNECTED" }
           }).catch((err) => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, err));
         });
         client.initialize().catch((err) => {
           console.error(`[WhatsApp] Initialization failed for ${workspaceId}:`, err);
+          this.clients.delete(workspaceId);
+          client.destroy().catch(() => {
+          });
           io.to(`workspace:${workspaceId}`).emit("whatsapp:error", { message: "Initialization failed" });
         });
         this.clients.set(workspaceId, client);
@@ -998,19 +1379,29 @@ var init_WhatsAppManager = __esm({
         const client = this.clients.get(workspaceId);
         if (!client) return;
         console.log(`[WhatsApp] Syncing chats for ${workspaceId}...`);
+        const channel = await prisma.channel.findUnique({
+          where: { workspaceId_platform: { workspaceId, platform: "WHATSAPP" } },
+          select: { id: true }
+        });
+        if (!channel) {
+          console.error(`[WhatsApp] Channel row missing for ${workspaceId} \u2014 skipping sync`);
+          return;
+        }
         const chats = await client.getChats();
-        const recentChats = chats.filter((c) => !c.isGroup).slice(0, 20);
+        const recentChats = chats.filter((c) => !c.isGroup && !c.id._serialized.includes("broadcast")).slice(0, 20);
         const { processInboundMessage: processInboundMessage2 } = await Promise.resolve().then(() => (init_message_service(), message_service_exports));
         for (const chat of recentChats) {
           const lastMsg = await chat.fetchMessages({ limit: 1 });
-          if (lastMsg.length > 0) {
+          if (lastMsg.length > 0 && lastMsg[0].body) {
+            const senderPhone = chat.id._serialized.split("@")[0];
             await processInboundMessage2({
               workspaceId,
-              platform: "WHATSAPP",
-              externalId: chat.id._serialized,
-              content: lastMsg[0].body,
-              fromName: chat.name || "WhatsApp User",
-              timestamp: new Date(lastMsg[0].timestamp * 1e3)
+              channelId: channel.id,
+              externalConversationId: chat.id._serialized,
+              externalMessageId: lastMsg[0].id._serialized,
+              senderExternalId: senderPhone,
+              senderName: chat.name || "WhatsApp User",
+              content: lastMsg[0].body
             }).catch(() => {
             });
           }
@@ -1029,15 +1420,28 @@ var init_WhatsAppManager = __esm({
        * Bridges inbound messages to Metria's internal processing logic.
        */
       async handleInboundMessage(workspaceId, msg) {
+        if (msg.from === "status@broadcast" || msg.from?.includes("broadcast")) return;
+        if (!msg.body) return;
+        console.log(`[WhatsApp] New message from ${msg.from} in workspace ${workspaceId}`);
         try {
+          const channel = await prisma.channel.findUnique({
+            where: { workspaceId_platform: { workspaceId, platform: "WHATSAPP" } },
+            select: { id: true }
+          });
+          if (!channel) {
+            console.error(`[WhatsApp] Channel row missing for ${workspaceId} \u2014 message dropped`);
+            return;
+          }
           const { processInboundMessage: processInboundMessage2 } = await Promise.resolve().then(() => (init_message_service(), message_service_exports));
+          const senderPhone = msg.from.split("@")[0];
           await processInboundMessage2({
             workspaceId,
-            platform: "WHATSAPP",
-            externalId: msg.from,
-            content: msg.body,
-            fromName: msg.author || "WhatsApp User",
-            timestamp: /* @__PURE__ */ new Date()
+            channelId: channel.id,
+            externalConversationId: msg.from,
+            externalMessageId: msg.id._serialized,
+            senderExternalId: senderPhone,
+            senderName: msg._data?.notifyName || msg.author || "WhatsApp User",
+            content: msg.body
           });
         } catch (err) {
           console.error(`[WhatsApp] Error processing inbound message for ${workspaceId}:`, err);
@@ -1069,7 +1473,21 @@ async function getConversations(workspaceId, opts) {
       ...cursor && { id: { lt: cursor } }
     },
     include: {
-      contact: { select: { id: true, name: true, status: true, phone: true, avatarUrl: true } },
+      contact: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          phone: true,
+          avatarUrl: true,
+          email: true,
+          ltv: true,
+          source: true,
+          leadScore: true,
+          leadTemperature: true,
+          leadType: true
+        }
+      },
       channel: { select: { id: true, platform: true, name: true } }
     },
     orderBy: { lastMessageAt: "desc" },
@@ -1159,7 +1577,7 @@ async function sendMessage(workspaceId, conversationId, userId, content) {
     sentAt: message.sentAt
   });
 }
-async function trackAiMetric2(workspaceId, channelId, metric) {
+async function trackAiMetric(workspaceId, channelId, metric) {
   const today = /* @__PURE__ */ new Date();
   today.setHours(0, 0, 0, 0);
   await prisma.channelAnalyticSnapshot.upsert({
@@ -1269,15 +1687,115 @@ var init_lifecycle_service = __esm({
   }
 });
 
+// src/modules/ai-agent/followup.service.ts
+var followup_service_exports = {};
+__export(followup_service_exports, {
+  cancelPendingFollowUps: () => cancelPendingFollowUps,
+  processDueFollowUps: () => processDueFollowUps,
+  scheduleNextFollowUp: () => scheduleNextFollowUp
+});
+async function scheduleNextFollowUp(workspaceId, conversationId, botAgentId) {
+  const rules = await prisma.followUpRule.findMany({
+    where: { workspaceId, botAgentId, isActive: true },
+    orderBy: { order: "asc" }
+  });
+  if (rules.length === 0) return;
+  const sentCount = await prisma.followUpJob.count({
+    where: { conversationId, status: "SENT" }
+  });
+  const nextRule = rules[sentCount];
+  if (!nextRule) return;
+  await prisma.followUpJob.updateMany({
+    where: { conversationId, status: "PENDING" },
+    data: { status: "CANCELLED" }
+  });
+  const scheduledAt = new Date(Date.now() + nextRule.delayHours * 36e5);
+  await prisma.followUpJob.create({
+    data: { workspaceId, conversationId, ruleId: nextRule.id, scheduledAt }
+  });
+}
+async function cancelPendingFollowUps(conversationId) {
+  await prisma.followUpJob.updateMany({
+    where: { conversationId, status: "PENDING" },
+    data: { status: "CANCELLED" }
+  });
+}
+async function processDueFollowUps() {
+  const due = await prisma.followUpJob.findMany({
+    where: { status: "PENDING", scheduledAt: { lte: /* @__PURE__ */ new Date() } },
+    take: 50
+  });
+  for (const job of due) {
+    const claimed = await prisma.followUpJob.updateMany({
+      where: { id: job.id, status: "PENDING" },
+      data: { status: "SENT", sentAt: /* @__PURE__ */ new Date() }
+    });
+    if (claimed.count === 0) continue;
+    try {
+      try {
+        const bh = await getBusinessHours(job.workspaceId);
+        if (bh && isOutsideBusinessHours(bh)) {
+          await prisma.followUpJob.updateMany({
+            where: { id: job.id },
+            data: { status: "PENDING", sentAt: null, scheduledAt: new Date(Date.now() + 2 * 36e5) }
+          });
+          continue;
+        }
+      } catch (bhErr) {
+        console.error(`[FollowUp] Business-hours check failed for job ${job.id}, requeueing +30min:`, bhErr);
+        await prisma.followUpJob.updateMany({
+          where: { id: job.id },
+          data: { status: "PENDING", sentAt: null, scheduledAt: new Date(Date.now() + 30 * 6e4) }
+        });
+        continue;
+      }
+      const conv = await prisma.conversation.findUnique({
+        where: { id: job.conversationId },
+        include: { channel: true }
+      });
+      if (!conv || conv.status !== "OPEN" || !conv.isHandledByBot) continue;
+      const followUpInstruction = "SISTEMA: El cliente no ha respondido. Escribe UN mensaje breve y natural de seguimiento para retomar la conversaci\xF3n seg\xFAn el contexto e intentar avanzar al cierre. No repitas saludos completos ni seas invasivo.";
+      const text = await processAiResponse(job.workspaceId, job.conversationId, followUpInstruction);
+      if (!text) continue;
+      await sendOutboundPlatformMessage(job.workspaceId, job.conversationId, text, "BOT");
+      const botId = conv.assignedToBotId ?? (await prisma.botAgent.findFirst({
+        where: { workspaceId: job.workspaceId, isActive: true },
+        orderBy: { createdAt: "desc" },
+        select: { id: true }
+      }))?.id;
+      if (botId) {
+        await scheduleNextFollowUp(job.workspaceId, job.conversationId, botId);
+      }
+    } catch (err) {
+      console.error(`[FollowUp] Failed job ${job.id}:`, err);
+    }
+  }
+}
+var init_followup_service = __esm({
+  "src/modules/ai-agent/followup.service.ts"() {
+    "use strict";
+    init_prisma();
+    init_ai_service();
+    init_message_service();
+    init_businessHours_service();
+  }
+});
+
 // src/modules/messaging/message.service.ts
 var message_service_exports = {};
 __export(message_service_exports, {
-  processInboundMessage: () => processInboundMessage
+  processInboundMessage: () => processInboundMessage,
+  sendOutboundPlatformMessage: () => sendOutboundPlatformMessage
 });
-async function sendPlatformMessage(platform, config, to, text) {
+async function sendPlatformMessage(platform, config, to, text, workspaceId) {
   switch (platform) {
     case "WHATSAPP":
-      await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, to, text);
+      if (config?.isNative && workspaceId) {
+        const { WhatsAppSessionManager: WhatsAppSessionManager2 } = await Promise.resolve().then(() => (init_WhatsAppManager(), WhatsAppManager_exports));
+        await WhatsAppSessionManager2.getInstance().sendMessage(workspaceId, to, text);
+      } else {
+        await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, to, text);
+      }
       break;
     case "INSTAGRAM":
       await sendInstagramMessage(config.pageAccessToken, to, text);
@@ -1286,6 +1804,26 @@ async function sendPlatformMessage(platform, config, to, text) {
       await sendTelegramMessage(config.botToken, to, text);
       break;
   }
+}
+async function sendOutboundPlatformMessage(workspaceId, conversationId, text, senderType = "BOT") {
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId, workspaceId },
+    include: { channel: true }
+  });
+  if (!conv) throw new Error("Conversation not found");
+  await sendPlatformMessage(conv.channel.platform, conv.channel.config, conv.externalId, text, workspaceId);
+  const message = await prisma.message.create({
+    data: { workspaceId, conversationId, direction: "OUTBOUND", senderType, content: text, status: "SENT" }
+  });
+  await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: /* @__PURE__ */ new Date() } });
+  getIO().to(`workspace:${workspaceId}`).emit("message:new", {
+    conversationId,
+    direction: "OUTBOUND",
+    senderType,
+    content: text,
+    sentAt: message.sentAt
+  });
+  return message;
 }
 async function processInboundMessage(data) {
   const {
@@ -1301,7 +1839,7 @@ async function processInboundMessage(data) {
   } = data;
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { platform: true, isAiEnabled: true, config: true }
+    select: { platform: true, config: true }
   });
   if (!channel) throw new Error(`Channel not found: ${channelId}`);
   const source = PLATFORM_TO_SOURCE[channel.platform] ?? "MANUAL";
@@ -1359,6 +1897,12 @@ async function processInboundMessage(data) {
       status: "DELIVERED"
     }
   });
+  try {
+    const { cancelPendingFollowUps: cancelPendingFollowUps2 } = await Promise.resolve().then(() => (init_followup_service(), followup_service_exports));
+    await cancelPendingFollowUps2(conversation.id);
+  } catch (err) {
+    console.error("[FollowUp] Failed to cancel pending follow-ups:", err);
+  }
   LifecycleService.handleSignal({
     workspaceId,
     contactId: contact.id,
@@ -1371,20 +1915,48 @@ async function processInboundMessage(data) {
     data: { lastMessageAt: /* @__PURE__ */ new Date(), messageCount: { increment: 1 } },
     include: { channel: { select: { platform: true, config: true } } }
   });
-  if (channel.isAiEnabled && updatedConv.isHandledByBot) {
+  if (channel.config?.isAiEnabled && updatedConv.isHandledByBot) {
     try {
       const aiResponse = await processAiResponse(workspaceId, conversation.id, content);
       if (aiResponse) {
-        await sendPlatformMessage(channel.platform, channel.config, conversation.externalId, aiResponse);
+        await sendPlatformMessage(channel.platform, channel.config, conversation.externalId, aiResponse, workspaceId);
+        const botMessage = await prisma.message.create({
+          data: {
+            workspaceId,
+            conversationId: conversation.id,
+            direction: "OUTBOUND",
+            senderType: "BOT",
+            content: aiResponse,
+            status: "SENT"
+          }
+        });
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { lastMessageAt: /* @__PURE__ */ new Date() }
+        });
         const io2 = getIO();
         io2.to(`workspace:${workspaceId}`).emit("message:new", {
+          id: botMessage.id,
           conversationId: conversation.id,
           direction: "OUTBOUND",
           senderType: "BOT",
           content: aiResponse,
-          sentAt: /* @__PURE__ */ new Date()
+          sentAt: botMessage.sentAt
         });
-        await trackAiMetric2(workspaceId, channelId, "botHandledCount");
+        await trackAiMetric(workspaceId, channelId, "botHandledCount");
+        try {
+          const botId = updatedConv.assignedToBotId ?? (await prisma.botAgent.findFirst({
+            where: { workspaceId, isActive: true },
+            orderBy: { createdAt: "desc" },
+            select: { id: true }
+          }))?.id;
+          if (botId) {
+            const { scheduleNextFollowUp: scheduleNextFollowUp2 } = await Promise.resolve().then(() => (init_followup_service(), followup_service_exports));
+            await scheduleNextFollowUp2(workspaceId, conversation.id, botId);
+          }
+        } catch (err) {
+          console.error("[FollowUp] Failed to schedule follow-up:", err);
+        }
       }
     } catch (err) {
       console.error("[AI Agent Error]", err);
@@ -1519,7 +2091,7 @@ var import_config8 = require("dotenv/config");
 var import_http = require("http");
 
 // src/app.ts
-var import_express21 = __toESM(require("express"));
+var import_express23 = __toESM(require("express"));
 var import_cors = __toESM(require("cors"));
 var import_helmet = __toESM(require("helmet"));
 var import_compression = __toESM(require("compression"));
@@ -5104,11 +5676,11 @@ var import_config7 = require("dotenv/config");
 var router16 = (0, import_express16.Router)();
 var mpConfig = process.env.MERCADOPAGO_ACCESS_TOKEN ? new import_mercadopago.MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN }) : null;
 async function getPayPalAccessToken() {
-  const auth3 = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString("base64");
+  const auth5 = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString("base64");
   const response = await fetch(`${process.env.PAYPAL_API_URL}/v1/oauth2/token`, {
     method: "POST",
     headers: {
-      "Authorization": `Basic ${auth3}`,
+      "Authorization": `Basic ${auth5}`,
       "Content-Type": "application/x-www-form-urlencoded"
     },
     body: "grant_type=client_credentials"
@@ -6179,8 +6751,8 @@ function notFoundStatus(msg) {
 async function listContactsHandler(req, res) {
   try {
     const workspaceId = req.user.workspaceId;
-    const { search, status, cursor, limit } = req.query;
-    res.json(await listContacts(workspaceId, { search, status, cursor, limit: limit ? parseInt(limit, 10) : void 0 }));
+    const { search, status, leadTemperature, leadType, cursor, limit } = req.query;
+    res.json(await listContacts(workspaceId, { search, status, leadTemperature, leadType, cursor, limit: limit ? parseInt(limit, 10) : void 0 }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -6363,6 +6935,35 @@ var import_express19 = require("express");
 
 // src/modules/bot/bot.service.ts
 init_prisma();
+
+// src/modules/bot/templates/solar.template.ts
+var SOLAR_TEMPLATE = {
+  business: {
+    description: "Empresa de instalaci\xF3n de paneles solares residenciales y comerciales. Reducimos la cuenta de luz hasta un 90% con energ\xEDa limpia.",
+    coverage: ""
+  },
+  offer: [
+    { name: "Kit Solar Residencial 3kW (casa peque\xF1a, cuenta < $80.000)", price: "" },
+    { name: "Kit Solar Residencial 5kW (casa mediana, cuenta $80.000-$150.000)", price: "" },
+    { name: "Kit Solar 10kW+ (casa grande o comercio)", price: "cotizaci\xF3n personalizada" }
+  ],
+  qualificationQuestions: [
+    { key: "monthly_bill", question: "\xBFCu\xE1nto pagas aproximadamente de luz al mes?" },
+    { key: "property_type", question: "\xBFEs casa o departamento? \xBFC\xF3mo es el techo (losa, teja, zinc)?" },
+    { key: "is_owner", question: "\xBFEres propietario/a de la vivienda?" },
+    { key: "location", question: "\xBFEn qu\xE9 comuna o ciudad est\xE1 la propiedad?" },
+    { key: "financing", question: "\xBFTe interesa pagar al contado o con financiamiento?" }
+  ],
+  objections: [
+    { objection: "Es muy caro", response: "La inversi\xF3n se recupera en 4-6 a\xF1os con el ahorro en la cuenta de luz, y los paneles duran m\xE1s de 25 a\xF1os. Adem\xE1s hay opciones de financiamiento desde cuotas mensuales similares a lo que hoy pagas de luz." },
+    { objection: "No s\xE9 si mi techo sirve", response: "Por eso la visita t\xE9cnica es gratis y sin compromiso: un experto eval\xFAa orientaci\xF3n, sombras y estructura, y te entrega una propuesta exacta." },
+    { objection: "Lo voy a pensar", response: "Perfecto. Mientras lo piensas, \xBFte parece que agendemos la evaluaci\xF3n gratuita? No te compromete a nada y tendr\xE1s n\xFAmeros reales para decidir." },
+    { objection: "\xBFQu\xE9 pasa si se echan a perder?", response: "Los paneles tienen garant\xEDa de fabricante de 10-12 a\xF1os y garant\xEDa de generaci\xF3n de 25 a\xF1os. La instalaci\xF3n tambi\xE9n queda garantizada." }
+  ],
+  scheduling: { enabled: true, types: ["SITE_VISIT"] }
+};
+
+// src/modules/bot/bot.service.ts
 async function listAgents(workspaceId) {
   return prisma.botAgent.findMany({
     where: { workspaceId },
@@ -6417,6 +7018,34 @@ async function deleteFlow(workspaceId, flowId) {
   if (!flow) throw new Error("Flow not found");
   await prisma.botFlow.delete({ where: { id: flowId, workspaceId } });
 }
+async function listFollowUpRules(workspaceId, botAgentId) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: botAgentId, workspaceId } });
+  if (!agent) throw new Error("Agent not found");
+  return prisma.followUpRule.findMany({
+    where: { workspaceId, botAgentId },
+    orderBy: { order: "asc" }
+  });
+}
+async function createFollowUpRule(workspaceId, botAgentId, data) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: botAgentId, workspaceId } });
+  if (!agent) throw new Error("Agent not found");
+  return prisma.followUpRule.create({
+    data: {
+      workspaceId,
+      botAgentId,
+      delayHours: data.delayHours,
+      order: data.order ?? 0,
+      isActive: data.isActive ?? true
+    }
+  });
+}
+async function deleteFollowUpRule(workspaceId, botAgentId, ruleId) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: botAgentId, workspaceId } });
+  if (!agent) throw new Error("Agent not found");
+  const rule = await prisma.followUpRule.findFirst({ where: { id: ruleId, workspaceId, botAgentId } });
+  if (!rule) throw new Error("Rule not found");
+  await prisma.followUpRule.delete({ where: { id: ruleId } });
+}
 async function getPrimaryAgent(workspaceId) {
   let agent = await prisma.botAgent.findFirst({
     where: { workspaceId },
@@ -6432,16 +7061,32 @@ async function getPrimaryAgent(workspaceId) {
 async function toggleChannelAi(workspaceId, platform, isAiEnabled) {
   const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: platform.toUpperCase() } });
   if (!channel) throw new Error("Channel not found");
+  const currentConfig = channel.config ?? {};
   return prisma.channel.update({
     where: { id: channel.id },
-    data: { isAiEnabled }
+    data: { config: { ...currentConfig, isAiEnabled } }
   });
 }
 async function listChannelsWithAiStatus(workspaceId) {
-  return prisma.channel.findMany({
+  const channels = await prisma.channel.findMany({
     where: { workspaceId },
-    select: { platform: true, name: true, status: true, isAiEnabled: true }
+    select: { platform: true, name: true, status: true, config: true }
   });
+  return channels.map((c) => ({
+    ...c,
+    isAiEnabled: c.config?.isAiEnabled ?? false
+  }));
+}
+var TEMPLATES = {
+  solar: SOLAR_TEMPLATE
+};
+async function applyTemplate(workspaceId, botId, template) {
+  if (!TEMPLATES[template]) throw new Error(`Unknown template: ${template}`);
+  const agent = await prisma.botAgent.findFirst({ where: { id: botId, workspaceId } });
+  if (!agent) throw new Error("Agent not found");
+  const existing = agent.config ?? {};
+  const newConfig = { ...existing, profile: TEMPLATES[template] };
+  return prisma.botAgent.update({ where: { id: botId }, data: { config: newConfig } });
 }
 
 // src/modules/bot/bot.controller.ts
@@ -6478,7 +7123,7 @@ async function updateAgentHandler(req, res) {
 async function deleteAgentHandler(req, res) {
   try {
     await deleteAgent(req.user.workspaceId, req.params.agentId);
-    res.status(204).send();
+    res.json({ ok: true });
   } catch (err) {
     res.status(notFound(err.message)).json({ error: err.message });
   }
@@ -6516,7 +7161,34 @@ async function updateFlowHandler(req, res) {
 async function deleteFlowHandler(req, res) {
   try {
     await deleteFlow(req.user.workspaceId, req.params.flowId);
-    res.status(204).send();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(notFound(err.message)).json({ error: err.message });
+  }
+}
+async function listFollowUpRulesHandler(req, res) {
+  try {
+    res.json(await listFollowUpRules(req.user.workspaceId, req.params.botId));
+  } catch (err) {
+    res.status(notFound(err.message)).json({ error: err.message });
+  }
+}
+async function createFollowUpRuleHandler(req, res) {
+  try {
+    const { delayHours, order, isActive } = req.body;
+    if (typeof delayHours !== "number" || delayHours <= 0) {
+      res.status(400).json({ error: "delayHours must be a positive number" });
+      return;
+    }
+    res.status(201).json(await createFollowUpRule(req.user.workspaceId, req.params.botId, { delayHours, order, isActive }));
+  } catch (err) {
+    res.status(notFound(err.message)).json({ error: err.message });
+  }
+}
+async function deleteFollowUpRuleHandler(req, res) {
+  try {
+    await deleteFollowUpRule(req.user.workspaceId, req.params.botId, req.params.ruleId);
+    res.json({ ok: true });
   } catch (err) {
     res.status(notFound(err.message)).json({ error: err.message });
   }
@@ -6559,6 +7231,19 @@ async function toggleChannelAiHandler(req, res) {
     res.status(notFound(err.message)).json({ error: err.message });
   }
 }
+async function applyTemplateHandler(req, res) {
+  try {
+    const { template } = req.body;
+    if (!template) {
+      res.status(400).json({ error: "template is required" });
+      return;
+    }
+    res.json(await applyTemplate(req.user.workspaceId, req.params.botId, template));
+  } catch (err) {
+    const status = err.message.toLowerCase().includes("not found") ? 404 : err.message.startsWith("Unknown template") ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+}
 
 // src/modules/bot/bot.routes.ts
 var router19 = (0, import_express19.Router)();
@@ -6575,6 +7260,10 @@ router19.get("/bots/agents/:agentId/flows", ...auth2, listFlowsHandler);
 router19.post("/bots/agents/:agentId/flows", ...auth2, createFlowHandler);
 router19.patch("/bots/flows/:flowId", ...auth2, updateFlowHandler);
 router19.delete("/bots/flows/:flowId", ...auth2, deleteFlowHandler);
+router19.post("/bots/:botId/apply-template", ...auth2, applyTemplateHandler);
+router19.get("/bots/:botId/followup-rules", ...auth2, listFollowUpRulesHandler);
+router19.post("/bots/:botId/followup-rules", ...auth2, createFollowUpRuleHandler);
+router19.delete("/bots/:botId/followup-rules/:ruleId", ...auth2, deleteFollowUpRuleHandler);
 router19.get("/bots/business-hours", ...auth2, getBusinessHoursHandler);
 router19.put("/bots/business-hours", ...auth2, upsertBusinessHoursHandler);
 var bot_routes_default = router19;
@@ -6728,6 +7417,9 @@ async function getFunnelSummary(workspaceId, days = 90) {
       newContacts: true,
       conversationsOpened: true,
       conversationsResolved: true,
+      botHandledCount: true,
+      botResolvedCount: true,
+      humanHandoffCount: true,
       dealsCreated: true,
       dealsWon: true,
       dealsWonValue: true,
@@ -6798,80 +7490,232 @@ router20.get("/analytics/funnel", authenticate, funnelSummary);
 router20.post("/analytics/run", authenticate, runAggregation);
 var analytics_routes_default = router20;
 
-// src/modules/ai-agent/nurturing.cron.ts
-var import_node_cron = __toESM(require("node-cron"));
+// src/modules/knowledge/knowledge.routes.ts
+var import_express21 = require("express");
 
-// src/modules/ai-agent/nurturing.service.ts
+// src/modules/knowledge/knowledge.service.ts
 init_prisma();
-init_ai_service();
-init_whatsapp_service();
-init_instagram_service();
-init_telegram_service();
-async function runAiNurturingCycle() {
-  console.log("[AI Nurturing] Starting cycle...");
-  const yesterday = /* @__PURE__ */ new Date();
-  yesterday.setHours(yesterday.getHours() - 24);
-  const idleConversations = await prisma.conversation.findMany({
-    where: {
-      status: "OPEN",
-      isHandledByBot: true,
-      lastMessageAt: { lt: yesterday }
-    },
-    include: {
-      contact: true,
-      channel: true
+
+// src/modules/knowledge/chunker.ts
+function chunkText(text, opts = {}) {
+  const maxChars = opts.maxChars ?? 3200;
+  const overlapChars = opts.overlapChars ?? 400;
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  if (clean.length <= maxChars) return [clean];
+  const chunks = [];
+  let start = 0;
+  while (start < clean.length) {
+    let end = Math.min(start + maxChars, clean.length);
+    if (end < clean.length) {
+      const lastPeriod = clean.lastIndexOf(". ", end);
+      if (lastPeriod > start + maxChars * 0.5) end = lastPeriod + 1;
     }
-  });
-  console.log(`[AI Nurturing] Found ${idleConversations.length} idle conversations.`);
-  for (const conv of idleConversations) {
-    try {
-      const followUpPrompt = `El cliente ha estado inactivo por m\xE1s de 24 horas. 
-      Escribe un mensaje amigable de seguimiento para reactivar el inter\xE9s, 
-      bas\xE1ndote en el historial previo. No seas invasivo.`;
-      const response = await processAiResponse(conv.workspaceId, conv.id, followUpPrompt);
-      if (response) {
-        const config = conv.channel.config;
-        switch (conv.channel.platform) {
-          case "WHATSAPP":
-            await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, conv.externalId, response);
-            break;
-          case "INSTAGRAM":
-            await sendInstagramMessage(config.pageAccessToken, conv.externalId, response);
-            break;
-          case "TELEGRAM":
-            await sendTelegramMessage(config.botToken, conv.externalId, response);
-            break;
-        }
-        await prisma.message.create({
-          data: {
-            workspaceId: conv.workspaceId,
-            conversationId: conv.id,
-            direction: "OUTBOUND",
-            senderType: "BOT",
-            content: response,
-            status: "SENT"
-          }
-        });
-        await prisma.conversation.update({
-          where: { id: conv.id },
-          data: { lastMessageAt: /* @__PURE__ */ new Date() }
-        });
-        console.log(`[AI Nurturing] Follow-up sent to ${conv.contact?.name || conv.id}`);
-      }
-    } catch (err) {
-      console.error(`[AI Nurturing] Failed for conversation ${conv.id}:`, err);
-    }
+    chunks.push(clean.slice(start, end).trim());
+    if (end >= clean.length) break;
+    start = Math.max(end - overlapChars, start + 1);
   }
+  return chunks;
 }
 
-// src/modules/ai-agent/nurturing.cron.ts
-function startNurturingCron() {
-  import_node_cron.default.schedule("0 */6 * * *", () => {
-    runAiNurturingCycle().catch(
-      (err) => console.error("[Cron: AI Nurturing] Unhandled error:", err)
-    );
+// src/modules/knowledge/knowledge.service.ts
+init_provider_factory();
+async function ingestDocument(workspaceId, input) {
+  const doc = await prisma.knowledgeDocument.create({
+    data: {
+      workspaceId,
+      botAgentId: input.botAgentId ?? null,
+      name: input.name,
+      sourceType: input.sourceType,
+      status: "PROCESSING"
+    }
   });
-  console.log("[NurturingCron] Scheduled every 6 hours");
+  try {
+    let text = input.content;
+    if (input.sourceType === "PDF") {
+      const { PDFParse } = await import("pdf-parse");
+      const parser = new PDFParse({ data: new Uint8Array(Buffer.from(input.content, "base64")) });
+      try {
+        const result = await parser.getText();
+        text = result.text;
+      } finally {
+        await parser.destroy().catch(() => {
+        });
+      }
+    }
+    const chunks = chunkText(text);
+    if (chunks.length === 0) throw new Error("Document has no extractable text");
+    const embeddings = await getProvider().embed(chunks);
+    await prisma.knowledgeChunk.createMany({
+      data: chunks.map((content, i) => ({
+        documentId: doc.id,
+        workspaceId,
+        content,
+        embedding: embeddings[i],
+        order: i
+      }))
+    });
+    await prisma.knowledgeDocument.update({ where: { id: doc.id }, data: { status: "READY" } });
+  } catch (err) {
+    await prisma.knowledgeDocument.update({
+      where: { id: doc.id },
+      data: { status: "ERROR", error: err.message }
+    });
+  }
+  return doc;
+}
+async function listDocuments(workspaceId) {
+  return prisma.knowledgeDocument.findMany({
+    where: { workspaceId },
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { chunks: true } } }
+  });
+}
+async function deleteDocument(workspaceId, documentId) {
+  const doc = await prisma.knowledgeDocument.findFirst({ where: { id: documentId, workspaceId } });
+  if (!doc) throw new Error("Document not found");
+  return prisma.knowledgeDocument.delete({ where: { id: doc.id } });
+}
+
+// src/modules/knowledge/knowledge.routes.ts
+var router21 = (0, import_express21.Router)();
+var auth3 = [authenticate, requirePlan("PRO", "SCALE")];
+router21.post("/knowledge", ...auth3, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    const { name, sourceType, content, botAgentId } = req.body;
+    if (!name || !sourceType || !content) return res.status(400).json({ error: "name, sourceType, content required" });
+    const doc = await ingestDocument(workspaceId, { name, sourceType, content, botAgentId });
+    res.status(201).json(doc);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router21.get("/knowledge", ...auth3, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    res.json(await listDocuments(workspaceId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router21.delete("/knowledge/:id", ...auth3, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    await deleteDocument(workspaceId, req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+var knowledge_routes_default = router21;
+
+// src/modules/scheduling/scheduling.routes.ts
+var import_express22 = require("express");
+init_prisma();
+init_scheduling_service();
+var router22 = (0, import_express22.Router)();
+var auth4 = [authenticate, requirePlan("PRO", "SCALE")];
+var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+router22.get("/appointments", ...auth4, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    const from = req.query.from ? new Date(String(req.query.from)) : void 0;
+    const to = req.query.to ? new Date(String(req.query.to)) : void 0;
+    res.json(await listAppointments(workspaceId, from, to));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router22.post("/appointments", ...auth4, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    const { contactId, type, scheduledAt, dealId, notes } = req.body;
+    const appt = await scheduleAppointment(workspaceId, {
+      contactId,
+      type,
+      scheduledAt: new Date(scheduledAt),
+      dealId,
+      notes,
+      createdBy: req.user?.id ?? "USER"
+    });
+    res.status(201).json(appt);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router22.patch("/appointments/:id/status", ...auth4, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    res.json(await updateAppointmentStatus(workspaceId, req.params.id, req.body.status));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router22.get("/availability/slots", ...auth4, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    const type = String(req.query.type || "SITE_VISIT");
+    const slots = await getAvailableSlots(workspaceId, type, /* @__PURE__ */ new Date(), 14);
+    res.json(slots);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router22.get("/availability/rules", ...auth4, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    res.json(await prisma.availabilityRule.findMany({ where: { workspaceId } }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router22.post("/availability/rules", ...auth4, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    const { dayOfWeek, startTime, endTime, slotMinutes, apptType } = req.body;
+    if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+      return res.status(400).json({ error: "dayOfWeek must be an integer between 0 and 6" });
+    }
+    if (typeof startTime !== "string" || !TIME_RE.test(startTime) || typeof endTime !== "string" || !TIME_RE.test(endTime)) {
+      return res.status(400).json({ error: "startTime and endTime must be in HH:mm format" });
+    }
+    res.status(201).json(await prisma.availabilityRule.create({
+      data: { workspaceId, dayOfWeek, startTime, endTime, slotMinutes: slotMinutes ?? 60, apptType: apptType ?? "SITE_VISIT" }
+    }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router22.delete("/availability/rules/:id", ...auth4, async (req, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId;
+    if (!workspaceId) return res.status(401).json({ error: "Unauthorized: missing workspace" });
+    await prisma.availabilityRule.deleteMany({ where: { id: req.params.id, workspaceId } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+var scheduling_routes_default = router22;
+
+// src/modules/ai-agent/followup.cron.ts
+var import_node_cron = __toESM(require("node-cron"));
+init_followup_service();
+function startFollowUpCron() {
+  import_node_cron.default.schedule("*/15 * * * *", () => {
+    processDueFollowUps().catch((err) => console.error("[Cron: FollowUp] Unhandled error:", err));
+  });
+  console.log("[FollowUpCron] Scheduled every 15 minutes");
 }
 
 // src/modules/analytics/analytics.cron.ts
@@ -6921,14 +7765,14 @@ function startAnalyticsCron() {
 }
 
 // src/app.ts
-var app = (0, import_express21.default)();
+var app = (0, import_express23.default)();
 app.use((0, import_helmet.default)());
 app.use((0, import_cors.default)());
 app.use((0, import_compression.default)());
-app.use("/webhooks/shopify", import_express21.default.raw({ type: "application/json" }));
-app.use("/api/webhooks/whatsapp", import_express21.default.raw({ type: "application/json" }));
-app.use("/api/webhooks/instagram", import_express21.default.raw({ type: "application/json" }));
-app.use(import_express21.default.json());
+app.use("/webhooks/shopify", import_express23.default.raw({ type: "application/json" }));
+app.use("/api/webhooks/whatsapp", import_express23.default.raw({ type: "application/json" }));
+app.use("/api/webhooks/instagram", import_express23.default.raw({ type: "application/json" }));
+app.use(import_express23.default.json({ limit: "15mb" }));
 app.use("/health", health_default);
 app.use("/api/auth", auth_default);
 app.use("/api/shopify", shopify_default);
@@ -6949,8 +7793,10 @@ app.use("/api", bot_routes_default);
 app.use("/api", crm_routes_default);
 app.use("/api", messaging_routes_default);
 app.use("/api", analytics_routes_default);
+app.use("/api", knowledge_routes_default);
+app.use("/api", scheduling_routes_default);
 startAnalyticsCron();
-startNurturingCron();
+startFollowUpCron();
 app.use((err, req, res, next) => {
   console.error("Unhandled Server Error:", err);
   res.status(500).json({ error: "Internal Server Error", message: err.message });
@@ -6970,8 +7816,10 @@ function registerSocketHandlers(io) {
     if (!token) return next(new Error("AUTH_REQUIRED"));
     try {
       const payload = import_jsonwebtoken6.default.verify(token, process.env.JWT_SECRET);
+      const userId = payload.id ?? payload.userId;
+      if (!userId) return next(new Error("INVALID_TOKEN"));
       const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
+        where: { id: userId },
         select: { id: true, workspaceId: true }
       });
       if (!user?.workspaceId) return next(new Error("NO_WORKSPACE"));
