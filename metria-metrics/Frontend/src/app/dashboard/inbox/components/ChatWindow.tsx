@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 import type { Conversation, Message } from '@/hooks/useInbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { Send, MoreVertical, Phone, Video, Search, ShieldCheck, Bot, Hand } from 'lucide-react'
+import { Send, MoreVertical, Phone, Video, Search, ShieldCheck, Bot, Hand, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
@@ -16,9 +16,10 @@ interface Props {
   loading: boolean
   onSend: (content: string) => Promise<void>
   onHandover?: (conversationId: string) => Promise<void>
+  onHandback?: (conversationId: string) => Promise<void>
 }
 
-export function ChatWindow({ conversation, messages, loading, onSend, onHandover }: Props) {
+export function ChatWindow({ conversation, messages, loading, onSend, onHandover, onHandback }: Props) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -83,14 +84,25 @@ export function ChatWindow({ conversation, messages, loading, onSend, onHandover
         </div>
         <div className="flex items-center gap-1">
             {conversation.isHandledByBot && onHandover && (
-                <Button 
-                    variant="outline" 
-                    size="sm" 
+                <Button
+                    variant="outline"
+                    size="sm"
                     className="mr-2 h-8 rounded-xl bg-amber-500/10 border-amber-500/30 text-amber-600 hover:bg-amber-500/20"
                     onClick={() => onHandover(conversation.id)}
                 >
                     <Hand className="w-3.5 h-3.5 mr-1.5" />
                     Tomar Control
+                </Button>
+            )}
+            {!conversation.isHandledByBot && onHandback && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="mr-2 h-8 rounded-xl bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+                    onClick={() => onHandback(conversation.id)}
+                >
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                    Devolver a IA
                 </Button>
             )}
             <Button aria-label="Llamar" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Phone className="w-4 h-4" /></Button>

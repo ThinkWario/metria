@@ -105,13 +105,19 @@ export function useInbox() {
 
   const handoverToHuman = useCallback(async (conversationId: string) => {
     try {
-      await fetchAPI(`/messaging/conversations/${conversationId}/handover`, {
-        method: 'POST'
-      })
-      // Update local state
+      await fetchAPI(`/messaging/conversations/${conversationId}/handover`, { method: 'POST' })
       setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, isHandledByBot: false } : c))
     } catch (err) {
       console.error('Handover failed', err)
+    }
+  }, [])
+
+  const handbackToBot = useCallback(async (conversationId: string) => {
+    try {
+      await fetchAPI(`/messaging/conversations/${conversationId}/handback`, { method: 'POST' })
+      setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, isHandledByBot: true } : c))
+    } catch (err) {
+      console.error('Handback failed', err)
     }
   }, [])
 
@@ -124,6 +130,7 @@ export function useInbox() {
     loadingMsgs,
     sendingMessage,
     sendMessage,
-    handoverToHuman
+    handoverToHuman,
+    handbackToBot
   }
 }

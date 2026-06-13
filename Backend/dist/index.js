@@ -6666,6 +6666,29 @@ async function handoverToHumanHandler(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+async function handbackToBotHandler(req, res) {
+  try {
+    const workspaceId = req.user.workspaceId;
+    const { conversationId } = req.params;
+    await prisma.conversation.update({
+      where: { id: conversationId, workspaceId },
+      data: { isHandledByBot: true }
+    });
+    await prisma.message.create({
+      data: {
+        workspaceId,
+        conversationId,
+        direction: "OUTBOUND",
+        senderType: "SYSTEM",
+        content: "La IA retom\xF3 el control de la conversaci\xF3n.",
+        isInternal: true
+      }
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
 async function initWhatsAppSessionHandler(req, res) {
   try {
     const workspaceId = req.user.workspaceId;
@@ -6753,6 +6776,7 @@ router17.get("/messaging/conversations", authenticate, requirePlan("PRO", "SCALE
 router17.get("/messaging/conversations/:conversationId/messages", authenticate, requirePlan("PRO", "SCALE"), getMessagesHandler);
 router17.post("/messaging/conversations/:conversationId/messages", authenticate, requirePlan("PRO", "SCALE"), sendMessageHandler);
 router17.post("/messaging/conversations/:conversationId/handover", authenticate, requirePlan("PRO", "SCALE"), handoverToHumanHandler);
+router17.post("/messaging/conversations/:conversationId/handback", authenticate, requirePlan("PRO", "SCALE"), handbackToBotHandler);
 router17.post("/messaging/whatsapp/init", authenticate, requirePlan("PRO", "SCALE"), initWhatsAppSessionHandler);
 router17.post("/messaging/whatsapp/disconnect", authenticate, requirePlan("PRO", "SCALE"), disconnectWhatsAppSessionHandler);
 var messaging_routes_default = router17;

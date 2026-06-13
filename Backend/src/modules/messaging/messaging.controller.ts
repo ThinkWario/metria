@@ -242,6 +242,33 @@ export async function handoverToHumanHandler(req: Request, res: Response): Promi
   }
 }
 
+export async function handbackToBotHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+
+    await prisma.conversation.update({
+      where: { id: conversationId, workspaceId },
+      data: { isHandledByBot: true }
+    })
+
+    await prisma.message.create({
+      data: {
+        workspaceId,
+        conversationId,
+        direction: 'OUTBOUND',
+        senderType: 'SYSTEM',
+        content: 'La IA retomó el control de la conversación.',
+        isInternal: true
+      }
+    })
+
+    res.json({ ok: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
 export async function initWhatsAppSessionHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string

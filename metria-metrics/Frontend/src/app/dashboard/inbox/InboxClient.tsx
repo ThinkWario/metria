@@ -17,7 +17,8 @@ export function InboxClient() {
     loadingConvs,
     loadingMsgs,
     sendMessage,
-    handoverToHuman
+    handoverToHuman,
+    handbackToBot
   } = useInbox()
 
   const selectedConv = conversations.find(c => c.id === selectedId) ?? null
@@ -50,6 +51,7 @@ export function InboxClient() {
         loading={loadingMsgs}
         onSend={sendMessage}
         onHandover={handoverToHuman}
+        onHandback={handbackToBot}
       />
       <ContactPanel contact={selectedConv?.contact ?? null} />
     </div>
