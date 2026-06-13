@@ -138,17 +138,22 @@ export async function getPrimaryAgent(workspaceId: string) {
 export async function toggleChannelAi(workspaceId: string, platform: string, isAiEnabled: boolean) {
   const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: platform.toUpperCase() } })
   if (!channel) throw new Error('Channel not found')
+  const currentConfig = (channel.config as Record<string, unknown>) ?? {}
   return prisma.channel.update({
     where: { id: channel.id },
-    data: { isAiEnabled }
+    data: { config: { ...currentConfig, isAiEnabled } }
   })
 }
 
 export async function listChannelsWithAiStatus(workspaceId: string) {
-  return prisma.channel.findMany({
+  const channels = await prisma.channel.findMany({
     where: { workspaceId },
-    select: { platform: true, name: true, status: true, isAiEnabled: true }
+    select: { platform: true, name: true, status: true, config: true }
   })
+  return channels.map(c => ({
+    ...c,
+    isAiEnabled: (c.config as any)?.isAiEnabled ?? false
+  }))
 }
 
 const TEMPLATES: Record<string, unknown> = {
