@@ -1,14 +1,9 @@
-/**
- * One-time migration: strip @lid, @c.us, @newsletter suffixes from contact.phone
- * Run from Easypanel console:
- *   node scripts/cleanup-phone-suffixes.js
- */
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 
 async function main() {
   const count = await prisma.$executeRaw`
-    UPDATE "Contact"
+    UPDATE contacts
     SET phone = split_part(phone, '@', 1)
     WHERE phone LIKE '%@%'
   `
@@ -16,5 +11,5 @@ async function main() {
 }
 
 main()
-  .catch(console.error)
+  .catch(err => { console.error('Phone cleanup failed:', err.message); process.exit(0) })
   .finally(() => prisma.$disconnect())
