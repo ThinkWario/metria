@@ -14,6 +14,16 @@ const routeMap: Record<string, string> = {
     "tiktok-ads": "TikTok Ads",
     logistics: "Logística",
     settings: "Configuración",
+    channels: "Canales",
+    "ai-agent": "Configuración IA",
+    inbox: "Inbox",
+    crm: "CRM",
+    contacts: "Contactos",
+    pipelines: "Pipelines",
+    tickets: "Tickets",
+    appointments: "Citas",
+    bots: "Bots",
+    "messaging-analytics": "Analítica de Mensajería",
     admin: "Administración",
     workspaces: "Espacios de Trabajo"
 }

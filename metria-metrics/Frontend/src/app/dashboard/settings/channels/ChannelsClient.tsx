@@ -20,12 +20,26 @@ export const ChannelsClient = () => {
     const [error, setError] = useState<string | null>(null)
     const [mounted, setMounted] = useState(false)
 
+    const PLATFORMS: ChannelStatus['platform'][] = ['whatsapp', 'instagram', 'telegram', 'messenger']
+
     const fetchChannels = async () => {
         setLoading(true)
         setError(null)
         try {
             const data = await fetchAPI('/messaging/channels')
-            setChannels(data)
+            // Backend stores platform/status in UPPERCASE — normalize to lowercase
+            const channelMap = new Map(
+                data.map((ch: any) => [ch.platform.toLowerCase(), ch])
+            )
+            setChannels(
+                PLATFORMS.map(p => ({
+                    platform: p,
+                    status: (channelMap.get(p)?.status ?? '').toLowerCase() === 'connected'
+                        ? 'connected'
+                        : 'disconnected',
+                    config: channelMap.get(p)?.config,
+                }))
+            )
         } catch (err: any) {
             setError(err.message || 'No se pudo cargar el estado de los canales')
         } finally {
@@ -76,16 +90,11 @@ export const ChannelsClient = () => {
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {(channels.length > 0 ? channels : [
-                { platform: 'whatsapp', status: 'disconnected' },
-                { platform: 'instagram', status: 'disconnected' },
-                { platform: 'telegram', status: 'disconnected' },
-                { platform: 'messenger', status: 'disconnected' },
-            ] as ChannelStatus[]).map((channel) => (
+            {channels.map((channel) => (
                 <ChannelCard
                     key={channel.platform}
-                    platform={channel.platform as any}
-                    status={channel.status as any}
+                    platform={channel.platform}
+                    status={channel.status}
                     config={channel.config}
                     onRefresh={fetchChannels}
                 />
@@ -93,6 +102,3 @@ export const ChannelsClient = () => {
         </div>
     )
 }
-
-// Helper component for the error state to avoid importing Button inside the logic if not needed
-// but I'll just import it at the top.
