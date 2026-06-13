@@ -105,8 +105,6 @@ export class WhatsAppSessionManager {
 
     // Event: Incoming Message
     client.on('message', async (msg: WWebMessage) => {
-      console.log(`[WhatsApp] New message from ${msg.from} in workspace ${workspaceId}`);
-      // Bridge to the messaging service logic
       this.handleInboundMessage(workspaceId, msg);
     });
 
@@ -164,7 +162,7 @@ export class WhatsAppSessionManager {
     for (const chat of recentChats) {
       const lastMsg = await chat.fetchMessages({ limit: 1 });
       if (lastMsg.length > 0 && lastMsg[0].body) {
-        const senderPhone = chat.id._serialized.replace('@c.us', '');
+        const senderPhone = chat.id._serialized.split('@')[0];
         await processInboundMessage({
           workspaceId,
           channelId: channel.id,
@@ -197,6 +195,8 @@ export class WhatsAppSessionManager {
     // Ignore empty messages
     if (!msg.body) return;
 
+    console.log(`[WhatsApp] New message from ${msg.from} in workspace ${workspaceId}`);
+
     try {
       const channel = await prisma.channel.findUnique({
         where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
@@ -208,7 +208,8 @@ export class WhatsAppSessionManager {
       }
 
       const { processInboundMessage } = await import('../../modules/messaging/message.service');
-      const senderPhone = msg.from.replace('@c.us', '');
+      // Strip any @suffix (@c.us, @lid, @g.us, etc.) to get the raw phone/ID
+      const senderPhone = msg.from.split('@')[0];
 
       await processInboundMessage({
         workspaceId,
