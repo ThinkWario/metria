@@ -41,6 +41,10 @@ export class WhatsAppSessionManager {
       }),
       puppeteer: {
         headless: true,
+        // In containers, point to system Chromium (e.g. /usr/bin/chromium)
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH
+          ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+          : {}),
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

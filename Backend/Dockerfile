@@ -59,7 +59,12 @@ RUN apt-get update -y && apt-get install -y \
     lsb-release \
     wget \
     xdg-utils \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
+
+# whatsapp-web.js (puppeteer) uses the system Chromium instead of downloading Chrome
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 RUN npm install -g pnpm
 
