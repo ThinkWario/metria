@@ -1,6 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { fetchAPI } from '@/lib/api'
+import { Button } from '@/components/ui/button'
+import { Plus } from 'lucide-react'
 
 interface Stage {
   id: string; name: string; color: string; order: number; isWon: boolean; isLost: boolean
@@ -24,6 +26,7 @@ export default function PipelinesClient() {
   const [loadingPipelines, setLoadingPipelines] = useState(true)
   const [loadingDeals, setLoadingDeals] = useState(false)
   const [movingDealId, setMovingDealId] = useState<string | null>(null)
+  const [creatingPipeline, setCreatingPipeline] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -62,6 +65,22 @@ export default function PipelinesClient() {
     }
   }
 
+  async function handleCreatePipeline() {
+    setCreatingPipeline(true)
+    try {
+      const created = await fetchAPI('/crm/pipelines', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Pipeline de Ventas' })
+      })
+      setPipelines([created])
+      setSelectedPipelineId(created.id)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setCreatingPipeline(false)
+    }
+  }
+
   if (!mounted || loadingPipelines) {
     return (
       <div className="flex gap-4">
@@ -73,7 +92,15 @@ export default function PipelinesClient() {
   }
 
   if (pipelines.length === 0) {
-    return <div className="text-center py-16 text-muted-foreground text-sm">Sin pipelines. Crea uno desde la API.</div>
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+        <p className="text-muted-foreground text-sm">No hay pipelines configurados todavía.</p>
+        <Button onClick={handleCreatePipeline} disabled={creatingPipeline} className="gap-2">
+          <Plus className="w-4 h-4" />
+          {creatingPipeline ? 'Creando...' : 'Crear Pipeline de Ventas'}
+        </Button>
+      </div>
+    )
   }
 
   const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId)
