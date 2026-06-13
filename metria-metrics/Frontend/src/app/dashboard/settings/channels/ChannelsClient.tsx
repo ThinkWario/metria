@@ -26,11 +26,10 @@ export const ChannelsClient = () => {
         setLoading(true)
         setError(null)
         try {
-            const data = await fetchAPI('/messaging/channels')
+            const data: Array<{ platform: string; status: string; config?: any }> =
+                await fetchAPI('/messaging/channels')
             // Backend stores platform/status in UPPERCASE — normalize to lowercase
-            const channelMap = new Map(
-                data.map((ch: any) => [ch.platform.toLowerCase(), ch])
-            )
+            const channelMap = new Map(data.map(ch => [ch.platform.toLowerCase(), ch]))
             setChannels(
                 PLATFORMS.map(p => ({
                     platform: p,
