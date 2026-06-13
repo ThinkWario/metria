@@ -92,7 +92,7 @@ export function ContactPanel({ contact }: Props) {
                 </div>
                 <div className="flex flex-col">
                     <span className="text-[9px] font-black text-muted-foreground uppercase">Teléfono</span>
-                    <span className="text-xs font-medium text-foreground">{contact.phone || 'No proporcionado'}</span>
+                    <span className="text-xs font-medium text-foreground">{contact.phone?.split('@')[0] || 'No proporcionado'}</span>
                 </div>
             </div>
 
