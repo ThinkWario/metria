@@ -18,6 +18,10 @@ export async function createContact(workspaceId: string, data: { name: string; e
       phone: data.phone || null,
       status: (data.status as any) || 'LEAD',
       source: 'MANUAL'
+    },
+    include: {
+      tags: true,
+      _count: { select: { conversations: true, deals: true, tickets: true } }
     }
   })
 }

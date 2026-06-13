@@ -315,6 +315,10 @@ async function createContact(workspaceId, data) {
       phone: data.phone || null,
       status: data.status || "LEAD",
       source: "MANUAL"
+    },
+    include: {
+      tags: true,
+      _count: { select: { conversations: true, deals: true, tickets: true } }
     }
   });
 }

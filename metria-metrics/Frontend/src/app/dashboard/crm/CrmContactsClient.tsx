@@ -282,9 +282,9 @@ export default function CrmContactsClient() {
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center justify-center gap-4">
-                                            <ActivityBadge icon={MessageSquare} count={contact._count.conversations} tooltip="Conversaciones" />
-                                            <ActivityBadge icon={Ticket} count={contact._count.tickets} tooltip="Tickets" />
-                                            <ActivityBadge icon={DollarSign} count={contact._count.deals} tooltip="Oportunidades" />
+                                            <ActivityBadge icon={MessageSquare} count={contact._count?.conversations ?? 0} tooltip="Conversaciones" />
+                                            <ActivityBadge icon={Ticket} count={contact._count?.tickets ?? 0} tooltip="Tickets" />
+                                            <ActivityBadge icon={DollarSign} count={contact._count?.deals ?? 0} tooltip="Oportunidades" />
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
