@@ -3,7 +3,9 @@ import jwt from 'jsonwebtoken'
 import { prisma } from '../../lib/prisma'
 
 interface AuthPayload {
-  userId: string
+  /** Login tokens are signed with `id`; older tokens may carry `userId`. */
+  id?: string
+  userId?: string
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -15,8 +17,10 @@ export function registerSocketHandlers(io: Server): void {
 
     try {
       const payload = jwt.verify(token, process.env.JWT_SECRET!) as AuthPayload
+      const userId = payload.id ?? payload.userId
+      if (!userId) return next(new Error('INVALID_TOKEN'))
       const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
+        where: { id: userId },
         select: { id: true, workspaceId: true }
       })
       if (!user?.workspaceId) return next(new Error('NO_WORKSPACE'));
