@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
@@ -117,6 +117,7 @@ export default function CrmContactsClient() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Nuevo Contacto</DialogTitle>
+            <DialogDescription>Completa los datos para agregar un contacto al CRM.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateContact} className="space-y-4 py-2">
             <div className="space-y-1.5">

@@ -90,10 +90,10 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'resumen', label: 'Resumen' },
-    { key: 'conversaciones', label: `Conversaciones (${contact.conversations.length})` },
-    { key: 'deals', label: `Deals (${contact.deals.length})` },
-    { key: 'tickets', label: `Tickets (${contact.tickets.length})` },
-    { key: 'notas', label: `Notas (${contact.contactNotes.length})` }
+    { key: 'conversaciones', label: `Conversaciones (${contact.conversations?.length ?? 0})` },
+    { key: 'deals', label: `Deals (${contact.deals?.length ?? 0})` },
+    { key: 'tickets', label: `Tickets (${contact.tickets?.length ?? 0})` },
+    { key: 'notas', label: `Notas (${contact.contactNotes?.length ?? 0})` }
   ]
 
   return (
@@ -160,9 +160,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
 
       {tab === 'conversaciones' && (
         <div className="space-y-2">
-          {contact.conversations.length === 0 ? (
+          {(contact.conversations?.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">Sin conversaciones</p>
-          ) : contact.conversations.map(conv => (
+          ) : contact.conversations!.map(conv => (
             <div key={conv.id} className="rounded-lg border p-3 flex items-center justify-between text-sm">
               <div>
                 <span className="font-medium">{PLATFORM_LABEL[conv.channel.platform] ?? conv.channel.platform}</span>
