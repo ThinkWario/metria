@@ -80,4 +80,4 @@ COPY scripts ./scripts
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma db push && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma db push && node scripts/cleanup-phone-suffixes.js && node dist/index.js"]
