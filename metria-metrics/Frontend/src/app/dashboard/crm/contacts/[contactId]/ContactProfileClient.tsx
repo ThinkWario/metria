@@ -106,7 +106,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
         </div>
         <div>
           <h1 className="text-xl font-semibold">{contact.name}</h1>
-          <p className="text-sm text-muted-foreground">{contact.phone ?? contact.email ?? '—'}</p>
+          <p className="text-sm text-muted-foreground">{contact.phone?.split('@')[0] ?? contact.email ?? '—'}</p>
         </div>
         <span className={`ml-2 text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[contact.status] ?? 'bg-muted'}`}>
           {STATUS_LABEL[contact.status] ?? contact.status}

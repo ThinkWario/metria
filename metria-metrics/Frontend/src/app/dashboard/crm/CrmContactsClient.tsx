@@ -16,6 +16,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 import { toast } from 'sonner'
 
+const cleanPhone = (phone: string | null) => phone ? phone.split('@')[0] : null
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   LEAD: { label: 'Lead', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', variant: 'secondary' },
   PROSPECT: { label: 'Prospecto', color: 'bg-purple-500/10 text-purple-500 border-purple-500/20', variant: 'secondary' },
@@ -254,7 +256,7 @@ export default function CrmContactsClient() {
                                             </Avatar>
                                             <div className="flex flex-col">
                                                 <span className="font-bold text-foreground group-hover:text-primary transition-colors">{contact.name}</span>
-                                                <span className="text-xs text-muted-foreground">{contact.email || contact.phone || 'Sin datos'}</span>
+                                                <span className="text-xs text-muted-foreground">{contact.email || cleanPhone(contact.phone) || 'Sin datos'}</span>
                                             </div>
                                         </div>
                                     </td>
