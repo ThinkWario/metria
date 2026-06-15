@@ -5,6 +5,7 @@ import { processAiResponse } from '../ai-agent/ai.service'
 import { trackAiMetric } from './inbox.service'
 import { sendWhatsAppMessage } from './channels/whatsapp.service'
 import { sendInstagramMessage } from './channels/instagram.service'
+import { sendMessengerMessage } from './channels/messenger.service'
 import { sendTelegramMessage } from './channels/telegram.service'
 import { LifecycleService } from '../crm/lifecycle.service'
 import type { InboundMessageData, ProcessedMessage } from './types'
@@ -36,6 +37,9 @@ async function sendPlatformMessage(
       break
     case 'INSTAGRAM':
       await sendInstagramMessage(config.pageAccessToken, to, text)
+      break
+    case 'MESSENGER':
+      await sendMessengerMessage(config.pageAccessToken, to, text)
       break
     case 'TELEGRAM':
       await sendTelegramMessage(config.botToken, to, text)
