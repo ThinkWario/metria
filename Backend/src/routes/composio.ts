@@ -6,13 +6,13 @@ import { initiateConnection } from '../lib/composio'
 const router = Router()
 
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:4000'
-const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+const FRONTEND_URL = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',')[0].trim()
 
 const VALID_TOOLKITS: Record<string, string> = {
   INSTAGRAM: 'instagram',
   METAADS: 'metaads',
   FACEBOOK: 'facebook',
-  MESSENGER: 'messenger'
+  MESSENGER: 'facebook'
 }
 
 // POST /api/composio/connect  { toolkit: "INSTAGRAM" }
