@@ -37,8 +37,9 @@ router.post('/connect', authenticate, async (req: Request, res: Response): Promi
     const connectionRequest = await initiateConnection(workspaceId, VALID_TOOLKITS[toolkitKey], callbackUrl)
     res.json({ redirectUrl: connectionRequest.redirectUrl })
   } catch (err: any) {
-    console.error('[Composio] connect error:', err.message)
-    res.status(500).json({ error: err.message })
+    const msg = err?.message ?? (typeof err === 'string' ? err : 'Error al conectar con Composio')
+    console.error('[Composio] connect error:', msg, err)
+    res.status(500).json({ error: msg })
   }
 })
 
