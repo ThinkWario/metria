@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle2, XCircle, Settings2, QrCode, Unplug } from 'lucide-react'
+import { CheckCircle2, XCircle, Settings2, QrCode, Unplug, TrendingUp } from 'lucide-react'
 import { ChannelConfigForm } from './ChannelConfigForm'
 import { WhatsAppQRDialog } from '@/components/messaging/WhatsAppQRDialog'
 import { fetchAPI } from '@/lib/api'
@@ -10,10 +10,11 @@ import { fetchAPI } from '@/lib/api'
 const COMPOSIO_TOOLKITS: Partial<Record<string, string>> = {
     instagram: 'INSTAGRAM',
     messenger: 'MESSENGER',
+    metaads: 'METAADS',
 }
 
 interface ChannelCardProps {
-    platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger'
+    platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger' | 'metaads'
     status: 'connected' | 'disconnected'
     config?: any
     composioStatus?: Record<string, { connectedAccountId: string; connectedAt: string }>
@@ -57,7 +58,8 @@ export const ChannelCard = ({ platform, status, config, composioStatus, onRefres
         whatsapp: 'WhatsApp',
         instagram: 'Instagram',
         telegram: 'Telegram',
-        messenger: 'Messenger'
+        messenger: 'Messenger',
+        metaads: 'Meta Ads'
     }
 
     const handleConnectQR = async () => {
@@ -96,10 +98,10 @@ export const ChannelCard = ({ platform, status, config, composioStatus, onRefres
                 </Badge>
             </CardHeader>
             <CardContent>
-                {isConfigOpen ? (
+                {isConfigOpen && platform !== 'metaads' ? (
                     <div className="py-4 animate-in fade-in slide-in-from-top-2 duration-300">
                         <ChannelConfigForm
-                            platform={platform}
+                            platform={platform as 'whatsapp' | 'instagram' | 'telegram' | 'messenger'}
                             initialConfig={config}
                             onSaveSuccess={() => {
                                 setIsConfigOpen(false)
@@ -112,14 +114,20 @@ export const ChannelCard = ({ platform, status, config, composioStatus, onRefres
                         <div className="mb-4 rounded-full bg-muted p-3 group-hover:bg-primary/10 transition-colors">
                             {platform === 'whatsapp'
                                 ? <QrCode className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
-                                : <Settings2 className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />}
+                                : platform === 'metaads'
+                                    ? <TrendingUp className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                                    : <Settings2 className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />}
                         </div>
                         <p className="text-sm text-muted-foreground mb-4">
                             {status === 'connected'
-                                ? 'Canal activo y recibiendo mensajes.'
+                                ? platform === 'metaads'
+                                    ? 'Cuenta Meta Ads conectada. Metria puede leer tus campañas y métricas.'
+                                    : 'Canal activo y recibiendo mensajes.'
                                 : platform === 'whatsapp'
                                     ? 'Escanea un código QR con tu teléfono para conectar tu WhatsApp en segundos.'
-                                    : 'Configura este canal para empezar a recibir mensajes.'}
+                                    : platform === 'metaads'
+                                        ? 'Conecta tu cuenta de Meta Ads para sincronizar campañas, ROAS y costos automáticamente.'
+                                        : 'Configura este canal para empezar a recibir mensajes.'}
                         </p>
                         {platform === 'whatsapp' ? (
                             <div className="flex flex-col gap-2 w-full max-w-[240px]">
@@ -162,7 +170,7 @@ export const ChannelCard = ({ platform, status, config, composioStatus, onRefres
                                     <>
                                         <Button size="sm" onClick={handleComposioConnect}>
                                             <Settings2 className="h-4 w-4 mr-2" />
-                                            Conectar con Meta
+                                            {platform === 'metaads' ? 'Conectar Meta Ads' : 'Conectar con Meta'}
                                         </Button>
                                         <Button
                                             variant="ghost"

@@ -10,7 +10,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000'
 
 const VALID_TOOLKITS: Record<string, string> = {
   INSTAGRAM: 'instagram',
-  METAADS: 'meta_ads',
+  METAADS: 'metaads',
   FACEBOOK: 'facebook',
   MESSENGER: 'messenger'
 }

@@ -11,7 +11,7 @@ import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ChannelStatus {
-    platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger'
+    platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger' | 'metaads'
     status: 'connected' | 'disconnected'
     config?: any
 }
@@ -24,7 +24,7 @@ export const ChannelsClient = () => {
     const [mounted, setMounted] = useState(false)
     const searchParams = useSearchParams()
 
-    const PLATFORMS: ChannelStatus['platform'][] = ['whatsapp', 'instagram', 'telegram', 'messenger']
+    const PLATFORMS: ChannelStatus['platform'][] = ['whatsapp', 'instagram', 'messenger', 'telegram', 'metaads']
 
     const TOOLKIT_NAMES: Record<string, string> = {
         INSTAGRAM: 'Instagram',
