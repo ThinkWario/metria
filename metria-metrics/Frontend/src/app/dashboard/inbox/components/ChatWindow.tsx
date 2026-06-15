@@ -61,12 +61,12 @@ export function ChatWindow({ conversation, messages, loading, onSend, onHandover
       <header className="px-6 py-4 border-b border-border/40 bg-card/50 backdrop-blur-md flex items-center justify-between shrink-0 shadow-sm">
         <div className="flex items-center gap-4">
           <Avatar className="h-10 w-10 border border-border/60">
-            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${conversation.contact.email || conversation.id}`} />
-            <AvatarFallback>{conversation.contact.name.charAt(0)}</AvatarFallback>
+            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${conversation.contact?.email || conversation.id}`} />
+            <AvatarFallback>{conversation.contact?.name?.charAt(0) ?? '?'}</AvatarFallback>
           </Avatar>
           <div>
             <div className="flex items-center gap-2">
-                <p className="text-sm font-black text-foreground leading-none">{conversation.contact.name}</p>
+                <p className="text-sm font-black text-foreground leading-none">{conversation.contact?.name ?? 'Contacto desconocido'}</p>
                 {conversation.isHandledByBot ? (
                     <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 flex items-center gap-1 text-[9px] h-5">
                         <Bot className="w-3 h-3" />

@@ -79,8 +79,8 @@ export function ConversationList({ conversations, selectedId, loading, onSelect 
             >
               <div className="relative shrink-0">
                 <Avatar className="h-12 w-12 border border-border/60 group-hover:scale-105 transition-transform">
-                    <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${conv.contact.email || conv.id}`} />
-                    <AvatarFallback>{conv.contact.name.charAt(0)}</AvatarFallback>
+                    <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${conv.contact?.email || conv.id}`} />
+                    <AvatarFallback>{conv.contact?.name?.charAt(0) ?? '?'}</AvatarFallback>
                 </Avatar>
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-background flex items-center justify-center shadow-md p-0.5 border border-border/40">
                     <img src={PLATFORM_ICONS[conv.channel.platform]} alt={conv.channel.platform} className="w-full h-full object-contain" />
@@ -93,7 +93,7 @@ export function ConversationList({ conversations, selectedId, loading, onSelect 
                       "text-sm font-bold truncate group-hover:text-primary transition-colors",
                       selectedId === conv.id ? 'text-primary' : 'text-foreground'
                   )}>
-                    {conv.contact.name}
+                    {conv.contact?.name ?? 'Contacto desconocido'}
                   </span>
                   <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
                     {conv.lastMessageAt ? formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: false, locale: es }).replace('alrededor de ', '') : ''}
