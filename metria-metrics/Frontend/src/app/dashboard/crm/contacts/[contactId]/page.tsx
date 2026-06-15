@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: 'Perfil de Contacto | Metria',
 }
 
-export default function ContactProfilePage({ params }: { params: { contactId: string } }) {
-  return <ContactProfileClient contactId={params.contactId} />
+export default async function ContactProfilePage({ params }: { params: Promise<{ contactId: string }> }) {
+  const { contactId } = await params
+  return <ContactProfileClient contactId={contactId} />
 }

@@ -10,7 +10,7 @@ export interface GetConversationsOpts {
 
 export async function getConversations(workspaceId: string, opts: GetConversationsOpts) {
   const { status, channelId, limit = 30, cursor } = opts
-  return prisma.conversation.findMany({
+  const rows = await prisma.conversation.findMany({
     where: {
       workspaceId,
       ...(status && { status }),
@@ -30,6 +30,23 @@ export async function getConversations(workspaceId: string, opts: GetConversatio
     orderBy: { lastMessageAt: 'desc' },
     take: limit
   })
+  // Patch orphaned conversations (contact deleted by cleanup scripts)
+  return rows.map(r => ({
+    ...r,
+    contact: r.contact ?? {
+      id: '',
+      name: r.externalId?.split('@')[0] ?? 'Contacto',
+      status: 'LEAD',
+      phone: r.externalId ?? '',
+      avatarUrl: null,
+      email: null,
+      ltv: 0,
+      source: 'whatsapp',
+      leadScore: null,
+      leadTemperature: null,
+      leadType: null
+    }
+  }))
 }
 
 export async function getMessages(workspaceId: string, conversationId: string, cursor: string | undefined) {

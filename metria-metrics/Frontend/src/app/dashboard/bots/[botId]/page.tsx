@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: 'Flujos del Bot | Metria',
 }
 
-export default function BotDetailPage({ params }: { params: { botId: string } }) {
-  return <BotDetailClient botId={params.botId} />
+export default async function BotDetailPage({ params }: { params: Promise<{ botId: string }> }) {
+  const { botId } = await params
+  return <BotDetailClient botId={botId} />
 }

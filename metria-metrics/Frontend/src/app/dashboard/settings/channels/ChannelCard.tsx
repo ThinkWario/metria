@@ -6,6 +6,7 @@ import { CheckCircle2, XCircle, Settings2, QrCode, Unplug, TrendingUp } from 'lu
 import { ChannelConfigForm } from './ChannelConfigForm'
 import { WhatsAppQRDialog } from '@/components/messaging/WhatsAppQRDialog'
 import { fetchAPI } from '@/lib/api'
+import { toast } from 'sonner'
 
 const COMPOSIO_TOOLKITS: Partial<Record<string, string>> = {
     instagram: 'INSTAGRAM',
@@ -37,9 +38,11 @@ export const ChannelCard = ({ platform, status, config, composioStatus, onRefres
                 method: 'POST',
                 body: JSON.stringify({ toolkit: composioToolkit })
             })
+            if (!redirectUrl) throw new Error('No se recibió URL de redirección')
             window.location.href = redirectUrl
         } catch (err: any) {
             console.error('[Composio] connect error:', err.message)
+            toast.error(`Error al conectar: ${err.message ?? 'Intenta de nuevo'}`)
         }
     }
 
