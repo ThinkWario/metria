@@ -163,7 +163,19 @@ export class WhatsAppSessionManager {
     for (const chat of recentChats) {
       const lastMsg = await chat.fetchMessages({ limit: 1 });
       if (lastMsg.length > 0 && lastMsg[0].body) {
-        const senderPhone = chat.id._serialized.split('@')[0];
+        // @lid IDs are WhatsApp internal — resolve to real phone via getContactById
+        let senderPhone: string;
+        const isLid = chat.id._serialized.endsWith('@lid');
+        if (isLid) {
+          try {
+            const waContact = await client.getContactById(chat.id._serialized);
+            senderPhone = waContact.number ? `+${waContact.number}` : chat.id._serialized;
+          } catch {
+            senderPhone = chat.id._serialized;
+          }
+        } else {
+          senderPhone = chat.id._serialized.split('@')[0];
+        }
         await processInboundMessage({
           workspaceId,
           channelId: channel.id,
@@ -209,8 +221,21 @@ export class WhatsAppSessionManager {
       }
 
       const { processInboundMessage } = await import('../../modules/messaging/message.service');
-      // Strip any @suffix (@c.us, @lid, @g.us, etc.) to get the raw phone/ID
-      const senderPhone = msg.from.split('@')[0];
+
+      // @lid = WhatsApp internal linked-device ID, NOT a phone number.
+      // Try getContact() to resolve the real phone; fall back to the raw ID.
+      let senderPhone: string;
+      const isLid = msg.from.endsWith('@lid');
+      if (isLid) {
+        try {
+          const waContact = await msg.getContact();
+          senderPhone = waContact.number ? `+${waContact.number}` : msg.from;
+        } catch {
+          senderPhone = msg.from;
+        }
+      } else {
+        senderPhone = msg.from.split('@')[0];
+      }
 
       await processInboundMessage({
         workspaceId,

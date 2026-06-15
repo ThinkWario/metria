@@ -1412,7 +1412,18 @@ var init_WhatsAppManager = __esm({
         for (const chat of recentChats) {
           const lastMsg = await chat.fetchMessages({ limit: 1 });
           if (lastMsg.length > 0 && lastMsg[0].body) {
-            const senderPhone = chat.id._serialized.split("@")[0];
+            let senderPhone;
+            const isLid = chat.id._serialized.endsWith("@lid");
+            if (isLid) {
+              try {
+                const waContact = await client.getContactById(chat.id._serialized);
+                senderPhone = waContact.number ? `+${waContact.number}` : chat.id._serialized;
+              } catch {
+                senderPhone = chat.id._serialized;
+              }
+            } else {
+              senderPhone = chat.id._serialized.split("@")[0];
+            }
             await processInboundMessage2({
               workspaceId,
               channelId: channel.id,
@@ -1452,7 +1463,18 @@ var init_WhatsAppManager = __esm({
             return;
           }
           const { processInboundMessage: processInboundMessage2 } = await Promise.resolve().then(() => (init_message_service(), message_service_exports));
-          const senderPhone = msg.from.split("@")[0];
+          let senderPhone;
+          const isLid = msg.from.endsWith("@lid");
+          if (isLid) {
+            try {
+              const waContact = await msg.getContact();
+              senderPhone = waContact.number ? `+${waContact.number}` : msg.from;
+            } catch {
+              senderPhone = msg.from;
+            }
+          } else {
+            senderPhone = msg.from.split("@")[0];
+          }
           await processInboundMessage2({
             workspaceId,
             channelId: channel.id,
