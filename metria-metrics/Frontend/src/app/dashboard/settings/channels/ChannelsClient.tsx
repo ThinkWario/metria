@@ -1,12 +1,14 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
 import { ChannelCard } from './ChannelCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface ChannelStatus {
     platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger'
@@ -16,19 +18,29 @@ interface ChannelStatus {
 
 export const ChannelsClient = () => {
     const [channels, setChannels] = useState<ChannelStatus[]>([])
+    const [composioStatus, setComposioStatus] = useState<Record<string, any>>({})
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [mounted, setMounted] = useState(false)
+    const searchParams = useSearchParams()
 
     const PLATFORMS: ChannelStatus['platform'][] = ['whatsapp', 'instagram', 'telegram', 'messenger']
 
-    const fetchChannels = async () => {
+    const TOOLKIT_NAMES: Record<string, string> = {
+        INSTAGRAM: 'Instagram',
+        METAADS: 'Meta Ads',
+        FACEBOOK: 'Facebook',
+        MESSENGER: 'Messenger'
+    }
+
+    const fetchAll = async () => {
         setLoading(true)
         setError(null)
         try {
-            const data: Array<{ platform: string; status: string; config?: any }> =
-                await fetchAPI('/messaging/channels')
-            // Backend stores platform/status in UPPERCASE — normalize to lowercase
+            const [data, composio] = await Promise.all([
+                fetchAPI('/messaging/channels') as Promise<Array<{ platform: string; status: string; config?: any }>>,
+                fetchAPI('/composio/status').catch(() => ({}))
+            ])
             const channelMap = new Map(data.map(ch => [ch.platform.toLowerCase(), ch]))
             setChannels(
                 PLATFORMS.map(p => ({
@@ -39,6 +51,7 @@ export const ChannelsClient = () => {
                     config: channelMap.get(p)?.config,
                 }))
             )
+            setComposioStatus(composio ?? {})
         } catch (err: any) {
             setError(err.message || 'No se pudo cargar el estado de los canales')
         } finally {
@@ -46,13 +59,21 @@ export const ChannelsClient = () => {
         }
     }
 
-    useEffect(() => {
-        setMounted(true)
-    }, [])
+    useEffect(() => { setMounted(true) }, [])
 
     useEffect(() => {
-        if (mounted) {
-            fetchChannels()
+        if (!mounted) return
+        fetchAll()
+
+        // Handle Composio OAuth callback results
+        const success = searchParams.get('composio_success')
+        const errMsg = searchParams.get('composio_error')
+        if (success) {
+            toast.success(`${TOOLKIT_NAMES[success] ?? success} conectado correctamente.`)
+            window.history.replaceState({}, '', '/dashboard/settings/channels')
+        } else if (errMsg) {
+            toast.error(`Error al conectar: ${errMsg}`)
+            window.history.replaceState({}, '', '/dashboard/settings/channels')
         }
     }, [mounted])
 
@@ -75,11 +96,7 @@ export const ChannelsClient = () => {
                 <AlertTitle>Error</AlertTitle>
                 <AlertDescription>
                     {error}
-                    <Button
-                        variant="outline"
-                        className="ml-4 mt-2 h-8 px-3 text-xs"
-                        onClick={fetchChannels}
-                    >
+                    <Button variant="outline" className="ml-4 mt-2 h-8 px-3 text-xs" onClick={fetchAll}>
                         Reintentar
                     </Button>
                 </AlertDescription>
@@ -95,7 +112,8 @@ export const ChannelsClient = () => {
                     platform={channel.platform}
                     status={channel.status}
                     config={channel.config}
-                    onRefresh={fetchChannels}
+                    composioStatus={composioStatus}
+                    onRefresh={fetchAll}
                 />
             ))}
         </div>

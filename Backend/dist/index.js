@@ -2132,7 +2132,7 @@ var import_config8 = require("dotenv/config");
 var import_http = require("http");
 
 // src/app.ts
-var import_express23 = __toESM(require("express"));
+var import_express24 = __toESM(require("express"));
 var import_cors = __toESM(require("cors"));
 var import_helmet = __toESM(require("helmet"));
 var import_compression = __toESM(require("compression"));
@@ -7786,6 +7786,115 @@ router22.delete("/availability/rules/:id", ...auth4, async (req, res) => {
 });
 var scheduling_routes_default = router22;
 
+// src/routes/composio.ts
+var import_express23 = require("express");
+init_prisma();
+
+// src/lib/composio.ts
+var import_composio_core = require("composio-core");
+var _client = null;
+function getClient() {
+  if (!_client) {
+    _client = new import_composio_core.Composio({ apiKey: process.env.COMPOSIO_API_KEY ?? "" });
+  }
+  return _client;
+}
+async function initiateConnection(workspaceId, appName, redirectUri) {
+  const entity = getClient().getEntity(workspaceId);
+  return entity.initiateConnection({ appName, redirectUri });
+}
+
+// src/routes/composio.ts
+var router23 = (0, import_express23.Router)();
+var BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:4000";
+var FRONTEND_URL = process.env.FRONTEND_URL ?? "http://localhost:3000";
+var VALID_TOOLKITS = {
+  INSTAGRAM: "instagram",
+  METAADS: "meta_ads",
+  FACEBOOK: "facebook",
+  MESSENGER: "messenger"
+};
+router23.post("/connect", authenticate, async (req, res) => {
+  const { toolkit } = req.body;
+  const workspaceId = req.user?.workspaceId;
+  const toolkitKey = toolkit?.toUpperCase();
+  if (!VALID_TOOLKITS[toolkitKey]) {
+    res.status(400).json({ error: `toolkit must be one of: ${Object.keys(VALID_TOOLKITS).join(", ")}` });
+    return;
+  }
+  if (!process.env.COMPOSIO_API_KEY) {
+    res.status(503).json({ error: "COMPOSIO_API_KEY not configured on server" });
+    return;
+  }
+  try {
+    const callbackUrl = `${BACKEND_URL}/api/composio/callback?workspaceId=${workspaceId}&toolkit=${toolkitKey}`;
+    const connectionRequest = await initiateConnection(workspaceId, VALID_TOOLKITS[toolkitKey], callbackUrl);
+    res.json({ redirectUrl: connectionRequest.redirectUrl });
+  } catch (err) {
+    console.error("[Composio] connect error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+router23.get("/callback", async (req, res) => {
+  const { workspaceId, toolkit, status, connected_account_id } = req.query;
+  if (status !== "success" || !connected_account_id || !workspaceId) {
+    const msg = "Conexi\xF3n cancelada o fallida.";
+    res.redirect(`${FRONTEND_URL}/dashboard/settings/channels?composio_error=${encodeURIComponent(msg)}`);
+    return;
+  }
+  try {
+    const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+    if (!workspace) {
+      res.status(404).send("Workspace not found");
+      return;
+    }
+    const existing = workspace.composioConnections ?? {};
+    const updated = {
+      ...existing,
+      [toolkit]: {
+        connectedAccountId: connected_account_id,
+        connectedAt: (/* @__PURE__ */ new Date()).toISOString()
+      }
+    };
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { composioConnections: updated }
+    });
+    console.log(`[Composio] ${toolkit} connected for workspace ${workspaceId}`);
+    res.redirect(`${FRONTEND_URL}/dashboard/settings/channels?composio_success=${toolkit}`);
+  } catch (err) {
+    console.error("[Composio] callback error:", err.message);
+    res.redirect(`${FRONTEND_URL}/dashboard/settings/channels?composio_error=${encodeURIComponent(err.message)}`);
+  }
+});
+router23.get("/status", authenticate, async (req, res) => {
+  const workspaceId = req.user?.workspaceId;
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { composioConnections: true }
+    });
+    res.json(workspace?.composioConnections ?? {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router23.delete("/disconnect", authenticate, async (req, res) => {
+  const { toolkit } = req.query;
+  const workspaceId = req.user?.workspaceId;
+  const toolkitKey = toolkit?.toUpperCase();
+  try {
+    const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+    const existing = workspace?.composioConnections ?? {};
+    const { [toolkitKey]: _removed, ...rest } = existing;
+    await prisma.workspace.update({ where: { id: workspaceId }, data: { composioConnections: rest } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+var composio_default = router23;
+
 // src/modules/ai-agent/followup.cron.ts
 var import_node_cron = __toESM(require("node-cron"));
 init_followup_service();
@@ -7843,14 +7952,14 @@ function startAnalyticsCron() {
 }
 
 // src/app.ts
-var app = (0, import_express23.default)();
+var app = (0, import_express24.default)();
 app.use((0, import_helmet.default)());
 app.use((0, import_cors.default)());
 app.use((0, import_compression.default)());
-app.use("/webhooks/shopify", import_express23.default.raw({ type: "application/json" }));
-app.use("/api/webhooks/whatsapp", import_express23.default.raw({ type: "application/json" }));
-app.use("/api/webhooks/instagram", import_express23.default.raw({ type: "application/json" }));
-app.use(import_express23.default.json({ limit: "15mb" }));
+app.use("/webhooks/shopify", import_express24.default.raw({ type: "application/json" }));
+app.use("/api/webhooks/whatsapp", import_express24.default.raw({ type: "application/json" }));
+app.use("/api/webhooks/instagram", import_express24.default.raw({ type: "application/json" }));
+app.use(import_express24.default.json({ limit: "15mb" }));
 app.use("/health", health_default);
 app.use("/api/auth", auth_default);
 app.use("/api/shopify", shopify_default);
@@ -7873,6 +7982,7 @@ app.use("/api", messaging_routes_default);
 app.use("/api", analytics_routes_default);
 app.use("/api", knowledge_routes_default);
 app.use("/api", scheduling_routes_default);
+app.use("/api/composio", composio_default);
 startAnalyticsCron();
 startFollowUpCron();
 app.use((err, req, res, next) => {

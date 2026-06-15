@@ -2,21 +2,56 @@ import React, { useState } from 'react'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CheckCircle2, XCircle, Settings2, QrCode } from 'lucide-react'
+import { CheckCircle2, XCircle, Settings2, QrCode, Unplug } from 'lucide-react'
 import { ChannelConfigForm } from './ChannelConfigForm'
 import { WhatsAppQRDialog } from '@/components/messaging/WhatsAppQRDialog'
 import { fetchAPI } from '@/lib/api'
+
+const COMPOSIO_TOOLKITS: Partial<Record<string, string>> = {
+    instagram: 'INSTAGRAM',
+    messenger: 'MESSENGER',
+}
 
 interface ChannelCardProps {
     platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger'
     status: 'connected' | 'disconnected'
     config?: any
+    composioStatus?: Record<string, { connectedAccountId: string; connectedAt: string }>
     onRefresh: () => void
 }
 
-export const ChannelCard = ({ platform, status, config, onRefresh }: ChannelCardProps) => {
+export const ChannelCard = ({ platform, status, config, composioStatus, onRefresh }: ChannelCardProps) => {
     const [isConfigOpen, setIsConfigOpen] = useState(false)
     const [qrDialogOpen, setQrDialogOpen] = useState(false)
+    const [disconnecting, setDisconnecting] = useState(false)
+
+    const composioToolkit = COMPOSIO_TOOLKITS[platform]
+    const composioEntry = composioToolkit ? composioStatus?.[composioToolkit] : undefined
+    const composioConnected = !!composioEntry
+
+    const handleComposioConnect = async () => {
+        if (!composioToolkit) return
+        try {
+            const { redirectUrl } = await fetchAPI('/composio/connect', {
+                method: 'POST',
+                body: JSON.stringify({ toolkit: composioToolkit })
+            })
+            window.location.href = redirectUrl
+        } catch (err: any) {
+            console.error('[Composio] connect error:', err.message)
+        }
+    }
+
+    const handleComposioDisconnect = async () => {
+        if (!composioToolkit) return
+        setDisconnecting(true)
+        try {
+            await fetchAPI(`/composio/disconnect?toolkit=${composioToolkit}`, { method: 'DELETE' })
+            onRefresh()
+        } finally {
+            setDisconnecting(false)
+        }
+    }
 
     const platformNames = {
         whatsapp: 'WhatsApp',
@@ -100,6 +135,45 @@ export const ChannelCard = ({ platform, status, config, onRefresh }: ChannelCard
                                 >
                                     Configuración avanzada (API Cloud)
                                 </Button>
+                            </div>
+                        ) : composioToolkit ? (
+                            <div className="flex flex-col gap-2 w-full max-w-[240px]">
+                                {composioConnected ? (
+                                    <>
+                                        <div className="flex items-center gap-2 text-emerald-600 text-sm font-medium">
+                                            <CheckCircle2 className="w-4 h-4" />
+                                            Cuenta Meta conectada
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Conectado el {new Date(composioEntry!.connectedAt).toLocaleDateString('es')}
+                                        </p>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                                            onClick={handleComposioDisconnect}
+                                            disabled={disconnecting}
+                                        >
+                                            <Unplug className="h-3.5 w-3.5 mr-1.5" />
+                                            {disconnecting ? 'Desconectando...' : 'Desconectar'}
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Button size="sm" onClick={handleComposioConnect}>
+                                            <Settings2 className="h-4 w-4 mr-2" />
+                                            Conectar con Meta
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-xs text-muted-foreground"
+                                            onClick={() => setIsConfigOpen(true)}
+                                        >
+                                            Configurar manualmente
+                                        </Button>
+                                    </>
+                                )}
                             </div>
                         ) : (
                             <Button

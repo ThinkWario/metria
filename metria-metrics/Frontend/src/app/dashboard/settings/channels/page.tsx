@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
-import React from 'react'
+import React, { Suspense } from 'react'
 import { ChannelsClient } from './ChannelsClient'
 import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export const metadata: Metadata = {
     title: 'Canales de Mensajería | Metria',
@@ -18,7 +19,13 @@ export default function ChannelsPage() {
                 </p>
             </div>
             <Separator />
-            <ChannelsClient />
+            <Suspense fallback={
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {[1,2,3,4].map(i => <Skeleton key={i} className="h-64 w-full rounded-xl" />)}
+                </div>
+            }>
+                <ChannelsClient />
+            </Suspense>
         </div>
     )
 }
