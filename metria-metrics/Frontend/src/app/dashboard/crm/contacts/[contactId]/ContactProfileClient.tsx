@@ -3,6 +3,9 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import ContactTimeline from '@/components/crm/ContactTimeline'
+import ContactTasks from '@/components/crm/ContactTasks'
 
 const STATUS_COLOR: Record<string, string> = {
   LEAD: 'bg-blue-100 text-blue-700', PROSPECT: 'bg-purple-100 text-purple-700',
@@ -118,23 +121,42 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
         />
       </div>
 
-      {/* Tabs */}
-      <div className="border-b flex gap-1">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Top-level tabs: Resumen | Actividad | Tareas */}
+      <Tabs defaultValue="resumen">
+        <TabsList>
+          <TabsTrigger value="resumen">Resumen</TabsTrigger>
+          <TabsTrigger value="actividad">Actividad</TabsTrigger>
+          <TabsTrigger value="tareas">Tareas</TabsTrigger>
+        </TabsList>
 
-      {/* Tab content */}
-      {tab === 'resumen' && (
+        <TabsContent value="actividad" className="pt-4">
+          <ContactTimeline contactId={contact.id} />
+        </TabsContent>
+
+        <TabsContent value="tareas" className="pt-4">
+          <ContactTasks contactId={contact.id} />
+        </TabsContent>
+
+        <TabsContent value="resumen" className="pt-4">
+          {/* Inner sub-tabs (existing) */}
+          <div className="space-y-6">
+            {/* Sub-tabs */}
+            <div className="border-b flex gap-1">
+              {TABS.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                    tab === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Sub-tab content */}
+            {tab === 'resumen' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-lg border p-4 space-y-3">
             <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Métricas</h3>
@@ -239,6 +261,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
           </div>
         </div>
       )}
+          </div>{/* end inner space-y-6 */}
+        </TabsContent>{/* end resumen TabsContent */}
+      </Tabs>
     </div>
   )
 }

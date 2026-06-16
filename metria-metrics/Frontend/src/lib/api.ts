@@ -115,8 +115,18 @@ export const updateAiAgent = (agentId: string, data: Record<string, unknown>) =>
     method: 'PATCH',
     body: JSON.stringify(data)
 })
+export const previewAgentPrompt = (): Promise<{ prompt: string }> => fetchAPI('/bot/agent/preview-prompt')
 export const getAiChannels = () => fetchAPI('/bot/channels')
 export const toggleChannelAi = (platform: string, enabled: boolean) => fetchAPI(`/bot/channels/${platform}/ai`, {
     method: 'PATCH',
     body: JSON.stringify({ enabled })
 })
+export const applyBotTemplate = (botId: string, template: string) => fetchAPI(`/bots/${botId}/apply-template`, {
+    method: 'POST',
+    body: JSON.stringify({ template })
+})
+
+// CRM Extended APIs
+export * from './crm-timeline-api'
+export * from './crm-segments-api'
+export * from './crm-forecast-api'

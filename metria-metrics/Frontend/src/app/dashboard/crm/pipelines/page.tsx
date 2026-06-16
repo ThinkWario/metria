@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import PipelinesClient from './PipelinesClient'
+import { PipelineForecast } from '@/components/crm/PipelineForecast'
 
 export const metadata: Metadata = {
   title: 'Pipeline | Metria',
@@ -13,6 +14,7 @@ export default function PipelinesPage() {
         <h1 className="text-2xl font-semibold">Pipeline</h1>
         <p className="text-sm text-muted-foreground mt-1">Deals y oportunidades de venta</p>
       </div>
+      <PipelineForecast />
       <PipelinesClient />
     </div>
   )

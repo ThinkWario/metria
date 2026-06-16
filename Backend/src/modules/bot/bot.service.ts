@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma'
-import { SOLAR_TEMPLATE } from './templates/solar.template'
+import { SOLAR_TEMPLATE, type AgentTemplate } from './templates/solar.template'
 
 export async function listAgents(workspaceId: string) {
   return prisma.botAgent.findMany({
@@ -156,15 +156,25 @@ export async function listChannelsWithAiStatus(workspaceId: string) {
   }))
 }
 
-const TEMPLATES: Record<string, unknown> = {
+const TEMPLATES: Record<string, AgentTemplate> = {
   solar: SOLAR_TEMPLATE
 }
 
 export async function applyTemplate(workspaceId: string, botId: string, template: string) {
-  if (!TEMPLATES[template]) throw new Error(`Unknown template: ${template}`)
+  const tmpl = TEMPLATES[template]
+  if (!tmpl) throw new Error(`Unknown template: ${template}`)
   const agent = await prisma.botAgent.findFirst({ where: { id: botId, workspaceId } })
   if (!agent) throw new Error('Agent not found')
   const existing = (agent.config as Record<string, unknown>) ?? {}
-  const newConfig = { ...existing, profile: TEMPLATES[template] }
-  return prisma.botAgent.update({ where: { id: botId }, data: { config: newConfig as any } })
+  const newConfig = { ...existing, profile: tmpl.profile }
+  return prisma.botAgent.update({
+    where: { id: botId },
+    data: {
+      config: newConfig as any,
+      name: tmpl.agentName,
+      tone: tmpl.tone,
+      provider: tmpl.provider,
+      promptBase: tmpl.promptBase
+    }
+  })
 }

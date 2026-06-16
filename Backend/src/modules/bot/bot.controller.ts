@@ -2,6 +2,8 @@ import type { Response } from 'express'
 import type { AuthRequest } from '../../middleware/auth'
 import * as bs from './bot.service'
 import * as bh from './businessHours.service'
+import { compileSystemPrompt } from '../ai-agent/promptCompiler'
+import { prisma } from '../../lib/prisma'
 
 function notFound(msg: string) {
   return msg.toLowerCase().includes('not found') ? 404 : 500
@@ -101,6 +103,22 @@ export async function upsertBusinessHoursHandler(req: AuthRequest, res: Response
 export async function getPrimaryAgentHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     res.json(await bs.getPrimaryAgent(req.user!.workspaceId!))
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
+export async function previewPromptHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const agent = await bs.getPrimaryAgent(workspaceId)
+    const profile = (agent.config as any)?.profile ?? null
+    const prompt = compileSystemPrompt({
+      agent: { name: agent.name, tone: agent.tone, promptBase: agent.promptBase },
+      profile,
+      knowledgeChunks: [],
+      contact: null,
+      deal: null
+    })
+    res.json({ prompt })
   } catch (err: any) { res.status(500).json({ error: err.message }) }
 }
 

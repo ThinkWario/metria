@@ -53,6 +53,9 @@ model Workspace {
   appointments             Appointment[]
   availabilityRules        AvailabilityRule[]
   followUpRules            FollowUpRule[]
+  contactEvents            ContactEvent[]
+  contactTasks             ContactTask[]
+  segments                 Segment[]
 
   @@map("workspaces")
 }
@@ -346,6 +349,8 @@ model Contact {
   contactNotes      ContactNote[]
   tags              ContactTag[]
   appointments      Appointment[]
+  events            ContactEvent[]
+  tasks             ContactTask[]
   workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations     Conversation[]
   deals             Deal[]
@@ -441,6 +446,8 @@ model Deal {
   lostAt           DateTime?     @map("lost_at")
   lostReason       String?       @map("lost_reason")
   sourceChannelId  String?       @map("source_channel_id")
+  probability      Int?          @map("probability")
+  expectedCloseAt  DateTime?     @map("expected_close_at")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
   contact          Contact       @relation(fields: [contactId], references: [id])
@@ -718,4 +725,80 @@ model FollowUpJob {
   @@index([status, scheduledAt])
   @@index([conversationId, status])
   @@map("follow_up_jobs")
+}
+
+enum ContactEventType {
+  MESSAGE_SENT
+  MESSAGE_RECEIVED
+  NOTE_ADDED
+  DEAL_CREATED
+  DEAL_STAGE_CHANGED
+  DEAL_WON
+  DEAL_LOST
+  TASK_CREATED
+  TASK_COMPLETED
+  AI_QUALIFICATION
+  STATUS_CHANGED
+}
+
+model ContactEvent {
+  id          String           @id @default(cuid())
+  workspaceId String
+  contactId   String
+  type        ContactEventType
+  title       String
+  description String?
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, contactId])
+  @@index([workspaceId, createdAt])
+  @@map("contact_events")
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model ContactTask {
+  id          String       @id @default(cuid())
+  workspaceId String
+  contactId   String
+  title       String
+  description String?
+  dueAt       DateTime?
+  completedAt DateTime?
+  priority    TaskPriority @default(MEDIUM)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, contactId])
+  @@index([workspaceId, dueAt])
+  @@map("contact_tasks")
+}
+
+model Segment {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  name             String
+  description      String?
+  filters          Json
+  contactCount     Int       @default(0)
+  lastCalculatedAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("segments")
 }

@@ -5,7 +5,7 @@ import {
   listAgentsHandler, createAgentHandler, updateAgentHandler, deleteAgentHandler,
   listFlowsHandler, createFlowHandler, updateFlowHandler, deleteFlowHandler,
   getBusinessHoursHandler, upsertBusinessHoursHandler,
-  getPrimaryAgentHandler, listAiChannelsHandler, toggleChannelAiHandler,
+  getPrimaryAgentHandler, previewPromptHandler, listAiChannelsHandler, toggleChannelAiHandler,
   listFollowUpRulesHandler, createFollowUpRuleHandler, deleteFollowUpRuleHandler,
   applyTemplateHandler
 } from './bot.controller'
@@ -14,6 +14,7 @@ const router = Router()
 const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
 
 router.get('/bot/agent', ...auth, getPrimaryAgentHandler)
+router.get('/bot/agent/preview-prompt', ...auth, previewPromptHandler)
 router.patch('/bot/agent/:agentId', ...auth, updateAgentHandler)
 router.get('/bot/channels', ...auth, listAiChannelsHandler)
 router.patch('/bot/channels/:platform/ai', ...auth, toggleChannelAiHandler)

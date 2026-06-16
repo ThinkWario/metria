@@ -23,6 +23,9 @@ import onboardingRoutes from './routes/onboarding'
 import paymentsRoutes from './routes/payments'
 import messagingRoutes from './modules/messaging/messaging.routes'
 import crmRoutes from './modules/crm/crm.routes'
+import forecastRoutes from './modules/crm/forecast.routes'
+import timelineRoutes from './modules/crm/timeline.routes'
+import segmentsRoutes from './modules/crm/segments.routes'
 import botRoutes from './modules/bot/bot.routes'
 import analyticsRoutes from './modules/analytics/analytics.routes'
 import knowledgeRoutes from './modules/knowledge/knowledge.routes'
@@ -66,6 +69,9 @@ app.use('/api/onboarding', onboardingRoutes)
 app.use('/api/payments', paymentsRoutes)
 app.use('/api', botRoutes)
 app.use('/api', crmRoutes)
+app.use('/api', forecastRoutes)
+app.use('/api', timelineRoutes)
+app.use('/api', segmentsRoutes)
 app.use('/api', messagingRoutes)
 app.use('/api', analyticsRoutes)
 app.use('/api', knowledgeRoutes)
