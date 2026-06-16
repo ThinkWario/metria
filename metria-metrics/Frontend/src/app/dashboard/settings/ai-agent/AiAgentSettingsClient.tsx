@@ -60,13 +60,26 @@ export default function AiAgentSettingsPage() {
     })
 
     const toggleAiMutation = useMutation({
-        mutationFn: ({ platform, enabled }: { platform: string, enabled: boolean }) => 
+        mutationFn: ({ platform, enabled }: { platform: string, enabled: boolean }) =>
             toggleChannelAi(platform, enabled),
+        onMutate: async ({ platform, enabled }) => {
+            await queryClient.cancelQueries({ queryKey: ['ai-channels'] })
+            const previous = queryClient.getQueryData(['ai-channels'])
+            queryClient.setQueryData(['ai-channels'], (old: any[]) =>
+                old?.map(ch => ch.platform === platform ? { ...ch, isAiEnabled: enabled } : ch) ?? []
+            )
+            return { previous }
+        },
         onSuccess: (_, variables) => {
             toast.success(`IA ${variables.enabled ? 'activada' : 'desactivada'} para ${variables.platform}`)
-            queryClient.invalidateQueries({ queryKey: ['ai-channels'] })
         },
-        onError: (err: any) => toast.error("Error al cambiar estado")
+        onError: (err: any, _, context: any) => {
+            if (context?.previous) queryClient.setQueryData(['ai-channels'], context.previous)
+            toast.error("Error al cambiar estado")
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ['ai-channels'] })
+        }
     })
 
     const handleSaveAgent = () => {
