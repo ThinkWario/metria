@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Badge } from '@/components/ui/badge'
+import { QuickReplyPicker, type QuickReplyPickerHandle } from './QuickReplyPicker'
 
 interface Props {
   conversation: Conversation | null
@@ -22,11 +23,26 @@ interface Props {
 export function ChatWindow({ conversation, messages, loading, onSend, onHandover, onHandback }: Props) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const pickerRef = useRef<QuickReplyPickerHandle>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // The "/" slash-command mode is active when the composer starts with "/".
+  // The text after the slash filters the picker.
+  const slashActive = input.startsWith('/')
+  const slashFilter = slashActive ? input.slice(1) : ''
+
+  // Open / close the picker automatically as the user types or clears the "/".
+  useEffect(() => {
+    if (slashActive && !pickerOpen) setPickerOpen(true)
+    if (!slashActive && pickerOpen) setPickerOpen(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slashActive])
 
   async function handleSend() {
     if (!input.trim() || sending) return
@@ -39,6 +55,28 @@ export function ChatWindow({ conversation, messages, loading, onSend, onHandover
     } finally {
       setSending(false)
     }
+  }
+
+  // Insert a quick-reply's content into the composer. In slash mode the leading
+  // "/filter" is replaced wholesale; otherwise we splice at the cursor position.
+  function insertQuickReply(content: string) {
+    setInput(prev => {
+      if (prev.startsWith('/')) return content
+      const el = textareaRef.current
+      const start = el?.selectionStart ?? prev.length
+      const end = el?.selectionEnd ?? prev.length
+      const needsSpace = start > 0 && !/\s$/.test(prev.slice(0, start))
+      const insertion = (needsSpace ? ' ' : '') + content
+      return prev.slice(0, start) + insertion + prev.slice(end)
+    })
+    setPickerOpen(false)
+    // Return focus to the composer after the popover closes.
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  // While in slash mode, Enter inserts the picker's top match instead of sending.
+  function insertTopMatch() {
+    pickerRef.current?.insertTopMatch()
   }
 
   if (!conversation) {
@@ -175,25 +213,47 @@ export function ChatWindow({ conversation, messages, loading, onSend, onHandover
 
       {/* Input Area */}
       <div className="p-6 bg-card/50 backdrop-blur-xl border-t border-border/40 shrink-0">
-        <div className="relative flex items-end gap-3 max-w-4xl mx-auto">
+        <div className="relative flex items-end gap-2 max-w-4xl mx-auto">
+            <div className="pb-1">
+                <QuickReplyPicker
+                    ref={pickerRef}
+                    open={pickerOpen}
+                    onOpenChange={setPickerOpen}
+                    filter={slashFilter}
+                    onInsert={insertQuickReply}
+                />
+            </div>
             <div className="flex-1 relative group">
                 <textarea
+                    ref={textareaRef}
                     rows={1}
                     className="w-full rounded-2xl border border-border/60 bg-background/50 pl-4 pr-12 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none shadow-inner group-hover:border-primary/40"
-                    placeholder="Escribe tu respuesta aquí..."
+                    placeholder="Escribe tu respuesta aquí... (escribe / para respuestas rápidas)"
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => {
+                        // In slash mode, Enter inserts the top match instead of sending.
+                        if (slashActive && e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault()
+                            insertTopMatch()
+                            return
+                        }
+                        if (slashActive && e.key === 'Escape') {
+                            e.preventDefault()
+                            setPickerOpen(false)
+                            setInput('')
+                            return
+                        }
                         if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleSend()
+                            e.preventDefault()
+                            handleSend()
                         }
                     }}
                     disabled={sending}
                 />
-                <Button 
-                    size="icon" 
-                    variant="ghost" 
+                <Button
+                    size="icon"
+                    variant="ghost"
                     className="absolute right-2 bottom-2 rounded-xl text-primary hover:bg-primary/10"
                     onClick={handleSend}
                     disabled={!input.trim() || sending}
@@ -203,7 +263,7 @@ export function ChatWindow({ conversation, messages, loading, onSend, onHandover
             </div>
         </div>
         <p className="text-[9px] text-center text-muted-foreground mt-3 uppercase tracking-tighter font-medium opacity-50">
-            Shift + Enter para nueva línea · Tus mensajes son encriptados de extremo a extremo
+            Shift + Enter para nueva línea · Escribe / para respuestas rápidas · Mensajes encriptados de extremo a extremo
         </p>
       </div>
     </div>

@@ -56,6 +56,8 @@ model Workspace {
   contactEvents            ContactEvent[]
   contactTasks             ContactTask[]
   segments                 Segment[]
+  workflows                Workflow[]
+  workflowRuns             WorkflowRun[]
 
   @@map("workspaces")
 }
@@ -801,4 +803,58 @@ model Segment {
 
   @@index([workspaceId])
   @@map("segments")
+}
+
+// ── Automatización / Workflows ───────────────────────────────────────────────
+// Motor genérico de automatización desacoplado del bot de mensajería.
+// Se dispara por ContactEvent (DEAL_STAGE_CHANGED, TASK_COMPLETED, etc.) y
+// ejecuta una lista ordenada de nodos (acción / esperar / condición).
+
+enum WorkflowRunStatus {
+  RUNNING
+  WAITING
+  COMPLETED
+  FAILED
+}
+
+model Workflow {
+  id            String           @id @default(cuid())
+  workspaceId   String
+  name          String
+  description   String?
+  isActive      Boolean          @default(true)
+  triggerType   ContactEventType
+  triggerConfig Json?            // filtro opcional, p.ej. { stageId } o { temperature }
+  nodes         Json             // arreglo ordenado de nodos { type, config, ... }
+  runCount      Int              @default(0)
+  lastRunAt     DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs      WorkflowRun[]
+
+  @@index([workspaceId, isActive, triggerType])
+  @@map("workflows")
+}
+
+model WorkflowRun {
+  id          String            @id @default(cuid())
+  workflowId  String
+  workspaceId String
+  contactId   String?
+  status      WorkflowRunStatus @default(RUNNING)
+  cursor      Int               @default(0) // índice del próximo nodo a ejecutar
+  resumeAt    DateTime?                     // para nodos de espera (wait)
+  context     Json?                         // payload del evento + variables acumuladas
+  log         Json?                         // bitácora de ejecución
+  createdAt   DateTime          @default(now())
+  completedAt DateTime?
+
+  workflow  Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([status, resumeAt])
+  @@index([workspaceId, workflowId])
+  @@map("workflow_runs")
 }

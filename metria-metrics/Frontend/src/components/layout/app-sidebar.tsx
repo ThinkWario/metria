@@ -32,7 +32,8 @@ import {
     Bot,
     CalendarDays,
     Filter,
-    KanbanSquare
+    KanbanSquare,
+    Zap
 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import Link from "next/link"
@@ -58,6 +59,7 @@ const menuItems: MenuItem[] = [
     { title: "Inbox (Chats)", icon: MessageSquare, url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "CRM", icon: Users, url: "/dashboard/crm", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Pipelines", icon: KanbanSquare, url: "/dashboard/crm/pipelines", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Automatizaciones", icon: Zap, url: "/dashboard/crm/automations", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Segmentos", icon: Filter, url: "/dashboard/crm/segments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Citas", icon: CalendarDays, url: "/dashboard/crm/appointments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Configuración IA", icon: Bot, url: "/dashboard/settings/ai-agent", roles: ["SUPER_ADMIN", "ADMIN"] },

@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma'
+import { emitContactEvent } from '../automation/emit'
 
 const DEFAULT_STAGES = [
   { name: 'Lead', color: '#94a3b8', order: 1, isWon: false, isLost: false },
@@ -56,7 +57,7 @@ export async function createDeal(
   }
 ) {
   const { value, probability, expectedCloseAt, ...rest } = data
-  return prisma.deal.create({
+  const deal = await prisma.deal.create({
     data: {
       workspaceId,
       ...rest,
@@ -69,6 +70,14 @@ export async function createDeal(
       contact: { select: { id: true, name: true, phone: true, leadTemperature: true, leadScore: true } }
     }
   })
+
+  await emitContactEvent(
+    workspaceId, deal.contactId, 'DEAL_CREATED',
+    `Deal creado: ${deal.title}`, undefined,
+    { dealId: deal.id, stageId: deal.stageId, value: value ?? 0 }
+  )
+
+  return deal
 }
 
 export async function moveDeal(workspaceId: string, dealId: string, stageId: string) {
@@ -85,10 +94,17 @@ export async function moveDeal(workspaceId: string, dealId: string, stageId: str
   if (stage.isWon) { extra.status = 'WON'; extra.wonAt = now }
   else if (stage.isLost) { extra.status = 'LOST'; extra.lostAt = now }
 
-  return prisma.deal.update({
+  const updated = await prisma.deal.update({
     where: { id: dealId, workspaceId },
     data: { stageId, ...extra }
   })
+
+  const meta = { dealId, stageId, stageName: stage.name }
+  await emitContactEvent(workspaceId, deal.contactId, 'DEAL_STAGE_CHANGED', `Deal movido a ${stage.name}`, undefined, meta)
+  if (stage.isWon) await emitContactEvent(workspaceId, deal.contactId, 'DEAL_WON', `Deal ganado: ${deal.title}`, undefined, meta)
+  else if (stage.isLost) await emitContactEvent(workspaceId, deal.contactId, 'DEAL_LOST', `Deal perdido: ${deal.title}`, undefined, meta)
+
+  return updated
 }
 
 export async function closeDeal(
@@ -106,5 +122,15 @@ export async function closeDeal(
       ? { status: 'WON', wonAt: now }
       : { status: 'LOST', lostAt: now, lostReason: lostReason ?? null }
 
-  return prisma.deal.update({ where: { id: dealId, workspaceId }, data })
+  const updated = await prisma.deal.update({ where: { id: dealId, workspaceId }, data })
+
+  await emitContactEvent(
+    workspaceId, deal.contactId,
+    outcome === 'WON' ? 'DEAL_WON' : 'DEAL_LOST',
+    `Deal ${outcome === 'WON' ? 'ganado' : 'perdido'}: ${deal.title}`,
+    lostReason ?? undefined,
+    { dealId }
+  )
+
+  return updated
 }

@@ -22,10 +22,12 @@ import logsRoutes from './routes/logs'
 import onboardingRoutes from './routes/onboarding'
 import paymentsRoutes from './routes/payments'
 import messagingRoutes from './modules/messaging/messaging.routes'
+import quickRepliesRoutes from './modules/messaging/quickReplies.routes'
 import crmRoutes from './modules/crm/crm.routes'
 import forecastRoutes from './modules/crm/forecast.routes'
 import timelineRoutes from './modules/crm/timeline.routes'
 import segmentsRoutes from './modules/crm/segments.routes'
+import automationRoutes from './modules/automation/automation.routes'
 import botRoutes from './modules/bot/bot.routes'
 import analyticsRoutes from './modules/analytics/analytics.routes'
 import knowledgeRoutes from './modules/knowledge/knowledge.routes'
@@ -33,6 +35,7 @@ import schedulingRoutes from './modules/scheduling/scheduling.routes'
 import composioRoutes from './routes/composio'
 import { startFollowUpCron } from './modules/ai-agent/followup.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
+import { startWorkflowCron } from './modules/automation/automation.cron'
 
 const app = express()
 
@@ -72,7 +75,9 @@ app.use('/api', crmRoutes)
 app.use('/api', forecastRoutes)
 app.use('/api', timelineRoutes)
 app.use('/api', segmentsRoutes)
+app.use('/api', automationRoutes)
 app.use('/api', messagingRoutes)
+app.use('/api', quickRepliesRoutes)
 app.use('/api', analyticsRoutes)
 app.use('/api', knowledgeRoutes)
 app.use('/api', schedulingRoutes)
@@ -81,6 +86,7 @@ app.use('/api/composio', composioRoutes)
 // Start cron jobs
 startAnalyticsCron()
 startFollowUpCron()
+startWorkflowCron()
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
