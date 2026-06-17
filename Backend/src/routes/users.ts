@@ -7,6 +7,25 @@ import bcrypt from 'bcrypt'
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
 
+// GET /api/users — List members of the authenticated user's workspace (for assignment dropdowns)
+router.get('/', authenticate, async (req: AuthRequest, res) => {
+    try {
+        const workspaceId = req.user!.workspaceId
+        if (!workspaceId) return res.json([])
+
+        const users = await prisma.user.findMany({
+            where: { workspaceId },
+            select: { id: true, name: true, email: true, role: true, avatarUrl: true },
+            orderBy: { name: 'asc' },
+        })
+
+        res.json(users)
+    } catch (error) {
+        console.error('List workspace users error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
 // GET /api/users/me — Return authenticated user profile
 router.get('/me', authenticate, async (req: AuthRequest, res) => {
     try {

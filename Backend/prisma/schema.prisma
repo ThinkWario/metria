@@ -23,6 +23,9 @@ model Workspace {
   currentPeriodEnd         DateTime?                 @map("current_period_end")
   paymentProvider          String?                   @map("payment_provider")
   composioConnections      Json?                     @map("composio_connections")
+  bookingSlug              String?                   @unique @map("booking_slug")
+  bookingTitle             String?                   @map("booking_title")
+  bookingDurationMin       Int                       @default(30) @map("booking_duration_min")
   adProductMappings        AdProductMapping[]
   adSpends                 AdSpend[]
   auditLogs                AuditLog[]

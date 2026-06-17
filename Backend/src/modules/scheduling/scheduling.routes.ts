@@ -3,6 +3,7 @@ import { authenticate } from '../../middleware/auth'
 import { requirePlan } from '../../middleware/planGate'
 import { prisma } from '../../lib/prisma'
 import { getAvailableSlots, listAppointments, scheduleAppointment, updateAppointmentStatus } from './scheduling.service'
+import { slugify } from './booking.service'
 
 const router = Router()
 const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
@@ -93,6 +94,72 @@ router.delete('/availability/rules/:id', ...auth, async (req: any, res) => {
     if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
     await prisma.availabilityRule.deleteMany({ where: { id: req.params.id, workspaceId } })
     res.json({ ok: true })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Public booking link configuration (authenticated dashboard) ─────────────
+
+router.get('/scheduling/booking-config', ...auth, async (req: any, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId
+    if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true }
+    })
+    if (!ws) return res.status(404).json({ error: 'Workspace not found' })
+    res.json({
+      bookingSlug: ws.bookingSlug,
+      bookingTitle: ws.bookingTitle,
+      bookingDurationMin: ws.bookingDurationMin
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.patch('/scheduling/booking-config', ...auth, async (req: any, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId
+    if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
+
+    const { bookingSlug, bookingTitle, bookingDurationMin } = req.body ?? {}
+    const data: { bookingSlug?: string; bookingTitle?: string | null; bookingDurationMin?: number } = {}
+
+    if (bookingSlug !== undefined) {
+      const slug = slugify(String(bookingSlug))
+      if (!slug) return res.status(400).json({ error: 'El enlace no puede estar vacío' })
+      data.bookingSlug = slug
+    }
+    if (bookingTitle !== undefined) {
+      data.bookingTitle = bookingTitle === null ? null : String(bookingTitle).trim().slice(0, 120)
+    }
+    if (bookingDurationMin !== undefined) {
+      const dur = Number(bookingDurationMin)
+      if (!Number.isFinite(dur) || dur < 5 || dur > 480) {
+        return res.status(400).json({ error: 'La duración debe estar entre 5 y 480 minutos' })
+      }
+      data.bookingDurationMin = Math.round(dur)
+    }
+
+    try {
+      const ws = await prisma.workspace.update({
+        where: { id: workspaceId },
+        data,
+        select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true }
+      })
+      res.json({
+        bookingSlug: ws.bookingSlug,
+        bookingTitle: ws.bookingTitle,
+        bookingDurationMin: ws.bookingDurationMin
+      })
+    } catch (e: any) {
+      // Prisma unique-constraint violation on bookingSlug
+      if (e?.code === 'P2002') return res.status(409).json({ error: 'slug en uso' })
+      throw e
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

@@ -1,21 +1,34 @@
 import { prisma } from '../../lib/prisma'
 import { getIO } from '../../lib/socket'
 
+export type ConversationStatus = 'OPEN' | 'PENDING' | 'CLOSED'
+
 export interface GetConversationsOpts {
-  status?: 'OPEN' | 'PENDING' | 'CLOSED'
+  /** A concrete status filters by it; 'ALL' (or undefined) returns every status. */
+  status?: ConversationStatus | 'ALL'
   channelId?: string
+  /** Case-insensitive match against the contact's name OR phone. */
+  search?: string
   limit?: number
   cursor?: string
 }
 
 export async function getConversations(workspaceId: string, opts: GetConversationsOpts) {
-  const { status, channelId, limit = 30, cursor } = opts
+  const { status, channelId, search, limit = 30, cursor } = opts
+  const term = search?.trim()
+
   const rows = await prisma.conversation.findMany({
     where: {
       workspaceId,
-      ...(status && { status }),
+      ...(status && status !== 'ALL' && { status }),
       ...(channelId && { channelId }),
-      ...(cursor && { id: { lt: cursor } })
+      ...(cursor && { id: { lt: cursor } }),
+      ...(term && {
+        OR: [
+          { contact: { name: { contains: term, mode: 'insensitive' } } },
+          { contact: { phone: { contains: term, mode: 'insensitive' } } }
+        ]
+      })
     },
     include: {
       contact: {
@@ -30,23 +43,116 @@ export async function getConversations(workspaceId: string, opts: GetConversatio
     orderBy: { lastMessageAt: 'desc' },
     take: limit
   })
+
+  // Conversation has no Prisma relation to its assignee, so resolve names in one batch query.
+  const assigneeIds = [...new Set(rows.map(r => r.assignedToUserId).filter(Boolean) as string[])]
+  const assignees = assigneeIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: assigneeIds }, workspaceId },
+        select: { id: true, name: true, email: true }
+      })
+    : []
+  const assigneeById = new Map(assignees.map(u => [u.id, u]))
+
   // Patch orphaned conversations (contact deleted by cleanup scripts)
-  return rows.map(r => ({
-    ...r,
-    contact: r.contact ?? {
-      id: '',
-      name: r.externalId?.split('@')[0] ?? 'Contacto',
-      status: 'LEAD',
-      phone: r.externalId ?? '',
-      avatarUrl: null,
-      email: null,
-      ltv: 0,
-      source: 'whatsapp',
-      leadScore: null,
-      leadTemperature: null,
-      leadType: null
+  return rows.map(r => {
+    const assignee = r.assignedToUserId ? assigneeById.get(r.assignedToUserId) ?? null : null
+    return {
+      ...r,
+      assignedToUser: assignee
+        ? { id: assignee.id, name: assignee.name ?? assignee.email }
+        : null,
+      contact: r.contact ?? {
+        id: '',
+        name: r.externalId?.split('@')[0] ?? 'Contacto',
+        status: 'LEAD',
+        phone: r.externalId ?? '',
+        avatarUrl: null,
+        email: null,
+        ltv: 0,
+        source: 'whatsapp',
+        leadScore: null,
+        leadTemperature: null,
+        leadType: null
+      }
     }
-  }))
+  })
+}
+
+/**
+ * Changes a conversation's workflow status. Sets resolvedAt when CLOSED, clears it otherwise.
+ * Scoped to the workspace; emits a socket event so every connected agent's list refreshes.
+ */
+export async function changeConversationStatus(
+  workspaceId: string,
+  conversationId: string,
+  status: ConversationStatus
+) {
+  const existing = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    select: { id: true }
+  })
+  if (!existing) throw new Error('Conversation not found')
+
+  const conversation = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      status,
+      resolvedAt: status === 'CLOSED' ? new Date() : null
+    },
+    select: { id: true, status: true, resolvedAt: true, assignedToUserId: true }
+  })
+
+  getIO().to(`workspace:${workspaceId}`).emit('conversation:updated', {
+    id: conversation.id,
+    status: conversation.status,
+    resolvedAt: conversation.resolvedAt,
+    assignedToUserId: conversation.assignedToUserId
+  })
+
+  return conversation
+}
+
+/**
+ * Assigns (or unassigns, with null) a conversation to a workspace user.
+ * Validates the target user belongs to the same workspace. Emits a socket event.
+ */
+export async function assignConversation(
+  workspaceId: string,
+  conversationId: string,
+  userId: string | null
+) {
+  const existing = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    select: { id: true }
+  })
+  if (!existing) throw new Error('Conversation not found')
+
+  let assignee: { id: string; name: string | null; email: string } | null = null
+  if (userId) {
+    assignee = await prisma.user.findFirst({
+      where: { id: userId, workspaceId },
+      select: { id: true, name: true, email: true }
+    })
+    if (!assignee) throw new Error('User does not belong to this workspace')
+  }
+
+  const conversation = await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { assignedToUserId: userId },
+    select: { id: true, status: true, assignedToUserId: true }
+  })
+
+  const payload = {
+    id: conversation.id,
+    status: conversation.status,
+    assignedToUserId: conversation.assignedToUserId,
+    assignedToUser: assignee ? { id: assignee.id, name: assignee.name ?? assignee.email } : null
+  }
+
+  getIO().to(`workspace:${workspaceId}`).emit('conversation:updated', payload)
+
+  return payload
 }
 
 export async function getMessages(workspaceId: string, conversationId: string, cursor: string | undefined) {
@@ -65,12 +171,46 @@ export async function sendMessage(
   workspaceId: string,
   conversationId: string,
   userId: string,
-  content: string
+  content: string,
+  isInternal = false
 ): Promise<void> {
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId }
   })
   if (!conversation) throw new Error('Conversation not found')
+
+  // Internal notes are team-only: persist + broadcast, but never dispatch to the customer.
+  if (isInternal) {
+    const note = await prisma.message.create({
+      data: {
+        workspaceId,
+        conversationId,
+        direction: 'OUTBOUND',
+        senderType: 'AGENT',
+        senderId: userId,
+        content,
+        isInternal: true,
+        status: 'SENT'
+      }
+    })
+
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: new Date(), messageCount: { increment: 1 } }
+    })
+
+    getIO().to(`workspace:${workspaceId}`).emit('message:new', {
+      id: note.id,
+      conversationId: note.conversationId,
+      direction: note.direction,
+      senderType: note.senderType,
+      content: note.content,
+      isInternal: true,
+      status: note.status,
+      sentAt: note.sentAt
+    })
+    return
+  }
 
   const [channel, contact] = await Promise.all([
     prisma.channel.findUnique({ where: { id: conversation.channelId } }),
@@ -147,6 +287,8 @@ export async function sendMessage(
       direction: message.direction,
       senderType: message.senderType,
       content: message.content,
+      isInternal: false,
+      status: 'SENT',
       sentAt: message.sentAt
     })
 }

@@ -18,7 +18,16 @@ export function InboxClient() {
     loadingMsgs,
     sendMessage,
     handoverToHuman,
-    handbackToBot
+    handbackToBot,
+    changeStatus,
+    assignConversation,
+    statusFilter,
+    setStatusFilter,
+    search,
+    setSearch,
+    assignedToMe,
+    setAssignedToMe,
+    users,
   } = useInbox()
 
   const selectedConv = conversations.find(c => c.id === selectedId) ?? null
@@ -30,9 +39,9 @@ export function InboxClient() {
   if (!mounted) {
     return (
       <div className={`${wrapperClass} animate-pulse`}>
-        <div className="w-[280px] bg-muted/30 border-r" />
+        <div className="w-[320px] bg-muted/30 border-r" />
         <div className="flex-1 bg-background" />
-        <div className="w-[320px] bg-muted/30 border-l" />
+        <div className="w-[340px] bg-muted/30 border-l" />
       </div>
     )
   }
@@ -44,6 +53,12 @@ export function InboxClient() {
         selectedId={selectedId}
         loading={loadingConvs}
         onSelect={setSelectedId}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        search={search}
+        onSearchChange={setSearch}
+        assignedToMe={assignedToMe}
+        onAssignedToMeChange={setAssignedToMe}
       />
       <ChatWindow
         conversation={selectedConv}
@@ -52,8 +67,11 @@ export function InboxClient() {
         onSend={sendMessage}
         onHandover={handoverToHuman}
         onHandback={handbackToBot}
+        onChangeStatus={changeStatus}
+        onAssign={assignConversation}
+        users={users}
       />
-      <ContactPanel contact={selectedConv?.contact ?? null} />
+      <ContactPanel conversation={selectedConv} />
     </div>
   )
 }

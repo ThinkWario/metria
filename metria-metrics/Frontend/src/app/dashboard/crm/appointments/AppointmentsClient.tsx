@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CalendarDays, Clock, Phone, User, Wrench, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { BookingConfigCard } from './BookingConfigCard'
+
 interface Appointment {
   id: string
   type: string
@@ -54,6 +56,20 @@ function dayKey(iso: string): string {
 }
 
 export default function AppointmentsClient() {
+  return (
+    <div className="space-y-8">
+      <BookingConfigCard />
+      <div className="space-y-3">
+        <h2 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+          <CalendarDays className="w-4 h-4" /> Próximas citas
+        </h2>
+        <AppointmentsList />
+      </div>
+    </div>
+  )
+}
+
+function AppointmentsList() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

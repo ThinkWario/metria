@@ -32,6 +32,7 @@ import botRoutes from './modules/bot/bot.routes'
 import analyticsRoutes from './modules/analytics/analytics.routes'
 import knowledgeRoutes from './modules/knowledge/knowledge.routes'
 import schedulingRoutes from './modules/scheduling/scheduling.routes'
+import publicBookingRoutes from './modules/scheduling/public-booking.routes'
 import composioRoutes from './routes/composio'
 import { startFollowUpCron } from './modules/ai-agent/followup.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
@@ -81,6 +82,7 @@ app.use('/api', quickRepliesRoutes)
 app.use('/api', analyticsRoutes)
 app.use('/api', knowledgeRoutes)
 app.use('/api', schedulingRoutes)
+app.use('/api/public', publicBookingRoutes)
 app.use('/api/composio', composioRoutes)
 
 // Start cron jobs

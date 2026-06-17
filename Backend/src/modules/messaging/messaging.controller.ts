@@ -4,7 +4,15 @@ import { AuthRequest } from '../../middleware/auth'
 import { Update } from 'telegraf/types'
 import { handleTelegramUpdate } from './channels/telegram.service'
 import { getChannels, upsertChannelConfig } from './channel.service'
-import { getConversations as _getConversations, getMessages as _getMessages, sendMessage as _sendMessage, trackAiMetric } from './inbox.service'
+import {
+  getConversations as _getConversations,
+  getMessages as _getMessages,
+  sendMessage as _sendMessage,
+  changeConversationStatus as _changeConversationStatus,
+  assignConversation as _assignConversation,
+  trackAiMetric,
+  type ConversationStatus
+} from './inbox.service'
 import { verifyWhatsAppSignature, parseWhatsAppUpdate } from './channels/whatsapp.service'
 import { verifyInstagramSignature, parseInstagramUpdate } from './channels/instagram.service'
 import { verifyMessengerSignature, parseMessengerUpdate } from './channels/messenger.service'
@@ -36,8 +44,8 @@ export async function telegramWebhook(req: Request, res: Response): Promise<void
 export async function getConversationsHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
-    const { status, channelId, cursor } = req.query as Record<string, string>
-    const convs = await _getConversations(workspaceId, { status: status as any, channelId, cursor })
+    const { status, channelId, search, cursor } = req.query as Record<string, string>
+    const convs = await _getConversations(workspaceId, { status: status as any, channelId, search, cursor })
     res.json(convs)
   } catch {
     res.status(500).json({ error: 'Failed to fetch conversations' })
@@ -61,12 +69,51 @@ export async function sendMessageHandler(req: Request, res: Response): Promise<v
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
     const userId = (req as AuthRequest).user!.id
     const { conversationId } = req.params
-    const { content } = req.body
+    const { content, isInternal } = req.body
     if (!content?.trim()) { res.status(400).json({ error: 'content is required' }); return }
-    await _sendMessage(workspaceId, conversationId, userId, content.trim())
+    await _sendMessage(workspaceId, conversationId, userId, content.trim(), isInternal === true)
     res.status(201).json({ ok: true })
   } catch (err: any) {
     const status = err.message === 'Conversation not found' ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+}
+
+const VALID_STATUSES: ConversationStatus[] = ['OPEN', 'PENDING', 'CLOSED']
+
+export async function changeStatusHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+    const { status } = req.body
+    if (!VALID_STATUSES.includes(status)) {
+      res.status(400).json({ error: 'status must be one of OPEN, PENDING, CLOSED' })
+      return
+    }
+    const conversation = await _changeConversationStatus(workspaceId, conversationId, status)
+    res.json(conversation)
+  } catch (err: any) {
+    const status = err.message === 'Conversation not found' ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+}
+
+export async function assignConversationHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+    const { userId } = req.body
+    if (userId !== null && typeof userId !== 'string') {
+      res.status(400).json({ error: 'userId must be a string or null' })
+      return
+    }
+    const conversation = await _assignConversation(workspaceId, conversationId, userId)
+    res.json(conversation)
+  } catch (err: any) {
+    const status =
+      err.message === 'Conversation not found' ? 404
+      : err.message === 'User does not belong to this workspace' ? 400
+      : 500
     res.status(status).json({ error: err.message })
   }
 }
