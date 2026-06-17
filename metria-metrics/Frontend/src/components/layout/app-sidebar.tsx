@@ -33,7 +33,9 @@ import {
     CalendarDays,
     Filter,
     KanbanSquare,
-    Zap
+    Zap,
+    FileText,
+    Send
 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import Link from "next/link"
@@ -61,6 +63,8 @@ const menuItems: MenuItem[] = [
     { title: "Pipelines", icon: KanbanSquare, url: "/dashboard/crm/pipelines", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Automatizaciones", icon: Zap, url: "/dashboard/crm/automations", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Segmentos", icon: Filter, url: "/dashboard/crm/segments", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Formularios", icon: FileText, url: "/dashboard/crm/forms", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Campañas", icon: Send, url: "/dashboard/crm/campaigns", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Citas", icon: CalendarDays, url: "/dashboard/crm/appointments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Configuración IA", icon: Bot, url: "/dashboard/settings/ai-agent", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Canales de Mensajería", icon: MessageSquare, url: "/dashboard/settings/channels", roles: ["SUPER_ADMIN", "ADMIN"] },

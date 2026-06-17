@@ -61,6 +61,9 @@ model Workspace {
   segments                 Segment[]
   workflows                Workflow[]
   workflowRuns             WorkflowRun[]
+  forms                    Form[]
+  campaigns                Campaign[]
+  suppressions             Suppression[]
 
   @@map("workspaces")
 }
@@ -744,6 +747,8 @@ enum ContactEventType {
   TASK_COMPLETED
   AI_QUALIFICATION
   STATUS_CHANGED
+  FORM_SUBMITTED
+  APPOINTMENT_BOOKED
 }
 
 model ContactEvent {
@@ -860,4 +865,104 @@ model WorkflowRun {
   @@index([status, resumeAt])
   @@index([workspaceId, workflowId])
   @@map("workflow_runs")
+}
+
+// ── F3: Formularios / captura de leads ───────────────────────────────────────
+
+model Form {
+  id               String           @id @default(cuid())
+  workspaceId      String
+  name             String
+  description      String?
+  fields           Json             // [{ id, label, type: text|email|tel|textarea|select, required, options? }]
+  slug             String           @unique
+  isActive         Boolean          @default(true)
+  submitButtonText String           @default("Enviar")
+  successMessage   String           @default("¡Gracias! Te contactaremos pronto.")
+  submissionCount  Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  submissions FormSubmission[]
+
+  @@index([workspaceId])
+  @@map("forms")
+}
+
+model FormSubmission {
+  id          String   @id @default(cuid())
+  workspaceId String
+  formId      String
+  contactId   String?
+  data        Json
+  createdAt   DateTime @default(now())
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, formId])
+  @@map("form_submissions")
+}
+
+// ── F4: Campañas Email/SMS/WhatsApp ──────────────────────────────────────────
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+}
+
+model Campaign {
+  id          String         @id @default(cuid())
+  workspaceId String
+  name        String
+  channel     String         // EMAIL | SMS | WHATSAPP
+  subject     String?        // solo email
+  body        String         // soporta merge tags {{name}}, {{phone}}
+  segmentId   String?
+  status      CampaignStatus @default(DRAFT)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  stats       Json?          // { total, sent, failed, opened, clicked }
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  workspace  Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients CampaignRecipient[]
+
+  @@index([workspaceId, status])
+  @@map("campaigns")
+}
+
+model CampaignRecipient {
+  id          String    @id @default(cuid())
+  campaignId  String
+  workspaceId String
+  contactId   String
+  status      String    @default("PENDING") // PENDING | SENT | FAILED | OPENED | CLICKED | UNSUBSCRIBED
+  error       String?
+  sentAt      DateTime?
+  openedAt    DateTime?
+  createdAt   DateTime  @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, status])
+  @@map("campaign_recipients")
+}
+
+model Suppression {
+  id          String   @id @default(cuid())
+  workspaceId String
+  channel     String   // EMAIL | SMS
+  value       String   // email o teléfono
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, channel, value])
+  @@map("suppressions")
 }

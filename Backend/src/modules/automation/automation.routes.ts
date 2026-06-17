@@ -19,7 +19,9 @@ const TRIGGER_TYPES = [
   { value: 'MESSAGE_RECEIVED', label: 'Mensaje recibido' },
   { value: 'STATUS_CHANGED', label: 'Estado del contacto cambia' },
   { value: 'AI_QUALIFICATION', label: 'Calificación de IA' },
-  { value: 'NOTE_ADDED', label: 'Nota agregada' }
+  { value: 'NOTE_ADDED', label: 'Nota agregada' },
+  { value: 'FORM_SUBMITTED', label: 'Formulario enviado' },
+  { value: 'APPOINTMENT_BOOKED', label: 'Cita agendada' }
 ]
 
 const ACTION_TYPES = [
