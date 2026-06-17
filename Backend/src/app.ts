@@ -29,6 +29,9 @@ import timelineRoutes from './modules/crm/timeline.routes'
 import segmentsRoutes from './modules/crm/segments.routes'
 import formsRoutes from './modules/crm/forms.routes'
 import publicFormsRoutes from './modules/crm/public-forms.routes'
+import contactValueRoutes from './modules/crm/contactValue.routes'
+import paymentLinksRoutes from './modules/payments-crm/payment-links.routes'
+import paymentLinksWebhook from './modules/payments-crm/payment-links.webhook'
 import automationRoutes from './modules/automation/automation.routes'
 import campaignsRoutes from './modules/campaigns/campaigns.routes'
 import botRoutes from './modules/bot/bot.routes'
@@ -80,6 +83,8 @@ app.use('/api', forecastRoutes)
 app.use('/api', timelineRoutes)
 app.use('/api', segmentsRoutes)
 app.use('/api', formsRoutes)
+app.use('/api', contactValueRoutes)
+app.use('/api', paymentLinksRoutes)
 app.use('/api', automationRoutes)
 app.use('/api', campaignsRoutes)
 app.use('/api', messagingRoutes)
@@ -89,6 +94,7 @@ app.use('/api', knowledgeRoutes)
 app.use('/api', schedulingRoutes)
 app.use('/api/public', publicBookingRoutes)
 app.use('/api/public', publicFormsRoutes)
+app.use('/api/public', paymentLinksWebhook)
 app.use('/api/composio', composioRoutes)
 
 // Start cron jobs

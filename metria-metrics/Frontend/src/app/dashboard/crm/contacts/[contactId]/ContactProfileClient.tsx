@@ -5,6 +5,26 @@ import { fetchAPI } from '@/lib/api'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 import ContactTimeline from '@/components/crm/ContactTimeline'
 import ContactTasks from '@/components/crm/ContactTasks'
+import { Trophy, Wallet, ShoppingBag, GitBranch } from 'lucide-react'
+
+/** Compact CLP formatter — mirrors PipelineForecast / PipelinesClient idiom. */
+function formatCLP(n: number): string {
+  if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return '$' + Math.round(n / 1_000) + 'K'
+  return '$' + Math.round(n).toLocaleString('es-CL')
+}
+
+interface ContactValue {
+  ltv: number
+  wonDealsValue: number
+  wonDealsCount: number
+  openPipelineValue: number
+  openDealsCount: number
+  lostDealsCount: number
+  capturedValue: number
+  ordersTotal?: number
+  ordersCount?: number
+}
 
 const STATUS_COLOR: Record<string, string> = {
   LEAD: 'bg-blue-100 text-blue-700', PROSPECT: 'bg-purple-100 text-purple-700',
@@ -42,6 +62,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   const [tab, setTab] = useState<Tab>('resumen')
   const [noteContent, setNoteContent] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  const [value, setValue] = useState<ContactValue | null>(null)
+  const [valueLoading, setValueLoading] = useState(true)
+  const [valueError, setValueError] = useState(false)
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
@@ -52,6 +75,16 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
       .then(setContact)
       .catch(console.error)
       .finally(() => setLoading(false))
+  }, [mounted, contactId])
+
+  useEffect(() => {
+    if (!mounted) return
+    setValueLoading(true)
+    setValueError(false)
+    fetchAPI(`/crm/contacts/${contactId}/value`)
+      .then(setValue)
+      .catch(() => setValueError(true))
+      .finally(() => setValueLoading(false))
   }, [mounted, contactId])
 
   async function handleAddNote() {
@@ -142,7 +175,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
       {/* Tab content */}
       <div className="pt-2">
         {tab === 'resumen' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-4">
+            <CustomerValueCard value={value} loading={valueLoading} error={valueError} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-lg border p-4 space-y-3">
               <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Métricas</h3>
               <div className="flex justify-between text-sm"><span className="text-muted-foreground">LTV</span><span className="font-semibold">${Number(contact.ltv).toFixed(2)}</span></div>
@@ -162,6 +197,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
                 </div>
               </div>
             )}
+            </div>
           </div>
         )}
 
@@ -194,7 +230,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
                   <span className="font-medium">{deal.title}</span>
                   <span className="ml-2 text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: deal.stage.color }}>{deal.stage.name}</span>
                 </div>
-                <span className="font-mono">${Number(deal.value).toFixed(2)}</span>
+                <span className="font-semibold tabular-nums">{formatCLP(Number(deal.value))}</span>
               </div>
             ))}
           </div>
@@ -254,6 +290,97 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
         {tab === 'tareas' && (
           <ContactTasks contactId={contact.id} />
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ── Valor del cliente ──────────────────────────────────────────────────────
+   Metria's differentiator: real, per-customer value a generic CRM can't show.
+   Hero number = valor real capturado (ventas ganadas + pedidos pagados),
+   con KPIs de apoyo. Estados de carga / error / vacío (ceros). */
+function CustomerValueCard({
+  value, loading, error
+}: { value: ContactValue | null; loading: boolean; error: boolean }) {
+  if (loading) {
+    return (
+      <div className="rounded-xl border bg-gradient-to-br from-emerald-500/[0.06] to-transparent p-5 animate-pulse">
+        <div className="h-3 w-32 bg-muted/50 rounded mb-3" />
+        <div className="h-9 w-40 bg-muted/50 rounded mb-5" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-16 bg-muted/40 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border p-5 text-sm text-muted-foreground">
+        No se pudo cargar el valor del cliente.
+      </div>
+    )
+  }
+
+  const v: ContactValue = value ?? {
+    ltv: 0, wonDealsValue: 0, wonDealsCount: 0,
+    openPipelineValue: 0, openDealsCount: 0, lostDealsCount: 0, capturedValue: 0
+  }
+
+  const kpis: { label: string; amount: number; meta?: string; icon: typeof Trophy; tint: string }[] = [
+    { label: 'LTV', amount: v.ltv, icon: Wallet, tint: 'text-sky-500' },
+    { label: 'Ventas ganadas', amount: v.wonDealsValue, meta: `${v.wonDealsCount} deal${v.wonDealsCount === 1 ? '' : 's'}`, icon: Trophy, tint: 'text-emerald-500' },
+    { label: 'Pipeline abierto', amount: v.openPipelineValue, meta: `${v.openDealsCount} deal${v.openDealsCount === 1 ? '' : 's'}`, icon: GitBranch, tint: 'text-violet-500' },
+  ]
+  if (v.ordersCount !== undefined) {
+    kpis.push({
+      label: 'Pedidos pagados', amount: v.ordersTotal ?? 0,
+      meta: `${v.ordersCount} pedido${v.ordersCount === 1 ? '' : 's'}`, icon: ShoppingBag, tint: 'text-amber-500'
+    })
+  } else {
+    kpis.push({
+      label: 'Deals perdidos', amount: v.openPipelineValue >= 0 ? v.lostDealsCount : 0,
+      meta: 'sin monto', icon: GitBranch, tint: 'text-muted-foreground'
+    })
+  }
+
+  return (
+    <div className="rounded-xl border bg-gradient-to-br from-emerald-500/[0.07] via-emerald-500/[0.02] to-transparent p-5">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-600/90 dark:text-emerald-400/90">
+            Valor del cliente
+          </p>
+          <p className="mt-1 text-3xl font-bold tabular-nums leading-none">
+            {formatCLP(v.capturedValue)}
+          </p>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Valor real capturado{v.ordersCount !== undefined ? ' · ventas + pedidos' : ' · ventas ganadas'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-emerald-500/10 p-2.5">
+          <Trophy className="h-5 w-5 text-emerald-500" />
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {kpis.map(kpi => {
+          const Icon = kpi.icon
+          return (
+            <div key={kpi.label} className="rounded-lg border bg-background/60 p-3">
+              <div className="flex items-center gap-1.5">
+                <Icon className={`h-3.5 w-3.5 ${kpi.tint}`} />
+                <span className="text-[11px] text-muted-foreground truncate">{kpi.label}</span>
+              </div>
+              <p className="mt-1.5 text-lg font-semibold tabular-nums leading-tight">
+                {kpi.label === 'Deals perdidos' ? kpi.amount : formatCLP(kpi.amount)}
+              </p>
+              {kpi.meta && <p className="text-[11px] text-muted-foreground">{kpi.meta}</p>}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

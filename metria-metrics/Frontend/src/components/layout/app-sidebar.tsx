@@ -35,7 +35,8 @@ import {
     KanbanSquare,
     Zap,
     FileText,
-    Send
+    Send,
+    CreditCard
 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import Link from "next/link"
@@ -65,6 +66,7 @@ const menuItems: MenuItem[] = [
     { title: "Segmentos", icon: Filter, url: "/dashboard/crm/segments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Formularios", icon: FileText, url: "/dashboard/crm/forms", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Campañas", icon: Send, url: "/dashboard/crm/campaigns", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Pagos", icon: CreditCard, url: "/dashboard/crm/payments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Citas", icon: CalendarDays, url: "/dashboard/crm/appointments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Configuración IA", icon: Bot, url: "/dashboard/settings/ai-agent", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Canales de Mensajería", icon: MessageSquare, url: "/dashboard/settings/channels", roles: ["SUPER_ADMIN", "ADMIN"] },

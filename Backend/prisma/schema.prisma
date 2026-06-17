@@ -64,6 +64,7 @@ model Workspace {
   forms                    Form[]
   campaigns                Campaign[]
   suppressions             Suppression[]
+  paymentLinks             PaymentLink[]
 
   @@map("workspaces")
 }
@@ -965,4 +966,27 @@ model Suppression {
 
   @@unique([workspaceId, channel, value])
   @@map("suppressions")
+}
+
+// ── F5: Links de pago (MercadoPago) ──────────────────────────────────────────
+
+model PaymentLink {
+  id          String    @id @default(cuid())
+  workspaceId String
+  contactId   String?
+  dealId      String?
+  amount      Decimal   @db.Decimal(12, 2)
+  currency    String    @default("CLP")
+  description String?
+  provider    String    @default("MERCADOPAGO")
+  externalId  String?   // id de la preferencia en el proveedor
+  url         String?   // init_point / checkout URL
+  status      String    @default("PENDING") // PENDING | PAID | EXPIRED | CANCELLED
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@map("payment_links")
 }
