@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ContactTimeline from '@/components/crm/ContactTimeline'
 import ContactTasks from '@/components/crm/ContactTasks'
 
@@ -23,7 +22,7 @@ const PLATFORM_LABEL: Record<string, string> = {
   WHATSAPP: 'WhatsApp', INSTAGRAM: 'Instagram', TELEGRAM: 'Telegram'
 }
 
-type Tab = 'resumen' | 'conversaciones' | 'deals' | 'tickets' | 'notas'
+type Tab = 'resumen' | 'conversaciones' | 'deals' | 'tickets' | 'notas' | 'actividad' | 'tareas'
 
 interface Contact {
   id: string; name: string; email: string | null; phone: string | null; status: string
@@ -96,7 +95,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
     { key: 'conversaciones', label: `Conversaciones (${contact.conversations?.length ?? 0})` },
     { key: 'deals', label: `Deals (${contact.deals?.length ?? 0})` },
     { key: 'tickets', label: `Tickets (${contact.tickets?.length ?? 0})` },
-    { key: 'notas', label: `Notas (${contact.contactNotes?.length ?? 0})` }
+    { key: 'notas', label: `Notas (${contact.contactNotes?.length ?? 0})` },
+    { key: 'actividad', label: 'Actividad' },
+    { key: 'tareas', label: 'Tareas' },
   ]
 
   return (
@@ -121,149 +122,139 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
         />
       </div>
 
-      {/* Top-level tabs: Resumen | Actividad | Tareas */}
-      <Tabs defaultValue="resumen">
-        <TabsList>
-          <TabsTrigger value="resumen">Resumen</TabsTrigger>
-          <TabsTrigger value="actividad">Actividad</TabsTrigger>
-          <TabsTrigger value="tareas">Tareas</TabsTrigger>
-        </TabsList>
+      {/* Single flat tab bar */}
+      <div className="border-b flex gap-1 overflow-x-auto">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              tab === t.key
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        <TabsContent value="actividad" className="pt-4">
-          <ContactTimeline contactId={contact.id} />
-        </TabsContent>
-
-        <TabsContent value="tareas" className="pt-4">
-          <ContactTasks contactId={contact.id} />
-        </TabsContent>
-
-        <TabsContent value="resumen" className="pt-4">
-          {/* Inner sub-tabs (existing) */}
-          <div className="space-y-6">
-            {/* Sub-tabs */}
-            <div className="border-b flex gap-1">
-              {TABS.map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                    tab === t.key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Sub-tab content */}
-            {tab === 'resumen' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-lg border p-4 space-y-3">
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Métricas</h3>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">LTV</span><span className="font-semibold">${Number(contact.ltv).toFixed(2)}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Health Score</span><span className="font-semibold">{contact.healthScore ?? '—'}/100</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Fuente</span><span>{contact.source}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-muted-foreground">Miembro desde</span><span>{new Date(contact.createdAt).toLocaleDateString('es-CL')}</span></div>
-          </div>
-          {contact.tags.length > 0 && (
+      {/* Tab content */}
+      <div className="pt-2">
+        {tab === 'resumen' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-lg border p-4 space-y-3">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Etiquetas</h3>
-              <div className="flex flex-wrap gap-2">
-                {contact.tags.map(tag => (
-                  <span key={tag.id} className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: tag.color }}>
-                    {tag.name}
-                  </span>
-                ))}
-              </div>
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Métricas</h3>
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">LTV</span><span className="font-semibold">${Number(contact.ltv).toFixed(2)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Health Score</span><span className="font-semibold">{contact.healthScore ?? '—'}/100</span></div>
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Fuente</span><span>{contact.source}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-muted-foreground">Miembro desde</span><span>{new Date(contact.createdAt).toLocaleDateString('es-CL')}</span></div>
             </div>
-          )}
-        </div>
-      )}
-
-      {tab === 'conversaciones' && (
-        <div className="space-y-2">
-          {(contact.conversations?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin conversaciones</p>
-          ) : contact.conversations!.map(conv => (
-            <div key={conv.id} className="rounded-lg border p-3 flex items-center justify-between text-sm">
-              <div>
-                <span className="font-medium">{PLATFORM_LABEL[conv.channel.platform] ?? conv.channel.platform}</span>
-                <span className="text-muted-foreground ml-2">{conv.channel.name}</span>
+            {contact.tags.length > 0 && (
+              <div className="rounded-lg border p-4 space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Etiquetas</h3>
+                <div className="flex flex-wrap gap-2">
+                  {contact.tags.map(tag => (
+                    <span key={tag.id} className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: tag.color }}>
+                      {tag.name}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-muted-foreground">{conv.messageCount} mensajes</div>
-                {conv.lastMessageAt && <div className="text-xs text-muted-foreground">{new Date(conv.lastMessageAt).toLocaleDateString('es-CL')}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === 'deals' && (
-        <div className="space-y-2">
-          {contact.deals.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin deals</p>
-          ) : contact.deals.map(deal => (
-            <div key={deal.id} className="rounded-lg border p-3 flex items-center justify-between text-sm">
-              <div>
-                <span className="font-medium">{deal.title}</span>
-                <span className="ml-2 text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: deal.stage.color }}>{deal.stage.name}</span>
-              </div>
-              <span className="font-mono">${Number(deal.value).toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === 'tickets' && (
-        <div className="space-y-2">
-          {contact.tickets.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin tickets</p>
-          ) : contact.tickets.map(ticket => (
-            <div key={ticket.id} className="rounded-lg border p-3 flex items-center justify-between text-sm">
-              <span className="font-medium">{ticket.title}</span>
-              <div className="flex gap-2">
-                <span className={`text-xs px-2 py-0.5 rounded-full ${TICKET_PRIORITY_COLOR[ticket.priority] ?? 'bg-muted'}`}>{ticket.priority}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-muted">{ticket.status}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === 'notas' && (
-        <div className="space-y-4">
-          <div className="flex gap-2">
-            <textarea
-              className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background resize-none"
-              rows={3}
-              placeholder="Agregar una nota..."
-              value={noteContent}
-              onChange={e => setNoteContent(e.target.value)}
-            />
-            <button
-              onClick={handleAddNote}
-              disabled={!noteContent.trim() || savingNote}
-              className="self-end px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
-            >
-              {savingNote ? '...' : 'Guardar'}
-            </button>
+            )}
           </div>
+        )}
+
+        {tab === 'conversaciones' && (
           <div className="space-y-2">
-            {contact.contactNotes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin notas</p>
-            ) : contact.contactNotes.map(note => (
-              <div key={note.id} className="rounded-lg border p-3 text-sm">
-                <p>{note.content}</p>
-                <p className="text-xs text-muted-foreground mt-1">{new Date(note.createdAt).toLocaleDateString('es-CL', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+            {(contact.conversations?.length ?? 0) === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin conversaciones</p>
+            ) : contact.conversations!.map(conv => (
+              <div key={conv.id} className="rounded-lg border p-3 flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-medium">{PLATFORM_LABEL[conv.channel.platform] ?? conv.channel.platform}</span>
+                  <span className="text-muted-foreground ml-2">{conv.channel.name}</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-muted-foreground">{conv.messageCount} mensajes</div>
+                  {conv.lastMessageAt && <div className="text-xs text-muted-foreground">{new Date(conv.lastMessageAt).toLocaleDateString('es-CL')}</div>}
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
-          </div>{/* end inner space-y-6 */}
-        </TabsContent>{/* end resumen TabsContent */}
-      </Tabs>
+        )}
+
+        {tab === 'deals' && (
+          <div className="space-y-2">
+            {contact.deals.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin deals</p>
+            ) : contact.deals.map(deal => (
+              <div key={deal.id} className="rounded-lg border p-3 flex items-center justify-between text-sm">
+                <div>
+                  <span className="font-medium">{deal.title}</span>
+                  <span className="ml-2 text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: deal.stage.color }}>{deal.stage.name}</span>
+                </div>
+                <span className="font-mono">${Number(deal.value).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'tickets' && (
+          <div className="space-y-2">
+            {contact.tickets.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin tickets</p>
+            ) : contact.tickets.map(ticket => (
+              <div key={ticket.id} className="rounded-lg border p-3 flex items-center justify-between text-sm">
+                <span className="font-medium">{ticket.title}</span>
+                <div className="flex gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${TICKET_PRIORITY_COLOR[ticket.priority] ?? 'bg-muted'}`}>{ticket.priority}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted">{ticket.status}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'notas' && (
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <textarea
+                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background resize-none"
+                rows={3}
+                placeholder="Agregar una nota..."
+                value={noteContent}
+                onChange={e => setNoteContent(e.target.value)}
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={!noteContent.trim() || savingNote}
+                className="self-end px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
+              >
+                {savingNote ? '...' : 'Guardar'}
+              </button>
+            </div>
+            <div className="space-y-2">
+              {contact.contactNotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin notas</p>
+              ) : contact.contactNotes.map(note => (
+                <div key={note.id} className="rounded-lg border p-3 text-sm">
+                  <p>{note.content}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{new Date(note.createdAt).toLocaleDateString('es-CL', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'actividad' && (
+          <ContactTimeline contactId={contact.id} />
+        )}
+
+        {tab === 'tareas' && (
+          <ContactTasks contactId={contact.id} />
+        )}
+      </div>
     </div>
   )
 }

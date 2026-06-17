@@ -92,11 +92,11 @@ export async function listDealsHandler(req: AuthRequest, res: Response): Promise
 
 export async function createDealHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { contactId, pipelineId, stageId, title, value } = req.body
+    const { contactId, pipelineId, stageId, title, value, probability, expectedCloseAt } = req.body
     if (!contactId || !pipelineId || !stageId || !title?.trim()) {
       res.status(400).json({ error: 'contactId, pipelineId, stageId, title are required' }); return
     }
-    res.status(201).json(await ps.createDeal(req.user!.workspaceId!, { contactId, pipelineId, stageId, title: title.trim(), value }))
+    res.status(201).json(await ps.createDeal(req.user!.workspaceId!, { contactId, pipelineId, stageId, title: title.trim(), value, probability, expectedCloseAt }))
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 

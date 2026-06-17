@@ -42,7 +42,7 @@ export async function listDeals(workspaceId: string, pipelineId?: string) {
     },
     include: {
       stage: { select: { id: true, name: true, color: true, isWon: true, isLost: true } },
-      contact: { select: { id: true, name: true, phone: true } }
+      contact: { select: { id: true, name: true, phone: true, leadTemperature: true, leadScore: true } }
     },
     orderBy: { createdAt: 'desc' }
   })
@@ -50,18 +50,23 @@ export async function listDeals(workspaceId: string, pipelineId?: string) {
 
 export async function createDeal(
   workspaceId: string,
-  data: { title: string; contactId: string; pipelineId: string; stageId: string; value?: number }
+  data: {
+    title: string; contactId: string; pipelineId: string; stageId: string
+    value?: number; probability?: number | null; expectedCloseAt?: string | null
+  }
 ) {
-  const { value, ...rest } = data
+  const { value, probability, expectedCloseAt, ...rest } = data
   return prisma.deal.create({
     data: {
       workspaceId,
       ...rest,
-      ...(value !== undefined && { value })
+      ...(value !== undefined && { value }),
+      ...(probability != null && { probability }),
+      ...(expectedCloseAt && { expectedCloseAt: new Date(expectedCloseAt) })
     },
     include: {
-      stage: { select: { id: true, name: true, color: true } },
-      contact: { select: { id: true, name: true } }
+      stage: { select: { id: true, name: true, color: true, isWon: true, isLost: true } },
+      contact: { select: { id: true, name: true, phone: true, leadTemperature: true, leadScore: true } }
     }
   })
 }
