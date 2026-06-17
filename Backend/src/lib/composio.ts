@@ -20,5 +20,8 @@ export async function initiateConnection(
 ): Promise<ConnectionRequest> {
   const session = await getClient().create(workspaceId)
   const req = await session.authorize(appName.toLowerCase(), { callbackUrl })
+  if (!req.redirectUrl) {
+    throw new Error(`Composio no devolvió una URL de redirección para "${appName}"`)
+  }
   return { redirectUrl: req.redirectUrl }
 }
