@@ -25,11 +25,18 @@ export function proxy(request: NextRequest) {
     
     // Skip static assets
     if (
-        pathname.startsWith('/_next') || 
-        pathname.startsWith('/api') || 
+        pathname.startsWith('/_next') ||
+        pathname.startsWith('/api') ||
         pathname.startsWith('/static') ||
         pathname.includes('.')
     ) {
+        return NextResponse.next()
+    }
+
+    // Customer-facing lead-capture pages are ALWAYS public: a prospect filling a
+    // form (/f/[slug]) or booking a visit (/book/[slug]) is never logged in, and
+    // an authenticated owner previewing their own page must not be bounced away.
+    if (pathname.startsWith('/f/') || pathname.startsWith('/book/')) {
         return NextResponse.next()
     }
 
