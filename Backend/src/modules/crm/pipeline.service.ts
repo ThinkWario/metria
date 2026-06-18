@@ -134,3 +134,34 @@ export async function closeDeal(
 
   return updated
 }
+
+export async function updateDeal(
+  workspaceId: string,
+  dealId: string,
+  data: {
+    title?: string
+    value?: number
+    probability?: number | null
+    expectedCloseAt?: string | null
+  }
+) {
+  const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId } })
+  if (!deal) throw new Error('Deal not found')
+
+  const updateData: Record<string, unknown> = {}
+  if (data.title !== undefined) updateData.title = data.title.trim()
+  if (data.value !== undefined) updateData.value = data.value
+  if (data.probability !== undefined) updateData.probability = data.probability
+  if (data.expectedCloseAt !== undefined) {
+    updateData.expectedCloseAt = data.expectedCloseAt ? new Date(data.expectedCloseAt) : null
+  }
+
+  return prisma.deal.update({
+    where: { id: dealId, workspaceId },
+    data: updateData,
+    include: {
+      stage: { select: { id: true, name: true, color: true, isWon: true, isLost: true } },
+      contact: { select: { id: true, name: true, phone: true, leadTemperature: true, leadScore: true } }
+    }
+  })
+}

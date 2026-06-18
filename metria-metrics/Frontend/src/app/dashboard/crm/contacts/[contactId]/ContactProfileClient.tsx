@@ -6,6 +6,8 @@ import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 import ContactTimeline from '@/components/crm/ContactTimeline'
 import ContactTasks from '@/components/crm/ContactTasks'
 import { Trophy, Wallet, ShoppingBag, GitBranch } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { toast } from 'sonner'
 
 /** Compact CLP formatter — mirrors PipelineForecast / PipelinesClient idiom. */
 function formatCLP(n: number): string {
@@ -87,6 +89,22 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
       .finally(() => setValueLoading(false))
   }, [mounted, contactId])
 
+  async function handleStatusChange(newStatus: string) {
+    if (!contact || newStatus === contact.status) return
+    const prevStatus = contact.status
+    setContact(prev => prev ? { ...prev, status: newStatus } : prev)
+    try {
+      await fetchAPI(`/crm/contacts/${contactId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus })
+      })
+      toast.success('Estado actualizado')
+    } catch {
+      setContact(prev => prev ? { ...prev, status: prevStatus } : prev)
+      toast.error('Error al actualizar el estado')
+    }
+  }
+
   async function handleAddNote() {
     if (!noteContent.trim()) return
     setSavingNote(true)
@@ -145,9 +163,20 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
           <h1 className="text-xl font-semibold">{contact.name}</h1>
           <p className="text-sm text-muted-foreground">{contact.phone?.split('@')[0] ?? contact.email ?? '—'}</p>
         </div>
-        <span className={`ml-2 text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[contact.status] ?? 'bg-muted'}`}>
-          {STATUS_LABEL[contact.status] ?? contact.status}
-        </span>
+        <Select value={contact.status} onValueChange={handleStatusChange}>
+          <SelectTrigger
+            className={`ml-2 h-6 text-xs font-medium px-2.5 rounded-full border-0 shadow-none w-auto min-w-0 gap-1 focus:ring-0 focus:ring-offset-0 ${STATUS_COLOR[contact.status] ?? 'bg-muted'}`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="LEAD">Lead</SelectItem>
+            <SelectItem value="PROSPECT">Prospecto</SelectItem>
+            <SelectItem value="CUSTOMER">Cliente</SelectItem>
+            <SelectItem value="VIP">VIP</SelectItem>
+            <SelectItem value="CHURNED">Inactivo</SelectItem>
+          </SelectContent>
+        </Select>
         <LeadQualificationBadge
           temperature={contact.leadTemperature}
           type={contact.leadType}

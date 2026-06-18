@@ -8,12 +8,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Plus, Trophy, X, GripVertical,
   Flame, Thermometer, Snowflake, Phone, Calendar, Clock,
-  Check, KanbanSquare
+  Check, KanbanSquare, Pencil
 } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
@@ -42,10 +43,87 @@ function TempIcon({ t }: { t?: string | null }) {
   return <Snowflake className="h-3 w-3 text-sky-400" />
 }
 
+// ── Lost Reason Dialog ─────────────────────────────────────────────────────────
+const LOST_CHIPS = ['Precio', 'Eligió competencia', 'Sin presupuesto', 'No responde', 'Fuera de zona'] as const
+
+function LostReasonDialog({
+  open, onClose, onConfirm
+}: {
+  open: boolean
+  onClose: () => void
+  onConfirm: (reason: string) => Promise<void>
+}) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleConfirm() {
+    setSaving(true)
+    try {
+      await onConfirm(reason)
+      setReason('')
+      onClose()
+    } catch {
+      // error already toasted by onConfirm
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v && !saving) { setReason(''); onClose() } }}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>¿Por qué se perdió este deal?</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="flex flex-wrap gap-2">
+            {LOST_CHIPS.map(c => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setReason(prev => prev === c ? '' : c)}
+                className={[
+                  'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                  reason === c
+                    ? 'bg-red-100 border-red-300 text-red-700'
+                    : 'bg-muted hover:bg-muted/80 text-muted-foreground border-transparent hover:border-muted-foreground/30'
+                ].join(' ')}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <Textarea
+            placeholder="Motivo adicional (opcional)..."
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            rows={3}
+            className="resize-none"
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={saving} onClick={() => { setReason(''); onClose() }}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" onClick={handleConfirm} disabled={saving}>
+            {saving ? 'Cerrando...' : 'Marcar como Perdido'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Deal Card ──────────────────────────────────────────────────────────────────
 function DealCard({
-  deal, onWon, onLost, overlay = false
-}: { deal: Deal; onWon: (id: string) => void; onLost: (id: string) => void; overlay?: boolean }) {
+  deal, onWon, onLost, onEdit, overlay = false
+}: {
+  deal: Deal
+  onWon: (id: string) => void
+  onLost: (id: string) => void
+  onEdit: (deal: Deal) => void
+  overlay?: boolean
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: deal.id })
   const prob = deal.probability ?? null
   const probBar = prob != null ? (prob >= 70 ? 'bg-emerald-500' : prob >= 40 ? 'bg-amber-500' : 'bg-red-500') : null
@@ -60,12 +138,11 @@ function DealCard({
         'rounded-lg border bg-card text-card-foreground shadow-sm select-none transition-shadow',
         overlay ? 'rotate-1 shadow-2xl ring-2 ring-primary/30' : 'hover:shadow-md',
         deal.status !== 'OPEN' ? 'opacity-55' : '',
-        !overlay ? 'cursor-grab active:cursor-grabbing' : ''
       ].join(' ')}
     >
       {/* Drag handle row */}
       <div
-        className="px-3 pt-2.5 flex items-start gap-1.5"
+        className={['px-3 pt-2.5 flex items-start gap-1.5', !overlay ? 'cursor-grab active:cursor-grabbing' : ''].join(' ')}
         {...(!overlay ? listeners : {})}
         {...(!overlay ? attributes : {})}
       >
@@ -80,35 +157,44 @@ function DealCard({
         </div>
       </div>
 
-      {/* Contact */}
-      <div className="px-3 pt-1 pb-0">
-        <Link
-          href={`/dashboard/crm/contacts/${deal.contact.id}`}
-          className="text-xs text-primary hover:underline font-medium block truncate"
-          onClick={e => e.stopPropagation()}
-        >
-          {deal.contact.name}
-        </Link>
-        {deal.contact.phone && (
-          <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-            <Phone className="h-2.5 w-2.5" />{deal.contact.phone.replace(/@.*$/, '')}
-          </p>
-        )}
-      </div>
+      {/* Clickable body → opens edit modal */}
+      <div
+        className={!overlay ? 'cursor-pointer' : ''}
+        onClick={!overlay ? (e) => { e.stopPropagation(); onEdit(deal) } : undefined}
+      >
+        {/* Contact */}
+        <div className="px-3 pt-1 pb-0">
+          <Link
+            href={`/dashboard/crm/contacts/${deal.contact.id}`}
+            className="text-xs text-primary hover:underline font-medium block truncate"
+            onClick={e => e.stopPropagation()}
+          >
+            {deal.contact.name}
+          </Link>
+          {deal.contact.phone && (
+            <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+              <Phone className="h-2.5 w-2.5" />{deal.contact.phone.replace(/@.*$/, '')}
+            </p>
+          )}
+        </div>
 
-      {/* Value + probability */}
-      <div className="px-3 pt-2">
-        <p className="text-lg font-bold tabular-nums">{formatCLP(deal.value)}</p>
-        {probBar && prob != null && (
-          <div className="mt-1.5">
-            <div className="flex justify-between text-[10px] text-muted-foreground mb-0.5">
-              <span>Prob.</span><span className="font-semibold">{prob}%</span>
-            </div>
-            <div className="h-1 rounded-full bg-muted overflow-hidden">
-              <div className={`h-full rounded-full ${probBar}`} style={{ width: `${prob}%` }} />
-            </div>
+        {/* Value + probability */}
+        <div className="px-3 pt-2">
+          <div className="flex items-center gap-1.5">
+            <p className="text-lg font-bold tabular-nums">{formatCLP(deal.value)}</p>
+            {!overlay && <Pencil className="h-3 w-3 text-muted-foreground/40 ml-auto" />}
           </div>
-        )}
+          {probBar && prob != null && (
+            <div className="mt-1.5">
+              <div className="flex justify-between text-[10px] text-muted-foreground mb-0.5">
+                <span>Prob.</span><span className="font-semibold">{prob}%</span>
+              </div>
+              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                <div className={`h-full rounded-full ${probBar}`} style={{ width: `${prob}%` }} />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Footer */}
@@ -146,9 +232,12 @@ function DealCard({
 }
 
 // ── Stage Column ───────────────────────────────────────────────────────────────
-function StageColumn({ stage, deals, onAdd, onWon, onLost }: {
+function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit }: {
   stage: Stage; deals: Deal[]
-  onAdd: (stageId: string) => void; onWon: (id: string) => void; onLost: (id: string) => void
+  onAdd: (stageId: string) => void
+  onWon: (id: string) => void
+  onLost: (id: string) => void
+  onEdit: (deal: Deal) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
   const openDeals = deals.filter(d => d.status === 'OPEN')
@@ -184,7 +273,7 @@ function StageColumn({ stage, deals, onAdd, onWon, onLost }: {
         ].join(' ')}
       >
         {deals.map(deal => (
-          <DealCard key={deal.id} deal={deal} onWon={onWon} onLost={onLost} />
+          <DealCard key={deal.id} deal={deal} onWon={onWon} onLost={onLost} onEdit={onEdit} />
         ))}
         {deals.length === 0 && (
           <button
@@ -199,11 +288,16 @@ function StageColumn({ stage, deals, onAdd, onWon, onLost }: {
   )
 }
 
-// ── Create Deal Modal ──────────────────────────────────────────────────────────
-function CreateDealModal({ open, onClose, stages, defaultStageId, pipelineId, onCreated }: {
+// ── Create / Edit Deal Modal ───────────────────────────────────────────────────
+function CreateDealModal({
+  open, onClose, stages, defaultStageId, pipelineId, onCreated,
+  editDeal = null, onUpdated
+}: {
   open: boolean; onClose: () => void; stages: Stage[]
   defaultStageId: string; pipelineId: string; onCreated: (deal: Deal) => void
+  editDeal?: Deal | null; onUpdated?: (deal: Deal) => void
 }) {
+  const isEdit = editDeal != null
   const [title, setTitle] = useState('')
   const [value, setValue] = useState('')
   const [probability, setProbability] = useState('50')
@@ -215,10 +309,21 @@ function CreateDealModal({ open, onClose, stages, defaultStageId, pipelineId, on
   const [saving, setSaving] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  useEffect(() => { if (open) setStageId(defaultStageId) }, [open, defaultStageId])
-
+  // Initialize fields when modal opens
   useEffect(() => {
     if (!open) return
+    if (isEdit && editDeal) {
+      setTitle(editDeal.title)
+      setValue(editDeal.value || '')
+      setProbability(editDeal.probability?.toString() ?? '50')
+      setExpectedCloseAt(editDeal.expectedCloseAt ? editDeal.expectedCloseAt.substring(0, 10) : '')
+    } else {
+      setStageId(defaultStageId)
+    }
+  }, [open, editDeal, isEdit, defaultStageId])
+
+  useEffect(() => {
+    if (!open || isEdit) return
     clearTimeout(timerRef.current)
     if (!contactSearch.trim() || selectedContact) { setContactResults([]); return }
     timerRef.current = setTimeout(async () => {
@@ -227,7 +332,7 @@ function CreateDealModal({ open, onClose, stages, defaultStageId, pipelineId, on
         setContactResults(Array.isArray(data) ? data : (data?.contacts ?? []))
       } catch { setContactResults([]) }
     }, 300)
-  }, [contactSearch, selectedContact, open])
+  }, [contactSearch, selectedContact, open, isEdit])
 
   function reset() {
     setTitle(''); setValue(''); setProbability('50'); setExpectedCloseAt('')
@@ -235,6 +340,27 @@ function CreateDealModal({ open, onClose, stages, defaultStageId, pipelineId, on
   }
 
   async function handleSave() {
+    if (isEdit && editDeal) {
+      if (!title.trim()) return toast.error('El título es obligatorio')
+      setSaving(true)
+      try {
+        const updated = await fetchAPI(`/crm/deals/${editDeal.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            title: title.trim(),
+            value: parseFloat(value) || 0,
+            probability: parseInt(probability) || null,
+            expectedCloseAt: expectedCloseAt || null
+          })
+        })
+        onUpdated?.(updated)
+        toast.success('Deal actualizado')
+        reset(); onClose()
+      } catch (err: any) { toast.error(err.message) }
+      finally { setSaving(false) }
+      return
+    }
+
     if (!title.trim() || !selectedContact) return toast.error('Título y contacto son obligatorios')
     setSaving(true)
     try {
@@ -262,7 +388,12 @@ function CreateDealModal({ open, onClose, stages, defaultStageId, pipelineId, on
     <Dialog open={open} onOpenChange={v => { if (!v) { reset(); onClose() } }}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><KanbanSquare className="h-4 w-4" /> Nuevo Deal</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {isEdit
+              ? <><Pencil className="h-4 w-4" /> Editar Deal</>
+              : <><KanbanSquare className="h-4 w-4" /> Nuevo Deal</>
+            }
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -271,50 +402,52 @@ function CreateDealModal({ open, onClose, stages, defaultStageId, pipelineId, on
             <Input placeholder="Ej. Instalación Solar 10 paneles" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Contacto</Label>
-            {selectedContact ? (
-              <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-muted/30">
-                <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold shrink-0">
-                  {selectedContact.name[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{selectedContact.name}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{selectedContact.phone?.replace(/@.*$/, '') ?? selectedContact.email}</p>
-                </div>
-                <button onClick={() => { setSelectedContact(null); setContactSearch('') }} className="text-muted-foreground hover:text-foreground shrink-0">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="relative">
-                <Input
-                  placeholder="Buscar por nombre o teléfono..."
-                  value={contactSearch}
-                  onChange={e => setContactSearch(e.target.value)}
-                />
-                {contactResults.length > 0 && (
-                  <div className="absolute z-50 top-full mt-1 w-full bg-popover border rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
-                    {contactResults.map(c => (
-                      <button
-                        key={c.id}
-                        className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2"
-                        onMouseDown={e => { e.preventDefault(); setSelectedContact(c); setContactResults([]) }}
-                      >
-                        <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold shrink-0">
-                          {c.name[0].toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{c.name}</p>
-                          <p className="text-[10px] text-muted-foreground">{c.phone?.replace(/@.*$/, '') ?? c.email}</p>
-                        </div>
-                      </button>
-                    ))}
+          {!isEdit && (
+            <div className="space-y-1.5">
+              <Label>Contacto</Label>
+              {selectedContact ? (
+                <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-muted/30">
+                  <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold shrink-0">
+                    {selectedContact.name[0].toUpperCase()}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{selectedContact.name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{selectedContact.phone?.replace(/@.*$/, '') ?? selectedContact.email}</p>
+                  </div>
+                  <button onClick={() => { setSelectedContact(null); setContactSearch('') }} className="text-muted-foreground hover:text-foreground shrink-0">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Input
+                    placeholder="Buscar por nombre o teléfono..."
+                    value={contactSearch}
+                    onChange={e => setContactSearch(e.target.value)}
+                  />
+                  {contactResults.length > 0 && (
+                    <div className="absolute z-50 top-full mt-1 w-full bg-popover border rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                      {contactResults.map(c => (
+                        <button
+                          key={c.id}
+                          className="w-full text-left px-3 py-2 hover:bg-muted flex items-center gap-2"
+                          onMouseDown={e => { e.preventDefault(); setSelectedContact(c); setContactResults([]) }}
+                        >
+                          <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold shrink-0">
+                            {c.name[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{c.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{c.phone?.replace(/@.*$/, '') ?? c.email}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -339,28 +472,33 @@ function CreateDealModal({ open, onClose, stages, defaultStageId, pipelineId, on
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Etapa inicial</Label>
-            <Select value={stageId} onValueChange={setStageId}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {stages.map(s => (
-                  <SelectItem key={s.id} value={s.id}>
-                    <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: s.color }} />
-                      {s.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!isEdit && (
+            <div className="space-y-1.5">
+              <Label>Etapa inicial</Label>
+              <Select value={stageId} onValueChange={setStageId}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {stages.map(s => (
+                    <SelectItem key={s.id} value={s.id}>
+                      <span className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: s.color }} />
+                        {s.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => { reset(); onClose() }}>Cancelar</Button>
-          <Button onClick={handleSave} disabled={saving || !title.trim() || !selectedContact}>
-            {saving ? 'Guardando...' : 'Crear Deal'}
+          <Button
+            onClick={handleSave}
+            disabled={saving || !title.trim() || (!isEdit && !selectedContact)}
+          >
+            {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear Deal'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -379,6 +517,8 @@ export default function PipelinesClient() {
   const [creatingPipeline, setCreatingPipeline] = useState(false)
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null)
   const [createModal, setCreateModal] = useState<{ open: boolean; stageId: string }>({ open: false, stageId: '' })
+  const [lostDialog, setLostDialog] = useState<{ open: boolean; dealId: string }>({ open: false, dealId: '' })
+  const [editModal, setEditModal] = useState<{ open: boolean; deal: Deal | null }>({ open: false, deal: null })
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -430,13 +570,35 @@ export default function PipelinesClient() {
     }
   }, [deals, pipelines, selectedPipelineId])
 
-  const handleClose = useCallback(async (dealId: string, status: 'WON' | 'LOST') => {
-    if (!confirm(status === 'WON' ? '¿Marcar este deal como GANADO?' : '¿Marcar este deal como PERDIDO?')) return
+  const handleWon = useCallback(async (dealId: string) => {
+    if (!confirm('¿Marcar este deal como GANADO?')) return
     try {
-      await fetchAPI(`/crm/deals/${dealId}/close`, { method: 'PATCH', body: JSON.stringify({ outcome: status }) })
-      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status } : d))
-      toast.success(status === 'WON' ? '🏆 ¡Deal ganado!' : 'Deal cerrado como perdido')
+      await fetchAPI(`/crm/deals/${dealId}/close`, { method: 'PATCH', body: JSON.stringify({ outcome: 'WON' }) })
+      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'WON' } : d))
+      toast.success('🏆 ¡Deal ganado!')
     } catch (err: any) { toast.error(err.message) }
+  }, [])
+
+  const handleLostConfirm = useCallback(async (reason: string) => {
+    const dealId = lostDialog.dealId
+    // Optimistic update
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'LOST' } : d))
+    try {
+      await fetchAPI(`/crm/deals/${dealId}/close`, {
+        method: 'PATCH',
+        body: JSON.stringify({ outcome: 'LOST', lostReason: reason || undefined })
+      })
+      toast.success('Deal cerrado como perdido')
+    } catch (err: any) {
+      // Rollback optimistic update
+      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'OPEN' } : d))
+      toast.error(err.message)
+      throw err
+    }
+  }, [lostDialog.dealId])
+
+  const handleEdit = useCallback((deal: Deal) => {
+    setEditModal({ open: true, deal })
   }, [])
 
   async function handleCreatePipeline() {
@@ -521,14 +683,15 @@ export default function PipelinesClient() {
               stage={stage}
               deals={deals.filter(d => d.stage.id === stage.id)}
               onAdd={stageId => setCreateModal({ open: true, stageId })}
-              onWon={id => handleClose(id, 'WON')}
-              onLost={id => handleClose(id, 'LOST')}
+              onWon={handleWon}
+              onLost={id => setLostDialog({ open: true, dealId: id })}
+              onEdit={handleEdit}
             />
           ))}
         </div>
 
         <DragOverlay dropAnimation={null}>
-          {activeDeal && <DealCard deal={activeDeal} onWon={() => {}} onLost={() => {}} overlay />}
+          {activeDeal && <DealCard deal={activeDeal} onWon={() => {}} onLost={() => {}} onEdit={() => {}} overlay />}
         </DragOverlay>
       </DndContext>
 
@@ -543,6 +706,27 @@ export default function PipelinesClient() {
           onCreated={deal => setDeals(prev => [...prev, deal])}
         />
       )}
+
+      {/* Edit Deal Modal */}
+      {editModal.deal && stages.length > 0 && (
+        <CreateDealModal
+          open={editModal.open}
+          onClose={() => setEditModal({ open: false, deal: null })}
+          stages={stages}
+          defaultStageId={editModal.deal.stage.id}
+          pipelineId={selectedPipelineId ?? ''}
+          onCreated={() => {}}
+          editDeal={editModal.deal}
+          onUpdated={updated => setDeals(prev => prev.map(d => d.id === updated.id ? updated : d))}
+        />
+      )}
+
+      {/* Lost Reason Dialog */}
+      <LostReasonDialog
+        open={lostDialog.open}
+        onClose={() => setLostDialog({ open: false, dealId: '' })}
+        onConfirm={handleLostConfirm}
+      />
     </div>
   )
 }

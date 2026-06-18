@@ -12,7 +12,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { Megaphone, Plus, Pencil, Trash2, Users, CheckCircle2, XCircle } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Megaphone, Plus, Pencil, Trash2, Users, CheckCircle2, XCircle, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignComposer } from '@/components/crm/CampaignComposer'
 import { CHANNEL_META, STATUS_META } from '@/components/crm/campaign-presentation'
@@ -33,6 +34,7 @@ export default function CampaignsClient() {
   const [deleting, setDeleting] = useState(false)
   const [detail, setDetail] = useState<CampaignDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -116,19 +118,34 @@ export default function CampaignsClient() {
     )
   }
 
+  const filteredCampaigns = campaigns.filter(c =>
+    c.name.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
   return (
     <>
       {/* Toolbar */}
-      <div className="flex justify-end">
-        <CampaignComposer
-          trigger={
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Nueva campaña
-            </Button>
-          }
-          onSaved={handleSaved}
-        />
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Buscar campañas…"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="ml-auto">
+          <CampaignComposer
+            trigger={
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Nueva campaña
+              </Button>
+            }
+            onSaved={handleSaved}
+          />
+        </div>
       </div>
 
       {/* Empty state */}
@@ -148,9 +165,13 @@ export default function CampaignsClient() {
             onSaved={handleSaved}
           />
         </div>
+      ) : filteredCampaigns.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 gap-3 text-center">
+          <p className="text-sm text-muted-foreground">Sin resultados para «{searchTerm}»</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {campaigns.map((c) => {
+          {filteredCampaigns.map((c) => {
             const channel = CHANNEL_META[c.channel]
             const status = STATUS_META[c.status]
             const ChannelIcon = channel.Icon

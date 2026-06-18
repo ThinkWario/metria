@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign } from 'lucide-react'
+import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign, MoreVertical } from 'lucide-react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 import { toast } from 'sonner'
@@ -70,6 +71,18 @@ export default function CrmContactsClient() {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [mounted, search, statusFilter, temperatureFilter, typeFilter])
+
+  async function handleRowStatusChange(id: string, newStatus: string) {
+    const prev = contacts
+    setContacts(c => c.map(x => x.id === id ? { ...x, status: newStatus } : x))
+    try {
+      await fetchAPI('/crm/contacts/' + id, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) })
+      toast.success(`${STATUS_CONFIG[newStatus]?.label ?? 'Estado'} actualizado`)
+    } catch (err: any) {
+      setContacts(prev)
+      toast.error(err.message || 'Error al actualizar estado')
+    }
+  }
 
   async function handleCreateContact(e: React.FormEvent) {
     e.preventDefault()
@@ -142,6 +155,8 @@ export default function CrmContactsClient() {
                   <SelectItem value="LEAD">Lead</SelectItem>
                   <SelectItem value="PROSPECT">Prospecto</SelectItem>
                   <SelectItem value="CUSTOMER">Cliente</SelectItem>
+                  <SelectItem value="VIP">VIP</SelectItem>
+                  <SelectItem value="CHURNED">Inactivo</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -291,7 +306,39 @@ export default function CrmContactsClient() {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                        <Button variant="ghost" size="sm" className="rounded-xl hover:bg-primary/10">Ver Detalle</Button>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="rounded-xl h-8 w-8 hover:bg-primary/10"
+                                              onClick={e => e.stopPropagation()}
+                                            >
+                                              <MoreVertical className="h-4 w-4" />
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
+                                            <DropdownMenuItem onSelect={() => handleRowStatusChange(contact.id, 'CUSTOMER')}>
+                                              Promover a Cliente
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onSelect={() => handleRowStatusChange(contact.id, 'VIP')}>
+                                              Marcar como VIP
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onSelect={() => handleRowStatusChange(contact.id, 'CHURNED')}>
+                                              Marcar Inactivo
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                              disabled={!cleanPhone(contact.phone)}
+                                              onSelect={() => {
+                                                const phone = (cleanPhone(contact.phone) ?? '').replace(/\D/g, '').replace(/@.*$/, '')
+                                                window.open('https://wa.me/' + phone, '_blank')
+                                              }}
+                                            >
+                                              Abrir WhatsApp
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
                                     </td>
                                 </tr>
                             ))}

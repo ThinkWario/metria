@@ -116,6 +116,13 @@ export async function closeDealHandler(req: AuthRequest, res: Response): Promise
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
+export async function updateDealHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { title, value, probability, expectedCloseAt } = req.body
+    res.json(await ps.updateDeal(req.user!.workspaceId!, req.params.dealId, { title, value, probability, expectedCloseAt }))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
 // ── Tickets ───────────────────────────────────────────────────────────────────
 
 export async function listTicketsHandler(req: AuthRequest, res: Response): Promise<void> {

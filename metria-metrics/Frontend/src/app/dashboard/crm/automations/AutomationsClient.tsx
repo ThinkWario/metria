@@ -6,16 +6,20 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription
+} from '@/components/ui/sheet'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { Zap, Pencil, Trash2, Play } from 'lucide-react'
+import { Zap, Pencil, Trash2, Play, History, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { AutomationBuilder } from '@/components/crm/AutomationBuilder'
 import {
-  listWorkflows, getCatalog, deleteWorkflow, updateWorkflow,
-  type Workflow, type WorkflowCatalog
+  listWorkflows, getCatalog, deleteWorkflow, updateWorkflow, getWorkflowRuns,
+  type Workflow, type WorkflowCatalog, type WorkflowRun
 } from '@/lib/crm-automations-api'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -29,6 +33,11 @@ export default function AutomationsClient() {
   const [loading, setLoading] = useState(true)
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null)
+  const [runs, setRuns] = useState<WorkflowRun[]>([])
+  const [runsLoading, setRunsLoading] = useState(false)
+  const [runsError, setRunsError] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -36,6 +45,17 @@ export default function AutomationsClient() {
     if (!mounted) return
     loadData()
   }, [mounted])
+
+  useEffect(() => {
+    if (!selectedWorkflowId) return
+    setRunsLoading(true)
+    setRunsError(null)
+    setRuns([])
+    getWorkflowRuns(selectedWorkflowId)
+      .then(data => setRuns(data))
+      .catch((err: any) => setRunsError(err?.message ?? 'Error al cargar ejecuciones'))
+      .finally(() => setRunsLoading(false))
+  }, [selectedWorkflowId])
 
   async function loadData() {
     setLoading(true)
@@ -107,20 +127,36 @@ export default function AutomationsClient() {
     )
   }
 
+  const filteredWorkflows = workflows.filter(w =>
+    w.name.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+  const selectedWorkflow = workflows.find(w => w.id === selectedWorkflowId)
+
   return (
     <>
       {/* Toolbar */}
-      <div className="flex justify-end">
-        <AutomationBuilder
-          catalog={catalog}
-          trigger={
-            <Button>
-              <Zap className="h-4 w-4 mr-2" />
-              Nueva automatización
-            </Button>
-          }
-          onSave={handleSaved}
-        />
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Buscar automatizaciones…"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="ml-auto">
+          <AutomationBuilder
+            catalog={catalog}
+            trigger={
+              <Button>
+                <Zap className="h-4 w-4 mr-2" />
+                Nueva automatización
+              </Button>
+            }
+            onSave={handleSaved}
+          />
+        </div>
       </div>
 
       {/* Empty state */}
@@ -141,9 +177,13 @@ export default function AutomationsClient() {
             onSave={handleSaved}
           />
         </div>
+      ) : filteredWorkflows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 gap-3 text-center">
+          <p className="text-sm text-muted-foreground">Sin resultados para «{searchTerm}»</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {workflows.map(workflow => (
+          {filteredWorkflows.map(workflow => (
             <Card
               key={workflow.id}
               className="hover:border-primary/40 transition-colors group relative"
@@ -166,6 +206,15 @@ export default function AutomationsClient() {
                   </div>
                   {/* Action buttons */}
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Ver ejecuciones"
+                      onClick={() => setSelectedWorkflowId(workflow.id)}
+                    >
+                      <History className="h-3.5 w-3.5" />
+                    </Button>
                     <AutomationBuilder
                       key={workflow.id}
                       catalog={catalog}
@@ -250,6 +299,103 @@ export default function AutomationsClient() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Execution history sheet */}
+      <Sheet
+        open={!!selectedWorkflowId}
+        onOpenChange={open => { if (!open) { setSelectedWorkflowId(null); setRuns([]) } }}
+      >
+        <SheetContent className="w-full sm:max-w-lg flex flex-col gap-0 p-0">
+          <SheetHeader className="px-6 pt-6 pb-4 border-b">
+            <SheetTitle className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              Historial de ejecuciones
+            </SheetTitle>
+            {selectedWorkflow && (
+              <SheetDescription>{selectedWorkflow.name}</SheetDescription>
+            )}
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+            {runsLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="space-y-2 rounded-lg border p-3">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-3 w-40" />
+                  <Skeleton className="h-14 w-full" />
+                </div>
+              ))
+            ) : runsError ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                <p className="text-sm text-destructive">{runsError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => selectedWorkflowId && setSelectedWorkflowId(selectedWorkflowId)}
+                >
+                  Reintentar
+                </Button>
+              </div>
+            ) : runs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                <div className="rounded-full bg-muted p-3">
+                  <History className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium">Sin ejecuciones aún</p>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  Activa un workflow para ver historial de ejecuciones aquí.
+                </p>
+              </div>
+            ) : (
+              runs.map(run => (
+                <RunCard key={run.id} run={run} />
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </>
+  )
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+const RUN_STATUS: Record<string, { label: string; className: string }> = {
+  RUNNING:   { label: 'Ejecutando', className: 'border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  WAITING:   { label: 'En espera',  className: 'border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
+  COMPLETED: { label: 'Completado', className: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' },
+  FAILED:    { label: 'Fallido',    className: 'border-red-200 bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300' },
+}
+
+function RunCard({ run }: { run: WorkflowRun }) {
+  const meta = RUN_STATUS[run.status] ?? { label: run.status, className: '' }
+  return (
+    <div className="rounded-lg border p-3 space-y-2 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${meta.className}`}>
+          {meta.label}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {formatDistanceToNow(new Date(run.createdAt), { addSuffix: true, locale: es })}
+        </span>
+      </div>
+      {run.log != null && <LogPreview log={run.log} />}
+    </div>
+  )
+}
+
+function LogPreview({ log }: { log: unknown }) {
+  let content: string
+  if (Array.isArray(log)) {
+    content = (log as string[]).slice(0, 8).join('\n')
+  } else if (typeof log === 'string') {
+    content = log.slice(0, 400)
+  } else {
+    content = JSON.stringify(log, null, 2).slice(0, 400)
+  }
+  return (
+    <pre className="text-xs bg-muted rounded-md p-2 overflow-auto max-h-24 text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
+      {content}
+    </pre>
   )
 }

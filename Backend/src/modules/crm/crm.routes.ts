@@ -5,7 +5,7 @@ import {
   listContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
   listPipelinesHandler, createPipelineHandler,
-  listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler,
+  listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler, updateDealHandler,
   listTicketsHandler, createTicketHandler, updateTicketHandler, resolveTicketHandler
 } from './crm.controller'
 
@@ -29,6 +29,7 @@ router.get('/crm/deals', ...auth, listDealsHandler)
 router.post('/crm/deals', ...auth, createDealHandler)
 router.patch('/crm/deals/:dealId/move', ...auth, moveDealHandler)
 router.patch('/crm/deals/:dealId/close', ...auth, closeDealHandler)
+router.patch('/crm/deals/:dealId', ...auth, updateDealHandler)
 
 // Tickets
 router.get('/crm/tickets', ...auth, listTicketsHandler)

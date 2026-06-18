@@ -1,6 +1,14 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { fetchAPI } from '@/lib/api'
+import { toast } from 'sonner'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 const PRIORITY_COLOR: Record<string, string> = {
   URGENT: 'bg-red-100 text-red-700',
@@ -17,6 +25,9 @@ const STATUS_COLOR: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   OPEN: 'Abierto', IN_PROGRESS: 'En progreso', RESOLVED: 'Resuelto', CLOSED: 'Cerrado'
 }
+const PRIORITY_LABEL: Record<string, string> = {
+  URGENT: 'Urgente', HIGH: 'Alta', MEDIUM: 'Media', LOW: 'Baja'
+}
 
 interface Ticket {
   id: string; title: string; status: string; priority: string
@@ -30,7 +41,6 @@ export default function TicketsClient() {
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
-  const [resolvingId, setResolvingId] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -46,15 +56,27 @@ export default function TicketsClient() {
       .finally(() => setLoading(false))
   }, [mounted, statusFilter, priorityFilter])
 
-  async function handleResolve(ticketId: string) {
-    setResolvingId(ticketId)
+  async function handleStatusChange(ticketId: string, status: string) {
+    const prev = tickets.find(t => t.id === ticketId)?.status
+    setTickets(ts => ts.map(t => t.id === ticketId ? { ...t, status } : t))
     try {
-      await fetchAPI(`/crm/tickets/${ticketId}/resolve`, { method: 'POST' })
-      setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'RESOLVED' } : t))
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setResolvingId(null)
+      await fetchAPI(`/crm/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ status }) })
+      toast.success('Estado actualizado')
+    } catch (_err) {
+      setTickets(ts => ts.map(t => t.id === ticketId ? { ...t, status: prev ?? t.status } : t))
+      toast.error('Error al actualizar el estado')
+    }
+  }
+
+  async function handlePriorityChange(ticketId: string, priority: string) {
+    const prev = tickets.find(t => t.id === ticketId)?.priority
+    setTickets(ts => ts.map(t => t.id === ticketId ? { ...t, priority } : t))
+    try {
+      await fetchAPI(`/crm/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify({ priority }) })
+      toast.success('Prioridad actualizada')
+    } catch (_err) {
+      setTickets(ts => ts.map(t => t.id === ticketId ? { ...t, priority: prev ?? t.priority } : t))
+      toast.error('Error al actualizar la prioridad')
     }
   }
 
@@ -110,7 +132,6 @@ export default function TicketsClient() {
                 <th className="text-center px-4 py-2 font-medium">Prioridad</th>
                 <th className="text-center px-4 py-2 font-medium">Estado</th>
                 <th className="text-right px-4 py-2 font-medium">SLA</th>
-                <th className="px-4 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -120,32 +141,49 @@ export default function TicketsClient() {
                   <tr key={ticket.id} className="border-t hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3 font-medium">{ticket.title}</td>
                     <td className="px-4 py-3 text-muted-foreground">{ticket.contact.name}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PRIORITY_COLOR[ticket.priority] ?? 'bg-muted'}`}>
-                        {ticket.priority}
-                      </span>
+                    <td className="px-4 py-2 text-center">
+                      <Select
+                        value={ticket.priority}
+                        onValueChange={v => handlePriorityChange(ticket.id, v)}
+                      >
+                        <SelectTrigger
+                          className={`h-7 w-28 text-xs font-medium rounded-full border-0 shadow-none px-2 focus:ring-0 ${PRIORITY_COLOR[ticket.priority] ?? 'bg-muted'}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(PRIORITY_LABEL).map(([k, v]) => (
+                            <SelectItem key={k} value={k}>
+                              <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${PRIORITY_COLOR[k] ?? ''}`}>{v}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[ticket.status] ?? 'bg-muted'}`}>
-                        {STATUS_LABEL[ticket.status] ?? ticket.status}
-                      </span>
+                    <td className="px-4 py-2 text-center">
+                      <Select
+                        value={ticket.status}
+                        onValueChange={v => handleStatusChange(ticket.id, v)}
+                      >
+                        <SelectTrigger
+                          className={`h-7 w-36 text-xs font-medium rounded-full border-0 shadow-none px-2 focus:ring-0 ${STATUS_COLOR[ticket.status] ?? 'bg-muted'}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(STATUS_LABEL).map(([k, v]) => (
+                            <SelectItem key={k} value={k}>
+                              <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${STATUS_COLOR[k] ?? ''}`}>{v}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </td>
                     <td className={`px-4 py-3 text-right text-xs ${isOverdue ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
                       {ticket.slaDeadline
                         ? new Date(ticket.slaDeadline).toLocaleDateString('es-CL', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : '—'}
                       {isOverdue && ' ⚠'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED' && (
-                        <button
-                          onClick={() => handleResolve(ticket.id)}
-                          disabled={resolvingId === ticket.id}
-                          className="text-xs px-2 py-1 rounded bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors"
-                        >
-                          {resolvingId === ticket.id ? '...' : 'Resolver'}
-                        </button>
-                      )}
                     </td>
                   </tr>
                 )

@@ -10,7 +10,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { Filter, Pencil, Trash2, Users } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Filter, Pencil, Trash2, Users, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { SegmentBuilder } from '@/components/crm/SegmentBuilder'
 import {
@@ -27,6 +28,7 @@ export default function SegmentsClient() {
   const [editTarget, setEditTarget] = useState<Segment | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Segment | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -89,19 +91,34 @@ export default function SegmentsClient() {
     )
   }
 
+  const filteredSegments = segments.filter(s =>
+    s.name.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
   return (
     <>
       {/* Toolbar */}
-      <div className="flex justify-end">
-        <SegmentBuilder
-          trigger={
-            <Button>
-              <Filter className="h-4 w-4 mr-2" />
-              Nuevo Segmento
-            </Button>
-          }
-          onSave={handleSaved}
-        />
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Buscar segmentos…"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="ml-auto">
+          <SegmentBuilder
+            trigger={
+              <Button>
+                <Filter className="h-4 w-4 mr-2" />
+                Nuevo Segmento
+              </Button>
+            }
+            onSave={handleSaved}
+          />
+        </div>
       </div>
 
       {/* Empty state */}
@@ -121,9 +138,13 @@ export default function SegmentsClient() {
             onSave={handleSaved}
           />
         </div>
+      ) : filteredSegments.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 gap-3 text-center">
+          <p className="text-sm text-muted-foreground">Sin resultados para «{searchTerm}»</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {segments.map(segment => (
+          {filteredSegments.map(segment => (
             <Card
               key={segment.id}
               className="cursor-pointer hover:border-primary/40 transition-colors group relative"
