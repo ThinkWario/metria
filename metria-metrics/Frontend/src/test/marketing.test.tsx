@@ -1,15 +1,17 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import MarketingPage from '../app/dashboard/marketing/page'
 import { fetchAPI } from '@/lib/api'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const queryClient = new QueryClient({
-    defaultOptions: {
-        queries: {
-            retry: false,
-        },
-    },
+// A fresh client per test — a module-level shared client leaks cache/pending
+// state between tests (test 1's never-resolving query would block test 2).
+let queryClient: QueryClient
+beforeEach(() => {
+    vi.clearAllMocks()
+    queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
 })
 
 // Mock fetchAPI
@@ -72,8 +74,15 @@ describe('MarketingPage', () => {
             { name: "Creative 1", roas: 3.5 }
         ]
 
-            ; (fetchAPI as any).mockResolvedValueOnce(mockCampaigns)
-            ; (fetchAPI as any).mockResolvedValueOnce(mockCreatives)
+        // The page fires several independent queries (campaigns, creatives,
+        // attribution) whose execution order isn't guaranteed, so resolve by URL
+        // instead of by call order.
+        ; (fetchAPI as any).mockImplementation((url: string) => {
+            if (url.startsWith('/meta/campaigns')) return Promise.resolve(mockCampaigns)
+            if (url.startsWith('/meta/creatives')) return Promise.resolve(mockCreatives)
+            if (url.startsWith('/meta/attribution')) return Promise.resolve({ attributed: 0, orphaned: 0, total: 0, lossRate: 0 })
+            return Promise.resolve([])
+        })
 
         render(
             <QueryClientProvider client={queryClient}>

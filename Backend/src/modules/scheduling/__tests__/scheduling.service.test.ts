@@ -9,14 +9,23 @@ vi.mock('../../../lib/prisma', () => ({
   }
 }))
 
+import { afterEach } from 'vitest'
 import { getAvailableSlots, scheduleAppointment } from '../scheduling.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
 beforeEach(() => {
   vi.clearAllMocks()
+  // Freeze "now" before the fixtures' Monday so getAvailableSlots (which skips
+  // past slots) is deterministic regardless of the real date the suite runs on.
+  // Only Date is faked, leaving timers/promises real.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-06-14T00:00:00Z'))
   // no timezone configured by default → server-local math (legacy behavior)
   vi.mocked(prisma.businessHours.findUnique).mockResolvedValue(null)
+})
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // Monday 2026-06-15

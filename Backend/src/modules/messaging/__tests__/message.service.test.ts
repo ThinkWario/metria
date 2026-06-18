@@ -149,7 +149,8 @@ describe('processInboundMessage', () => {
   })
 
   it('persists the AI bot reply and bumps lastMessageAt (inbound AI path)', async () => {
-    const mockChannel = { id: CHANNEL_ID, platform: 'TELEGRAM', isAiEnabled: true, config: { botToken: 'tok' } }
+    // isAiEnabled lives inside the channel config JSON (that's where the service reads it)
+    const mockChannel = { id: CHANNEL_ID, platform: 'TELEGRAM', config: { botToken: 'tok', isAiEnabled: true } }
     const mockContact = { id: 'contact-1', name: 'Juan', status: 'LEAD', phone: '+56912345678' }
     const mockConversation = {
       id: 'conv-ai', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,

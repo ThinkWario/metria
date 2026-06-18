@@ -23,7 +23,9 @@ describe('requirePlan', () => {
   })
 
   it('returns 403 when workspace plan does not match', () => {
-    const req = { workspace: { plan: 'STARTER' } } as unknown as Request
+    // NOTE: 'STARTER' is intentionally bypassed in planGate (temporary full-access
+    // rule), so use a genuinely non-allowed plan to exercise the 403 path.
+    const req = { workspace: { plan: 'FREE' } } as unknown as Request
     const res = makeRes()
     const next = vi.fn() as NextFunction
 

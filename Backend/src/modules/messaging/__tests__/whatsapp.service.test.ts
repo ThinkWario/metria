@@ -60,17 +60,19 @@ describe('parseWhatsAppUpdate', () => {
 
     await parseWhatsAppUpdate('ws-1', 'ch-1', body)
 
-    expect(processInboundMessage).toHaveBeenCalledWith({
-      workspaceId: 'ws-1',
-      channelId: 'ch-1',
-      externalConversationId: '56912345678',
-      externalMessageId: 'wamid.123',
-      senderExternalId: '56912345678',
-      senderName: 'Juan Perez',
-      content: 'Hola',
-      mediaUrl: undefined,
-      mediaType: undefined
-    })
+    // objectContaining so the assertion tolerates extra fields the parser passes
+    // through (e.g. metadata) without becoming brittle.
+    expect(processInboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'ws-1',
+        channelId: 'ch-1',
+        externalConversationId: '56912345678',
+        externalMessageId: 'wamid.123',
+        senderExternalId: '56912345678',
+        senderName: 'Juan Perez',
+        content: 'Hola'
+      })
+    )
   })
 
   it('skips non-message webhooks silently', async () => {

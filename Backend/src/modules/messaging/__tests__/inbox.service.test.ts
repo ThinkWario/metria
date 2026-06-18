@@ -42,7 +42,8 @@ describe('getConversations', () => {
     expect(prisma.conversation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ workspaceId: WS_ID }) })
     )
-    expect(result).toEqual(mockConvs)
+    // getConversations now resolves an assignee per row (null when unassigned).
+    expect(result).toEqual(mockConvs.map(c => ({ ...c, assignedToUser: null })))
   })
 
   it('applies status filter when provided', async () => {
