@@ -10,6 +10,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle
+} from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import {
   FileText, Pencil, Trash2, Inbox, Copy, Check, ExternalLink, Search
@@ -17,6 +20,30 @@ import {
 import { toast } from 'sonner'
 import { FormBuilder } from '@/components/crm/FormBuilder'
 import { listForms, deleteForm, updateForm, type Form } from '@/lib/forms-api'
+import { fetchAPI } from '@/lib/api'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface FormSubmission {
+  id: string
+  contactId: string
+  contact: { name?: string; phone?: string; email?: string }
+  data: Record<string, string>
+  createdAt: string
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const minutes = Math.floor(diff / 60_000)
+  if (minutes < 1) return 'hace un momento'
+  if (minutes < 60) return `hace ${minutes} minuto${minutes !== 1 ? 's' : ''}`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `hace ${hours} hora${hours !== 1 ? 's' : ''}`
+  const days = Math.floor(hours / 24)
+  return `hace ${days} día${days !== 1 ? 's' : ''}`
+}
 
 function publicUrl(slug: string): string {
   if (typeof window === 'undefined') return `/f/${slug}`
@@ -33,6 +60,10 @@ export default function FormsClient() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
+  const [submissions, setSubmissions] = useState<FormSubmission[]>([])
+  const [submissionsLoading, setSubmissionsLoading] = useState(false)
+  const [submissionsError, setSubmissionsError] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -85,6 +116,21 @@ export default function FormsClient() {
       toast.error(err?.message ?? 'No se pudo cambiar el estado')
     } finally {
       setTogglingId(t => (t === form.id ? null : t))
+    }
+  }
+
+  async function openSubmissions(form: Form) {
+    setSelectedFormId(form.id)
+    setSubmissions([])
+    setSubmissionsError(null)
+    setSubmissionsLoading(true)
+    try {
+      const data: FormSubmission[] = await fetchAPI(`/crm/forms/${form.id}/submissions`)
+      setSubmissions(data)
+    } catch (err: any) {
+      setSubmissionsError(err?.message ?? 'Error al cargar respuestas')
+    } finally {
+      setSubmissionsLoading(false)
     }
   }
 
@@ -240,6 +286,15 @@ export default function FormsClient() {
                       <Inbox className="h-3 w-3" />
                       {form.submissionCount} envío{form.submissionCount !== 1 ? 's' : ''}
                     </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                      onClick={() => openSubmissions(form)}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      Respuestas ({form.submissionCount})
+                    </Button>
                     <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer ml-auto">
                       <Switch
                         checked={form.isActive}
@@ -281,6 +336,76 @@ export default function FormsClient() {
           })}
         </div>
       )}
+
+      {/* Submissions Sheet */}
+      <Sheet open={!!selectedFormId} onOpenChange={open => !open && setSelectedFormId(null)}>
+        <SheetContent className="w-[420px] sm:w-[540px] flex flex-col overflow-hidden">
+          <SheetHeader className="shrink-0">
+            <SheetTitle>
+              Respuestas — {forms.find(f => f.id === selectedFormId)?.name ?? ''}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 flex-1 overflow-y-auto space-y-3 pr-1">
+            {submissionsLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="pt-4 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                    <Skeleton className="h-12 w-full" />
+                  </CardContent>
+                </Card>
+              ))
+            ) : submissionsError ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                <div className="rounded-full bg-destructive/10 p-3">
+                  <FileText className="h-6 w-6 text-destructive" />
+                </div>
+                <p className="text-sm text-muted-foreground">{submissionsError}</p>
+              </div>
+            ) : submissions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                <div className="rounded-full bg-muted p-3">
+                  <Inbox className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Aún no hay respuestas para este formulario
+                </p>
+              </div>
+            ) : (
+              submissions.map(sub => (
+                <Card key={sub.id}>
+                  <CardContent className="pt-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-sm leading-tight">
+                        {sub.contact?.name || 'Contacto desconocido'}
+                      </p>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {relativeTime(sub.createdAt)}
+                      </span>
+                    </div>
+                    {(sub.contact?.phone || sub.contact?.email) && (
+                      <p className="text-xs text-muted-foreground">
+                        {[sub.contact.phone, sub.contact.email].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    {Object.keys(sub.data).length > 0 && (
+                      <dl className="text-xs space-y-1 pt-1 border-t">
+                        {Object.entries(sub.data).map(([k, v]) => (
+                          <div key={k} className="flex gap-2">
+                            <dt className="text-muted-foreground shrink-0">{k}:</dt>
+                            <dd className="break-all">{String(v) || '—'}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
