@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useInbox } from '@/hooks/useInbox'
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
@@ -19,6 +19,7 @@ export function InboxClient() {
     sendMessage,
     handoverToHuman,
     handbackToBot,
+    markAsRead,
     changeStatus,
     assignConversation,
     statusFilter,
@@ -31,6 +32,12 @@ export function InboxClient() {
   } = useInbox()
 
   const selectedConv = conversations.find(c => c.id === selectedId) ?? null
+
+  // Select a conversation and immediately mark its inbound messages as read.
+  const handleSelectConversation = useCallback((id: string) => {
+    setSelectedId(id)
+    markAsRead(id)
+  }, [setSelectedId, markAsRead])
 
   // Escape the dashboard layout's p-6 md:p-8 padding so inbox fills the viewport
   const wrapperClass =
@@ -52,7 +59,7 @@ export function InboxClient() {
         conversations={conversations}
         selectedId={selectedId}
         loading={loadingConvs}
-        onSelect={setSelectedId}
+        onSelect={handleSelectConversation}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
         search={search}

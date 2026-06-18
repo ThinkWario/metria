@@ -145,6 +145,49 @@ export async function updateQualification(
   })
 }
 
+export async function bulkUpdateContacts(
+  workspaceId: string,
+  ids: string[],
+  data: { status?: string; tags?: string[] }
+): Promise<number> {
+  let count = 0
+  if (data.status) {
+    const result = await prisma.contact.updateMany({
+      where: { id: { in: ids }, workspaceId },
+      data: { status: data.status }
+    })
+    count = result.count
+  }
+  if (data.tags) {
+    for (const id of ids) {
+      await prisma.contact.update({
+        where: { id, workspaceId },
+        data: {
+          tags: {
+            deleteMany: {},
+            createMany: {
+              data: data.tags.map(name => ({ workspaceId, name })),
+              skipDuplicates: true
+            }
+          }
+        }
+      })
+    }
+    if (!data.status) count = ids.length
+  }
+  return count
+}
+
+export async function bulkDeleteContacts(
+  workspaceId: string,
+  ids: string[]
+): Promise<number> {
+  const result = await prisma.contact.deleteMany({
+    where: { id: { in: ids }, workspaceId }
+  })
+  return result.count
+}
+
 export async function calculateHealthScore(workspaceId: string, contactId: string) {
   const contact = await prisma.contact.findFirst({
     where: { id: contactId, workspaceId },

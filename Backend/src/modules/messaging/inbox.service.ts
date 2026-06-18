@@ -38,7 +38,8 @@ export async function getConversations(workspaceId: string, opts: GetConversatio
           leadScore: true, leadTemperature: true, leadType: true
         }
       },
-      channel: { select: { id: true, platform: true, name: true } }
+      channel: { select: { id: true, platform: true, name: true } },
+      _count: { select: { messages: { where: { readAt: null, direction: 'INBOUND' } } } }
     },
     orderBy: { lastMessageAt: 'desc' },
     take: limit
@@ -59,6 +60,7 @@ export async function getConversations(workspaceId: string, opts: GetConversatio
     const assignee = r.assignedToUserId ? assigneeById.get(r.assignedToUserId) ?? null : null
     return {
       ...r,
+      unreadCount: r._count.messages,
       assignedToUser: assignee
         ? { id: assignee.id, name: assignee.name ?? assignee.email }
         : null,
@@ -291,6 +293,25 @@ export async function sendMessage(
       status: 'SENT',
       sentAt: message.sentAt
     })
+}
+
+/**
+ * Marks all unread inbound messages in a conversation as read.
+ * Scoped to the workspace to prevent cross-tenant access.
+ */
+export async function markConversationAsRead(workspaceId: string, conversationId: string) {
+  const existing = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    select: { id: true }
+  })
+  if (!existing) throw new Error('Conversation not found')
+
+  const result = await prisma.message.updateMany({
+    where: { conversationId, readAt: null, direction: 'INBOUND' },
+    data: { readAt: new Date() }
+  })
+
+  return { marked: result.count }
 }
 
 export async function trackAiMetric(

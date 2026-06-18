@@ -67,6 +67,24 @@ export async function calculateHealthScoreHandler(req: AuthRequest, res: Respons
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
+export async function bulkUpdateContactsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { ids, status, tags } = req.body
+    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: 'ids array is required' }); return }
+    const updated = await cs.bulkUpdateContacts(req.user!.workspaceId!, ids, { status, tags })
+    res.json({ updated })
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
+export async function bulkDeleteContactsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { ids } = req.body
+    if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: 'ids array is required' }); return }
+    const deleted = await cs.bulkDeleteContacts(req.user!.workspaceId!, ids)
+    res.json({ deleted })
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
 // ── Pipelines + Deals ─────────────────────────────────────────────────────────
 
 export async function listPipelinesHandler(req: AuthRequest, res: Response): Promise<void> {
@@ -120,6 +138,12 @@ export async function updateDealHandler(req: AuthRequest, res: Response): Promis
   try {
     const { title, value, probability, expectedCloseAt } = req.body
     res.json(await ps.updateDeal(req.user!.workspaceId!, req.params.dealId, { title, value, probability, expectedCloseAt }))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+export async function pipelineAnalyticsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    res.json(await ps.getPipelineAnalytics(req.user!.workspaceId!, req.params.pipelineId))
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 

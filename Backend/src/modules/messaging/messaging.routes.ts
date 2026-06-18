@@ -12,6 +12,7 @@ import {
   handbackToBotHandler,
   changeStatusHandler,
   assignConversationHandler,
+  markAsReadHandler,
   initWhatsAppSessionHandler,
   disconnectWhatsAppSessionHandler
 } from './messaging.controller'
@@ -34,6 +35,7 @@ router.post('/messaging/conversations/:conversationId/handover', authenticate, r
 router.post('/messaging/conversations/:conversationId/handback', authenticate, requirePlan('PRO', 'SCALE'), handbackToBotHandler)
 router.patch('/messaging/conversations/:conversationId/status', authenticate, requirePlan('PRO', 'SCALE'), changeStatusHandler)
 router.patch('/messaging/conversations/:conversationId/assign', authenticate, requirePlan('PRO', 'SCALE'), assignConversationHandler)
+router.patch('/messaging/conversations/:conversationId/read', authenticate, requirePlan('PRO', 'SCALE'), markAsReadHandler)
 
 // Native WhatsApp QR flow
 router.post('/messaging/whatsapp/init', authenticate, requirePlan('PRO', 'SCALE'), initWhatsAppSessionHandler)

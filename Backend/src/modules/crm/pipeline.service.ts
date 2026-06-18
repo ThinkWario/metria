@@ -135,6 +135,61 @@ export async function closeDeal(
   return updated
 }
 
+export async function getPipelineAnalytics(workspaceId: string, pipelineId: string) {
+  const [allDeals, stages, lostReasonsRaw] = await Promise.all([
+    prisma.deal.findMany({
+      where: { workspaceId, pipelineId },
+      select: { value: true, probability: true, status: true }
+    }),
+    prisma.pipelineStage.findMany({
+      where: { pipelineId },
+      include: { deals: { where: { workspaceId } } },
+      orderBy: { order: 'asc' }
+    }),
+    prisma.deal.groupBy({
+      by: ['lostReason'],
+      where: { workspaceId, pipelineId, lostReason: { not: null } },
+      _count: true
+    })
+  ])
+
+  const totalDeals = allDeals.length
+  const totalValue = allDeals.reduce((sum, d) => sum + Number(d.value), 0)
+  const weightedValue = allDeals.reduce((sum, d) => {
+    return sum + Number(d.value) * ((d.probability ?? 0) / 100)
+  }, 0)
+  const wonValue = allDeals
+    .filter(d => d.status === 'WON')
+    .reduce((sum, d) => sum + Number(d.value), 0)
+  const lostCount = allDeals.filter(d => d.status === 'LOST').length
+
+  const stageMetrics = stages.map(stage => {
+    const deals = stage.deals
+    const dealCount = deals.length
+    const totalStageValue = deals.reduce((sum, d) => sum + Number(d.value), 0)
+    const avgDaysInStage =
+      dealCount > 0
+        ? deals.reduce((sum, d) => {
+            return sum + (d.updatedAt.getTime() - d.createdAt.getTime()) / (1000 * 60 * 60 * 24)
+          }, 0) / dealCount
+        : null
+    return {
+      stageId: stage.id,
+      stageName: stage.name,
+      dealCount,
+      totalValue: totalStageValue,
+      avgDaysInStage
+    }
+  })
+
+  const lostReasons = lostReasonsRaw.map(r => ({
+    reason: r.lostReason as string,
+    count: r._count
+  }))
+
+  return { totalDeals, totalValue, weightedValue, wonValue, lostCount, stageMetrics, lostReasons }
+}
+
 export async function updateDeal(
   workspaceId: string,
   dealId: string,

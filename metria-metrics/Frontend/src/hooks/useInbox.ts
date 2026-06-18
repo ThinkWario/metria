@@ -26,6 +26,7 @@ export interface Conversation {
   isHandledByBot: boolean
   assignedToUserId?: string | null
   assignedToUser?: { id: string; name: string } | null
+  unreadCount?: number
   contact: {
     id: string;
     name: string;
@@ -128,14 +129,23 @@ export function useInbox() {
       })
     }
     const onMsgNew = (msg: Message) => {
-      if (msg.conversationId === selectedIdRef.current) {
+      const isOpen = msg.conversationId === selectedIdRef.current
+      if (isOpen) {
         setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]))
       }
       // Bump messageCount + move the conversation to the top of the list.
+      // Also increment unreadCount for INBOUND messages on non-active conversations.
       setConversations(prev => {
         const idx = prev.findIndex(c => c.id === msg.conversationId)
         if (idx === -1) return prev
-        const updated = { ...prev[idx], messageCount: prev[idx].messageCount + 1, lastMessageAt: msg.sentAt }
+        const updated = {
+          ...prev[idx],
+          messageCount: prev[idx].messageCount + 1,
+          lastMessageAt: msg.sentAt,
+          unreadCount: (msg.direction === 'INBOUND' && !isOpen)
+            ? (prev[idx].unreadCount ?? 0) + 1
+            : prev[idx].unreadCount
+        }
         return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)]
       })
     }
@@ -191,6 +201,18 @@ export function useInbox() {
       setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, isHandledByBot: true } : c))
     } catch (err) {
       console.error('Handback failed', err)
+    }
+  }, [])
+
+  /** Optimistically zeroes the unread badge, then persists via PATCH /read. */
+  const markAsRead = useCallback(async (conversationId: string) => {
+    setConversations(prev => prev.map(c =>
+      c.id === conversationId ? { ...c, unreadCount: 0 } : c
+    ))
+    try {
+      await fetchAPI(`/messaging/conversations/${conversationId}/read`, { method: 'PATCH' })
+    } catch {
+      // Non-critical; badge will resync on next list fetch
     }
   }, [])
 
@@ -270,6 +292,7 @@ export function useInbox() {
     sendMessage,
     handoverToHuman,
     handbackToBot,
+    markAsRead,
     changeStatus,
     assignConversation,
     // Filters

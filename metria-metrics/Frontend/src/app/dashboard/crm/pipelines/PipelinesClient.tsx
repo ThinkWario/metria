@@ -14,8 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Plus, Trophy, X, GripVertical,
   Flame, Thermometer, Snowflake, Phone, Calendar, Clock,
-  Check, KanbanSquare, Pencil
+  Check, KanbanSquare, Pencil, BarChart2
 } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip as RechartTooltip,
+  ResponsiveContainer, PieChart, Pie, Cell
+} from 'recharts'
 import { toast } from 'sonner'
 import Link from 'next/link'
 
@@ -29,6 +33,36 @@ interface Deal {
 }
 interface ContactSearch { id: string; name: string; phone?: string | null; email?: string | null }
 
+// ── Analytics types ────────────────────────────────────────────────────────────
+interface StageMetric {
+  stageId: string
+  stageName: string
+  dealCount: number
+  totalValue: number
+  avgDaysInStage: number | null
+}
+interface AnalyticsData {
+  totalDeals: number
+  totalValue: number
+  weightedValue: number
+  wonValue: number
+  lostCount: number
+  stageMetrics: StageMetric[]
+  lostReasons: Array<{ reason: string; count: number }>
+}
+
+const PIE_COLORS = ['#6366f1', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#a78bfa']
+
+function formatCLPFull(v: number): string {
+  return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(v)
+}
+
+function formatCompact(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M CLP`
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}k`
+  return formatCLPFull(v)
+}
+
 function formatCLP(v: string | number): string {
   const n = typeof v === 'string' ? parseFloat(v) : v
   if (isNaN(n) || n === 0) return '$0'
@@ -41,6 +75,185 @@ function TempIcon({ t }: { t?: string | null }) {
   if (t === 'HOT') return <Flame className="h-3 w-3 text-red-500" />
   if (t === 'WARM') return <Thermometer className="h-3 w-3 text-amber-500" />
   return <Snowflake className="h-3 w-3 text-sky-400" />
+}
+
+// ── Analytics Panel ────────────────────────────────────────────────────────────
+function AnalyticsPanel({ data, loading, error }: {
+  data: AnalyticsData | null
+  loading: boolean
+  error: string | null
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-xl border bg-card p-4 space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Skeleton className="h-48 rounded-xl" />
+          <Skeleton className="h-48 rounded-xl" />
+        </div>
+        <Skeleton className="h-32 rounded-xl" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border bg-card p-4 text-sm text-destructive flex items-center gap-2">
+        <X className="h-4 w-4 shrink-0" />
+        {error}
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-4">
+      {/* Row 1 — KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-lg border bg-muted/30 p-3">
+          <p className="text-xs text-muted-foreground">Total deals en pipeline</p>
+          <p className="text-2xl font-bold tabular-nums mt-1">{data.totalDeals}</p>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-3">
+          <p className="text-xs text-muted-foreground">Valor total</p>
+          <p className="text-2xl font-bold tabular-nums mt-1 truncate">{formatCompact(data.totalValue)}</p>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-3">
+          <p className="text-xs text-muted-foreground flex items-center gap-1">
+            Valor ponderado
+            <span
+              title="valor × probabilidad promedio"
+              className="cursor-help text-muted-foreground/60 text-[9px] border rounded-full w-3.5 h-3.5 inline-flex items-center justify-center shrink-0"
+            >?</span>
+          </p>
+          <p className="text-2xl font-bold tabular-nums mt-1 truncate">{formatCompact(data.weightedValue)}</p>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-3">
+          <p className="text-xs text-muted-foreground">Ganado este pipeline</p>
+          <p className="text-2xl font-bold tabular-nums mt-1 text-emerald-600 truncate">{formatCompact(data.wonValue)}</p>
+        </div>
+      </div>
+
+      {/* Row 2 — Charts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Stage funnel – horizontal bar chart */}
+        <div className="rounded-lg border bg-muted/20 p-3">
+          <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Embudo por etapa</p>
+          {data.stageMetrics.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Sin datos de etapas</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(120, data.stageMetrics.length * 36)}>
+              <BarChart
+                layout="vertical"
+                data={data.stageMetrics}
+                margin={{ top: 0, right: 16, left: 4, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="stageGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity={0.9} />
+                    <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.7} />
+                  </linearGradient>
+                </defs>
+                <XAxis type="number" dataKey="dealCount" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis type="category" dataKey="stageName" tick={{ fontSize: 11 }} width={90} />
+                <RechartTooltip
+                  contentStyle={{ fontSize: 12 }}
+                  formatter={(value: unknown, _name: unknown, props: { payload?: StageMetric }) => {
+                    const count = value as number
+                    const days = props.payload?.avgDaysInStage
+                    return [
+                      `${count} deal${count !== 1 ? 's' : ''}${days != null ? ` · ${days.toFixed(1)}d prom.` : ''}`,
+                      'Etapa'
+                    ]
+                  }}
+                />
+                <Bar dataKey="dealCount" fill="url(#stageGrad)" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Lost reasons – pie chart */}
+        <div className="rounded-lg border bg-muted/20 p-3">
+          <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Razones de pérdida</p>
+          {data.lostReasons.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-sm text-muted-foreground gap-1">
+              <span className="text-2xl">🎉</span>
+              Sin deals perdidos aún
+            </div>
+          ) : (
+            <div className="flex items-center gap-4">
+              <ResponsiveContainer width="50%" height={150}>
+                <PieChart>
+                  <Pie
+                    data={data.lostReasons}
+                    dataKey="count"
+                    nameKey="reason"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={60}
+                    label={false}
+                  >
+                    {data.lostReasons.map((_entry, idx) => (
+                      <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <RechartTooltip
+                    contentStyle={{ fontSize: 12 }}
+                    formatter={(value: unknown, name: unknown) => {
+                      const count = value as number
+                      return [`${count} deal${count !== 1 ? 's' : ''}`, name as string]
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-2 min-w-0">
+                {data.lostReasons.map((r, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-xs min-w-0">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }}
+                    />
+                    <span className="truncate text-muted-foreground">{r.reason}</span>
+                    <span className="font-bold shrink-0 ml-auto">{r.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 3 — Stage velocity table */}
+      <div className="rounded-lg border bg-muted/20 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/40">
+              <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">Etapa</th>
+              <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">Deals</th>
+              <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">Valor total</th>
+              <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">Días promedio</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.stageMetrics.map((s, idx) => (
+              <tr key={s.stageId} className={idx % 2 !== 0 ? 'bg-muted/20' : ''}>
+                <td className="px-3 py-2 font-medium">{s.stageName}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{s.dealCount}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCLPFull(s.totalValue)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                  {s.avgDaysInStage != null ? `${s.avgDaysInStage.toFixed(1)}d` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
 }
 
 // ── Lost Reason Dialog ─────────────────────────────────────────────────────────
@@ -519,6 +732,10 @@ export default function PipelinesClient() {
   const [createModal, setCreateModal] = useState<{ open: boolean; stageId: string }>({ open: false, stageId: '' })
   const [lostDialog, setLostDialog] = useState<{ open: boolean; dealId: string }>({ open: false, dealId: '' })
   const [editModal, setEditModal] = useState<{ open: boolean; deal: Deal | null }>({ open: false, deal: null })
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -543,6 +760,16 @@ export default function PipelinesClient() {
       .catch(console.error)
       .finally(() => setLoadingDeals(false))
   }, [mounted, selectedPipelineId])
+
+  useEffect(() => {
+    if (!mounted || !selectedPipelineId || !showAnalytics) return
+    setAnalyticsLoading(true)
+    setAnalyticsError(null)
+    fetchAPI(`/crm/pipelines/${selectedPipelineId}/analytics`)
+      .then((data: AnalyticsData) => setAnalytics(data))
+      .catch((err: Error) => setAnalyticsError(err.message ?? 'Error al cargar analítica'))
+      .finally(() => setAnalyticsLoading(false))
+  }, [mounted, selectedPipelineId, showAnalytics])
 
   const handleDragStart = useCallback((event: any) => {
     setActiveDeal(deals.find(d => d.id === event.active.id) ?? null)
@@ -662,6 +889,16 @@ export default function PipelinesClient() {
 
         {loadingDeals && <span className="text-xs text-muted-foreground animate-pulse">Actualizando...</span>}
 
+        <Button
+          variant={showAnalytics ? 'default' : 'outline'}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setShowAnalytics(v => !v)}
+        >
+          <BarChart2 className="h-4 w-4" />
+          Analítica
+        </Button>
+
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1 font-medium">
             <div className="w-2 h-2 rounded-full bg-primary" />
@@ -673,6 +910,11 @@ export default function PipelinesClient() {
           </span>
         </div>
       </div>
+
+      {/* Analytics panel */}
+      {showAnalytics && (
+        <AnalyticsPanel data={analytics} loading={analyticsLoading} error={analyticsError} />
+      )}
 
       {/* Kanban board */}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>

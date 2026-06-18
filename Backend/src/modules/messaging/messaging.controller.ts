@@ -10,6 +10,7 @@ import {
   sendMessage as _sendMessage,
   changeConversationStatus as _changeConversationStatus,
   assignConversation as _assignConversation,
+  markConversationAsRead as _markConversationAsRead,
   trackAiMetric,
   type ConversationStatus
 } from './inbox.service'
@@ -313,6 +314,18 @@ export async function handbackToBotHandler(req: Request, res: Response): Promise
     res.json({ ok: true })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
+  }
+}
+
+export async function markAsReadHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+    const result = await _markConversationAsRead(workspaceId, conversationId)
+    res.json(result)
+  } catch (err: any) {
+    const status = err.message === 'Conversation not found' ? 404 : 500
+    res.status(status).json({ error: err.message })
   }
 }
 

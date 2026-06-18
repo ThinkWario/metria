@@ -171,14 +171,22 @@ export function ConversationList({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-1 mb-1">
                   <span className={cn(
-                      "text-sm font-bold truncate group-hover:text-primary transition-colors",
-                      selectedId === conv.id ? 'text-primary' : 'text-foreground'
+                      "text-sm truncate group-hover:text-primary transition-colors",
+                      selectedId === conv.id ? 'text-primary' : 'text-foreground',
+                      (conv.unreadCount ?? 0) > 0 && selectedId !== conv.id ? 'font-black' : 'font-bold'
                   )}>
                     {conv.contact?.name ?? 'Contacto desconocido'}
                   </span>
-                  <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
-                    {conv.lastMessageAt ? formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: false, locale: es }).replace('alrededor de ', '') : ''}
-                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {(conv.unreadCount ?? 0) > 0 && selectedId !== conv.id && (
+                      <span className="inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-black min-w-[18px] h-[18px] px-1 leading-none">
+                        {conv.unreadCount! > 99 ? '99+' : conv.unreadCount}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                      {conv.lastMessageAt ? formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: false, locale: es }).replace('alrededor de ', '') : ''}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-2">

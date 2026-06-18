@@ -4,8 +4,10 @@ import { requirePlan } from '../../middleware/planGate'
 import {
   listContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
+  bulkUpdateContactsHandler, bulkDeleteContactsHandler,
   listPipelinesHandler, createPipelineHandler,
   listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler, updateDealHandler,
+  pipelineAnalyticsHandler,
   listTicketsHandler, createTicketHandler, updateTicketHandler, resolveTicketHandler
 } from './crm.controller'
 
@@ -15,6 +17,8 @@ const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
 // Contacts
 router.get('/crm/contacts', ...auth, listContactsHandler)
 router.post('/crm/contacts', ...auth, createContactHandler)
+router.post('/crm/contacts/bulk-update', ...auth, bulkUpdateContactsHandler)
+router.post('/crm/contacts/bulk-delete', ...auth, bulkDeleteContactsHandler)
 router.get('/crm/contacts/:contactId', ...auth, getContactHandler)
 router.patch('/crm/contacts/:contactId', ...auth, updateContactHandler)
 router.post('/crm/contacts/:contactId/notes', ...auth, addNoteHandler)
@@ -25,6 +29,7 @@ router.post('/crm/contacts/:contactId/health-score', ...auth, calculateHealthSco
 // Pipelines + Deals
 router.get('/crm/pipelines', ...auth, listPipelinesHandler)
 router.post('/crm/pipelines', ...auth, createPipelineHandler)
+router.get('/crm/pipelines/:pipelineId/analytics', ...auth, pipelineAnalyticsHandler)
 router.get('/crm/deals', ...auth, listDealsHandler)
 router.post('/crm/deals', ...auth, createDealHandler)
 router.patch('/crm/deals/:dealId/move', ...auth, moveDealHandler)
