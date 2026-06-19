@@ -235,3 +235,97 @@ export async function listWorkspaceUsers(workspaceId: string) {
     select: { id: true, name: true, email: true }
   })
 }
+
+// ── Stage CRUD ────────────────────────────────────────────────────────────────
+
+export async function createStage(
+  workspaceId: string,
+  pipelineId: string,
+  data: { name: string; color?: string; order?: number }
+) {
+  const pipeline = await prisma.pipeline.findFirst({ where: { id: pipelineId, workspaceId } })
+  if (!pipeline) throw new Error('Pipeline not found')
+
+  let order = data.order
+  if (order === undefined) {
+    const maxStage = await prisma.pipelineStage.findFirst({
+      where: { pipelineId },
+      orderBy: { order: 'desc' }
+    })
+    order = (maxStage?.order ?? 0) + 1
+  }
+
+  return prisma.pipelineStage.create({
+    data: { pipelineId, name: data.name, color: data.color ?? '#6366f1', order }
+  })
+}
+
+export async function updateStage(
+  workspaceId: string,
+  pipelineId: string,
+  stageId: string,
+  data: { name?: string; color?: string }
+) {
+  const pipeline = await prisma.pipeline.findFirst({ where: { id: pipelineId, workspaceId } })
+  if (!pipeline) throw new Error('Pipeline not found')
+
+  const stage = await prisma.pipelineStage.findFirst({ where: { id: stageId, pipelineId } })
+  if (!stage) throw new Error('Stage not found')
+
+  return prisma.pipelineStage.update({
+    where: { id: stageId },
+    data: {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.color !== undefined && { color: data.color })
+    }
+  })
+}
+
+export async function deleteStage(
+  workspaceId: string,
+  pipelineId: string,
+  stageId: string
+) {
+  const pipeline = await prisma.pipeline.findFirst({ where: { id: pipelineId, workspaceId } })
+  if (!pipeline) throw new Error('Pipeline not found')
+
+  const stage = await prisma.pipelineStage.findFirst({ where: { id: stageId, pipelineId } })
+  if (!stage) throw new Error('Stage not found')
+
+  const dealCount = await prisma.deal.count({ where: { stageId, workspaceId } })
+  if (dealCount > 0) {
+    const err = new Error('Mueve los deals primero') as Error & { code: string }
+    err.code = 'STAGE_HAS_DEALS'
+    throw err
+  }
+
+  await prisma.pipelineStage.delete({ where: { id: stageId } })
+
+  // Renumber remaining stages
+  const remaining = await prisma.pipelineStage.findMany({
+    where: { pipelineId },
+    orderBy: { order: 'asc' }
+  })
+  if (remaining.length > 0) {
+    await prisma.$transaction(
+      remaining.map((s, idx) =>
+        prisma.pipelineStage.update({ where: { id: s.id }, data: { order: idx + 1 } })
+      )
+    )
+  }
+}
+
+export async function reorderStages(
+  workspaceId: string,
+  pipelineId: string,
+  orderedIds: string[]
+) {
+  const pipeline = await prisma.pipeline.findFirst({ where: { id: pipelineId, workspaceId } })
+  if (!pipeline) throw new Error('Pipeline not found')
+
+  await prisma.$transaction(
+    orderedIds.map((id, idx) =>
+      prisma.pipelineStage.update({ where: { id }, data: { order: idx + 1 } })
+    )
+  )
+}

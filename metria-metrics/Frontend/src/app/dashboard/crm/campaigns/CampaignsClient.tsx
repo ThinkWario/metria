@@ -13,19 +13,30 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
-import { Megaphone, Plus, Pencil, Trash2, Users, CheckCircle2, XCircle, Search, Copy } from 'lucide-react'
+import {
+  Megaphone, Plus, Pencil, Trash2, Users, CheckCircle2, XCircle,
+  Search, Copy, Calendar, CalendarOff, Send
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignComposer } from '@/components/crm/CampaignComposer'
 import { CHANNEL_META, STATUS_META } from '@/components/crm/campaign-presentation'
 import {
-  listCampaigns, deleteCampaign, getCampaign,
+  listCampaigns, deleteCampaign, getCampaign, updateCampaign,
+  scheduleCampaign, testSendCampaign,
   type Campaign, type CampaignListItem, type CampaignDetail
 } from '@/lib/campaigns-api'
 import { fetchAPI } from '@/lib/api'
-import { formatDistanceToNow } from 'date-fns'
+import { useUserStore } from '@/store/useUserStore'
+import { formatDistanceToNow, format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 const EDITABLE = new Set(['DRAFT', 'SCHEDULED'])
+
+/** datetime-local min value: now + 10 minutes (rounded to the minute). */
+function minScheduleDateTime(): string {
+  const d = new Date(Date.now() + 10 * 60 * 1000)
+  return d.toISOString().slice(0, 16)
+}
 
 export default function CampaignsClient() {
   const [mounted, setMounted] = useState(false)
@@ -37,6 +48,18 @@ export default function CampaignsClient() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [duplicating, setDuplicating] = useState<string | null>(null)
+
+  // ── Schedule dialog state ──────────────────────────────────────────────────
+  const [scheduleTarget, setScheduleTarget] = useState<CampaignListItem | null>(null)
+  const [scheduledAt, setScheduledAt] = useState('')
+  const [scheduling, setScheduling] = useState(false)
+
+  // ── Test send dialog state ─────────────────────────────────────────────────
+  const [testTarget, setTestTarget] = useState<CampaignListItem | null>(null)
+  const [testEmail, setTestEmail] = useState('')
+  const [testing, setTesting] = useState(false)
+
+  const { user } = useUserStore()
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -113,6 +136,51 @@ export default function CampaignsClient() {
       toast.error(err.message ?? 'Error al duplicar campaña')
     } finally {
       setDuplicating(null)
+    }
+  }
+
+  async function handleSchedule() {
+    if (!scheduleTarget || !scheduledAt) return
+    setScheduling(true)
+    try {
+      const updated = await scheduleCampaign(scheduleTarget.id, new Date(scheduledAt).toISOString())
+      handleSaved(updated)
+      toast.success(`Campaña programada para ${format(new Date(scheduledAt), "d MMM, HH:mm", { locale: es })}`)
+      setScheduleTarget(null)
+      setScheduledAt('')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al programar campaña')
+    } finally {
+      setScheduling(false)
+    }
+  }
+
+  async function handleCancelSchedule(c: CampaignListItem) {
+    try {
+      const updated = await updateCampaign(c.id, { scheduledAt: null })
+      handleSaved(updated)
+      toast.success('Programación cancelada')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al cancelar programación')
+    }
+  }
+
+  async function handleTest() {
+    if (!testTarget || !testEmail) return
+    setTesting(true)
+    try {
+      const result = await testSendCampaign(testTarget.id, testEmail)
+      if (result.sent) {
+        toast.success(`Prueba enviada a ${testEmail}`)
+      } else {
+        toast.info(`Prueba registrada (sin proveedor de email configurado)`)
+      }
+      setTestTarget(null)
+      setTestEmail('')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error en envío de prueba')
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -239,6 +307,42 @@ export default function CampaignsClient() {
                       </Button>
                       {EDITABLE.has(c.status) && (
                         <>
+                          {c.status === 'DRAFT' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground"
+                                title="Envío de prueba"
+                                onClick={() => {
+                                  setTestEmail(user?.email ?? '')
+                                  setTestTarget(c)
+                                }}
+                              >
+                                <Send className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground"
+                                title="Programar envío"
+                                onClick={() => setScheduleTarget(c)}
+                              >
+                                <Calendar className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          )}
+                          {c.status === 'SCHEDULED' && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground"
+                              title="Cancelar programación"
+                              onClick={() => handleCancelSchedule(c)}
+                            >
+                              <CalendarOff className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           <CampaignComposer
                             key={c.id}
                             initialData={c}
@@ -272,6 +376,12 @@ export default function CampaignsClient() {
                     <Badge variant="secondary" className="flex items-center gap-1.5">
                       <CheckCircle2 className="h-3 w-3 text-emerald-500" />
                       {c.sentCount} enviado{c.sentCount !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
+                  {c.status === 'SCHEDULED' && c.scheduledAt && (
+                    <Badge variant="outline" className="flex items-center gap-1.5 text-blue-600 border-blue-300 dark:border-blue-700">
+                      <Calendar className="h-3 w-3" />
+                      {format(new Date(c.scheduledAt), "d MMM, HH:mm", { locale: es })}
                     </Badge>
                   )}
                   <span className="text-xs text-muted-foreground ml-auto">
@@ -308,6 +418,75 @@ export default function CampaignsClient() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Schedule dialog */}
+      <Dialog
+        open={!!scheduleTarget}
+        onOpenChange={(o) => { if (!o) { setScheduleTarget(null); setScheduledAt('') } }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Programar campaña
+            </DialogTitle>
+            <DialogDescription>
+              Selecciona cuándo enviar <strong>{scheduleTarget?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <input
+              type="datetime-local"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              min={minScheduleDateTime()}
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+            />
+            <Button
+              className="w-full"
+              disabled={!scheduledAt || scheduling}
+              onClick={handleSchedule}
+            >
+              {scheduling ? 'Programando…' : 'Confirmar programación'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test send dialog */}
+      <Dialog
+        open={!!testTarget}
+        onOpenChange={(o) => { if (!o) { setTestTarget(null); setTestEmail('') } }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-4 w-4" />
+              Envío de prueba
+            </DialogTitle>
+            <DialogDescription>
+              Se enviará una prueba de <strong>{testTarget?.name}</strong> con datos de ejemplo
+              (nombre y teléfono ficticios).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Input
+              type="email"
+              placeholder="correo@ejemplo.com"
+              value={testEmail}
+              onChange={(e) => setTestEmail(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleTest()}
+            />
+            <Button
+              className="w-full"
+              disabled={!testEmail || testing}
+              onClick={handleTest}
+            >
+              {testing ? 'Enviando…' : 'Enviar prueba'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Stats detail */}
       <Dialog

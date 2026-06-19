@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import { getSegmentContacts } from '../crm/segments.service'
-import { getDriver, dispatch, type Channel } from './drivers'
+import { getDriver, dispatch, isLiveChannel, type Channel } from './drivers'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -352,4 +352,75 @@ export async function sendCampaign(workspaceId: string, campaignId: string) {
     })
     throw new Error(err?.message ?? 'Campaign send failed')
   }
+}
+
+// ── Schedule ────────────────────────────────────────────────────────────────
+
+/**
+ * Schedule a DRAFT (or SCHEDULED) campaign for a future date.
+ * Re-scheduling an already-SCHEDULED campaign is allowed (updates the date).
+ */
+export async function scheduleCampaign(
+  workspaceId: string,
+  campaignId: string,
+  scheduledAt: string
+) {
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, workspaceId },
+  })
+  if (!campaign) throw new Error('Campaign not found')
+  if (!DELETABLE_STATUSES.includes(campaign.status)) {
+    throw new Error('Only DRAFT or SCHEDULED campaigns can be scheduled')
+  }
+
+  const date = new Date(scheduledAt)
+  if (isNaN(date.getTime())) throw new Error('Invalid scheduledAt date')
+  if (date <= new Date()) throw new Error('scheduledAt must be in the future')
+
+  return prisma.campaign.update({
+    where: { id: campaignId },
+    data: { status: 'SCHEDULED', scheduledAt: date },
+  })
+}
+
+// ── Test send ────────────────────────────────────────────────────────────────
+
+/**
+ * Send a single test email to the given address using the campaign body/subject
+ * with placeholder merge-tag values.  Always sends as EMAIL regardless of the
+ * campaign's actual channel, because a test should always be reviewable by the
+ * sender.
+ */
+export async function testSendCampaign(
+  workspaceId: string,
+  campaignId: string,
+  email: string
+) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('Invalid email address')
+  }
+
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, workspaceId },
+  })
+  if (!campaign) throw new Error('Campaign not found')
+
+  // Render with obvious test values so merge tags are clearly exercised.
+  const testContact = { name: 'Contacto de prueba', phone: '+56 9 0000 0000', email }
+  const body = renderMergeTags(campaign.body, testContact)
+  const subject = campaign.subject
+    ? renderMergeTags(campaign.subject, testContact)
+    : `[TEST] ${campaign.name}`
+
+  if (!isLiveChannel('EMAIL')) {
+    console.log(`[TestSend] No email provider configured.`)
+    console.log(`[TestSend] Campaign: "${campaign.name}"  To: ${email}`)
+    console.log(`[TestSend] Subject: ${subject}`)
+    console.log(`[TestSend] Body:\n${body}`)
+    return { sent: false, to: email, reason: 'No email provider configured' }
+  }
+
+  const driver = getDriver('EMAIL')
+  const result = await dispatch(driver, 'EMAIL', email, subject, body)
+  return { sent: result.ok, to: email, ...(result.error ? { error: result.error } : {}) }
 }

@@ -43,6 +43,7 @@ import composioRoutes from './routes/composio'
 import { startFollowUpCron } from './modules/ai-agent/followup.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 import { startWorkflowCron } from './modules/automation/automation.cron'
+import { startCampaignsCron } from './modules/campaigns/campaigns.cron'
 
 const app = express()
 
@@ -101,6 +102,7 @@ app.use('/api/composio', composioRoutes)
 startAnalyticsCron()
 startFollowUpCron()
 startWorkflowCron()
+startCampaignsCron()
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

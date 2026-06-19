@@ -6,6 +6,7 @@ import {
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
   bulkUpdateContactsHandler, bulkDeleteContactsHandler,
   listPipelinesHandler, createPipelineHandler,
+  createStageHandler, updateStageHandler, deleteStageHandler, reorderStagesHandler,
   listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler, updateDealHandler,
   deleteDealHandler, getWorkspaceUsersHandler,
   pipelineAnalyticsHandler,
@@ -32,6 +33,11 @@ router.post('/crm/contacts/:contactId/health-score', ...auth, calculateHealthSco
 router.get('/crm/pipelines', ...auth, listPipelinesHandler)
 router.post('/crm/pipelines', ...auth, createPipelineHandler)
 router.get('/crm/pipelines/:pipelineId/analytics', ...auth, pipelineAnalyticsHandler)
+// Stage CRUD — reorder must come before /:stageId to avoid param collision
+router.post('/crm/pipelines/:pipelineId/stages/reorder', ...auth, reorderStagesHandler)
+router.post('/crm/pipelines/:pipelineId/stages', ...auth, createStageHandler)
+router.patch('/crm/pipelines/:pipelineId/stages/:stageId', ...auth, updateStageHandler)
+router.delete('/crm/pipelines/:pipelineId/stages/:stageId', ...auth, deleteStageHandler)
 router.get('/crm/workspace/users', ...auth, getWorkspaceUsersHandler)
 router.get('/crm/deals', ...auth, listDealsHandler)
 router.post('/crm/deals', ...auth, createDealHandler)

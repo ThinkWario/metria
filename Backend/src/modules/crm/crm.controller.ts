@@ -168,6 +168,42 @@ export async function pipelineAnalyticsHandler(req: AuthRequest, res: Response):
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
+// ── Stage CRUD ────────────────────────────────────────────────────────────────
+
+export async function createStageHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { name, color, order } = req.body
+    if (!name?.trim()) { res.status(400).json({ error: 'name is required' }); return }
+    res.status(201).json(await ps.createStage(req.user!.workspaceId!, req.params.pipelineId, { name: name.trim(), color, order }))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+export async function updateStageHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { name, color } = req.body
+    res.json(await ps.updateStage(req.user!.workspaceId!, req.params.pipelineId, req.params.stageId, { name, color }))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+export async function deleteStageHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    await ps.deleteStage(req.user!.workspaceId!, req.params.pipelineId, req.params.stageId)
+    res.status(204).send()
+  } catch (err: any) {
+    if ((err as any).code === 'STAGE_HAS_DEALS') { res.status(409).json({ error: err.message }); return }
+    res.status(notFoundStatus(err.message)).json({ error: err.message })
+  }
+}
+
+export async function reorderStagesHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { orderedIds } = req.body
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) { res.status(400).json({ error: 'orderedIds array is required' }); return }
+    await ps.reorderStages(req.user!.workspaceId!, req.params.pipelineId, orderedIds)
+    res.status(204).send()
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
 // ── Tickets ───────────────────────────────────────────────────────────────────
 
 export async function listTicketsHandler(req: AuthRequest, res: Response): Promise<void> {

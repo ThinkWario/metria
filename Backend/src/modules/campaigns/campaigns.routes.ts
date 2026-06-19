@@ -113,4 +113,40 @@ router.post('/crm/campaigns/:id/send', ...auth, async (req: AuthRequest, res: Re
   }
 })
 
+// ── Schedule ───────────────────────────────────────────────────────────────────
+
+router.post('/crm/campaigns/:id/schedule', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const { scheduledAt } = req.body as { scheduledAt?: string }
+    if (!scheduledAt) {
+      res.status(400).json({ error: 'scheduledAt is required' })
+      return
+    }
+    res.json(await cs.scheduleCampaign(workspaceId, req.params.id, scheduledAt))
+  } catch (err: any) {
+    const msg = err.message.toLowerCase()
+    const status = msg.includes('not found') ? 404 : 400
+    res.status(status).json({ error: err.message })
+  }
+})
+
+// ── Test send ──────────────────────────────────────────────────────────────────
+
+router.post('/crm/campaigns/:id/test', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const { email } = req.body as { email?: string }
+    if (!email) {
+      res.status(400).json({ error: 'email is required' })
+      return
+    }
+    res.json(await cs.testSendCampaign(workspaceId, req.params.id, email))
+  } catch (err: any) {
+    const msg = err.message.toLowerCase()
+    const status = msg.includes('not found') ? 404 : 400
+    res.status(status).json({ error: err.message })
+  }
+})
+
 export default router

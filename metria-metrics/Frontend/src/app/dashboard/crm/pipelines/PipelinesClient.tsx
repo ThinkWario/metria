@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Plus, Trophy, X, GripVertical,
   Flame, Thermometer, Snowflake, Phone, Calendar, Clock,
-  Check, KanbanSquare, Pencil, BarChart2, Trash2, User
+  Check, KanbanSquare, Pencil, BarChart2, Trash2, User,
+  Settings, ChevronUp, ChevronDown
 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -258,6 +259,219 @@ function AnalyticsPanel({ data, loading, error }: {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Stage Settings Panel ───────────────────────────────────────────────────────
+function StageSettingsPanel({
+  stages: externalStages, pipelineId, onRefresh
+}: {
+  stages: Stage[]
+  pipelineId: string
+  onRefresh: () => Promise<void>
+}) {
+  const [stages, setStages] = useState<Stage[]>(externalStages)
+  const [newName, setNewName] = useState('')
+  const [newColor, setNewColor] = useState('#6366f1')
+  const [adding, setAdding] = useState(false)
+  const [stageErrors, setStageErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => { setStages(externalStages) }, [externalStages])
+
+  async function handleAdd() {
+    if (!newName.trim()) return
+    setAdding(true)
+    try {
+      await fetchAPI(`/crm/pipelines/${pipelineId}/stages`, {
+        method: 'POST',
+        body: JSON.stringify({ name: newName.trim(), color: newColor })
+      })
+      setNewName('')
+      setNewColor('#6366f1')
+      await onRefresh()
+      toast.success('Etapa creada')
+    } catch (err: any) { toast.error(err.message) }
+    finally { setAdding(false) }
+  }
+
+  async function handleUpdateName(stageId: string, name: string) {
+    try {
+      await fetchAPI(`/crm/pipelines/${pipelineId}/stages/${stageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name })
+      })
+      await onRefresh()
+    } catch (err: any) { toast.error(err.message) }
+  }
+
+  async function handleUpdateColor(stageId: string, color: string) {
+    try {
+      await fetchAPI(`/crm/pipelines/${pipelineId}/stages/${stageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ color })
+      })
+      await onRefresh()
+    } catch (err: any) { toast.error(err.message) }
+  }
+
+  async function handleDelete(stageId: string) {
+    setStageErrors(prev => { const next = { ...prev }; delete next[stageId]; return next })
+    try {
+      await fetchAPI(`/crm/pipelines/${pipelineId}/stages/${stageId}`, { method: 'DELETE' })
+      await onRefresh()
+      toast.success('Etapa eliminada')
+    } catch (err: any) {
+      if (err.message?.includes('Mueve los deals')) {
+        setStageErrors(prev => ({ ...prev, [stageId]: 'Mueve los deals primero' }))
+      } else {
+        toast.error(err.message)
+      }
+    }
+  }
+
+  async function handleMove(stageId: string, direction: 'up' | 'down') {
+    const idx = stages.findIndex(s => s.id === stageId)
+    if (idx === -1) return
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= stages.length) return
+    const newStages = [...stages]
+    ;[newStages[idx], newStages[swapIdx]] = [newStages[swapIdx], newStages[idx]]
+    setStages(newStages) // optimistic
+    try {
+      await fetchAPI(`/crm/pipelines/${pipelineId}/stages/reorder`, {
+        method: 'POST',
+        body: JSON.stringify({ orderedIds: newStages.map(s => s.id) })
+      })
+      await onRefresh()
+    } catch (err: any) {
+      setStages(externalStages) // rollback
+      toast.error(err.message)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      <p className="text-sm font-semibold">Etapas del pipeline</p>
+
+      <div className="space-y-1.5">
+        {stages.map((stage, idx) => (
+          <div key={stage.id} className="space-y-0.5">
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2">
+              {/* Visual drag handle */}
+              <GripVertical className="h-4 w-4 text-muted-foreground/30 shrink-0" />
+
+              {/* Color dot + picker */}
+              <label className="shrink-0 cursor-pointer" title="Cambiar color">
+                <div
+                  className="w-3.5 h-3.5 rounded-full border border-border/50 shadow-sm"
+                  style={{ backgroundColor: stage.color }}
+                />
+                <input
+                  type="color"
+                  value={stage.color}
+                  className="sr-only"
+                  onChange={e =>
+                    setStages(prev =>
+                      prev.map(s => s.id === stage.id ? { ...s, color: e.target.value } : s)
+                    )
+                  }
+                  onBlur={e => handleUpdateColor(stage.id, e.target.value)}
+                />
+              </label>
+
+              {/* Inline name input */}
+              <input
+                key={`${stage.id}-${stage.name}`}
+                className="flex-1 bg-transparent text-sm focus:outline-none min-w-0"
+                defaultValue={stage.name}
+                onBlur={e => {
+                  const val = e.target.value.trim()
+                  if (val && val !== stage.name) handleUpdateName(stage.id, val)
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+              />
+
+              {/* Won / Lost chips (read-only) */}
+              {stage.isWon && (
+                <span className="text-[9px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full shrink-0">
+                  Ganado
+                </span>
+              )}
+              {stage.isLost && (
+                <span className="text-[9px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full shrink-0">
+                  Perdido
+                </span>
+              )}
+
+              {/* Up / Down arrows */}
+              <div className="flex items-center gap-0.5 shrink-0">
+                <button
+                  onClick={() => handleMove(stage.id, 'up')}
+                  disabled={idx === 0}
+                  className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Mover arriba"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => handleMove(stage.id, 'down')}
+                  disabled={idx === stages.length - 1}
+                  className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Mover abajo"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </div>
+
+              {/* Delete */}
+              <button
+                onClick={() => handleDelete(stage.id)}
+                className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground/40 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                title="Eliminar etapa"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+            {stageErrors[stage.id] && (
+              <p className="text-xs text-red-600 pl-10">{stageErrors[stage.id]}</p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* New stage row */}
+      <div className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2">
+        <label className="shrink-0 cursor-pointer" title="Elegir color">
+          <div
+            className="w-3.5 h-3.5 rounded-full border border-border/50 shadow-sm"
+            style={{ backgroundColor: newColor }}
+          />
+          <input
+            type="color"
+            value={newColor}
+            className="sr-only"
+            onChange={e => setNewColor(e.target.value)}
+          />
+        </label>
+        <input
+          className="flex-1 bg-transparent text-sm focus:outline-none min-w-0 placeholder:text-muted-foreground"
+          placeholder="Nombre de nueva etapa..."
+          value={newName}
+          onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleAdd}
+          disabled={adding || !newName.trim()}
+          className="shrink-0 h-7 text-xs gap-1"
+        >
+          <Plus className="h-3 w-3" />
+          {adding ? 'Agregando...' : 'Agregar'}
+        </Button>
       </div>
     </div>
   )
@@ -840,6 +1054,7 @@ export default function PipelinesClient() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [analyticsError, setAnalyticsError] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
   const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -972,6 +1187,13 @@ export default function PipelinesClient() {
     }
   }, [workspaceUsers])
 
+  const refreshPipelines = useCallback(async () => {
+    try {
+      const data: Pipeline[] = await fetchAPI('/crm/pipelines')
+      setPipelines(data)
+    } catch (err: any) { toast.error(err.message ?? 'Error al refrescar pipeline') }
+  }, [])
+
   async function handleCreatePipeline() {
     setCreatingPipeline(true)
     try {
@@ -1043,6 +1265,17 @@ export default function PipelinesClient() {
           Analítica
         </Button>
 
+        <Button
+          variant={showSettings ? 'default' : 'outline'}
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setShowSettings(v => !v)}
+          title="Configurar etapas"
+        >
+          <Settings className="h-4 w-4" />
+          Configurar etapas
+        </Button>
+
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1 font-medium">
             <div className="w-2 h-2 rounded-full bg-primary" />
@@ -1058,6 +1291,15 @@ export default function PipelinesClient() {
       {/* Analytics panel */}
       {showAnalytics && (
         <AnalyticsPanel data={analytics} loading={analyticsLoading} error={analyticsError} />
+      )}
+
+      {/* Stage settings panel */}
+      {showSettings && selectedPipelineId && (
+        <StageSettingsPanel
+          stages={stages}
+          pipelineId={selectedPipelineId}
+          onRefresh={refreshPipelines}
+        />
       )}
 
       {/* Kanban board */}

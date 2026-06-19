@@ -82,3 +82,18 @@ export const previewAudience = (segmentId: string): Promise<{ count: number }> =
     method: 'POST',
     body: JSON.stringify({ segmentId }),
   })
+
+export const scheduleCampaign = (id: string, scheduledAt: string): Promise<Campaign> =>
+  fetchAPI(`/crm/campaigns/${id}/schedule`, {
+    method: 'POST',
+    body: JSON.stringify({ scheduledAt }),
+  })
+
+export const testSendCampaign = (
+  id: string,
+  email: string
+): Promise<{ sent: boolean; to: string; reason?: string; error?: string }> =>
+  fetchAPI(`/crm/campaigns/${id}/test`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })

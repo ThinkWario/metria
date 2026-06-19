@@ -13,8 +13,17 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription
 } from '@/components/ui/sheet'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogFooter, DialogDescription
+} from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { Filter, Pencil, Trash2, Users, Search, RefreshCw, Copy } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Filter, Pencil, Trash2, Users, Search, RefreshCw, Copy, Megaphone, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { SegmentBuilder } from '@/components/crm/SegmentBuilder'
 import {
@@ -76,6 +85,21 @@ export default function SegmentsClient() {
   const [contactsTotalPages, setContactsTotalPages] = useState(1)
   const [contactsLoading, setContactsLoading] = useState(false)
   const [contactsError, setContactsError] = useState<string | null>(null)
+
+  // ── Campaign dialog state ──────────────────────────────────────────────────
+  const [campaignTarget, setCampaignTarget] = useState<Segment | null>(null)
+  const [campaignChannel, setCampaignChannel] = useState<'EMAIL' | 'SMS' | 'WHATSAPP'>('EMAIL')
+  const [campaignSubject, setCampaignSubject] = useState('')
+  const [campaignMessage, setCampaignMessage] = useState('')
+  const [campaignSchedule, setCampaignSchedule] = useState(false)
+  const [campaignScheduledAt, setCampaignScheduledAt] = useState('')
+  const [campaignSubmitting, setCampaignSubmitting] = useState(false)
+
+  // ── Bulk action dialog state ───────────────────────────────────────────────
+  const [bulkTarget, setBulkTarget] = useState<Segment | null>(null)
+  const [bulkAction, setBulkAction] = useState<'status' | 'addTag' | 'removeTag'>('status')
+  const [bulkStatus, setBulkStatus] = useState('CUSTOMER')
+  const [bulkSubmitting, setBulkSubmitting] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -178,6 +202,88 @@ export default function SegmentsClient() {
       setSelectedSegment(null)
       setContacts([])
       setContactsError(null)
+    }
+  }
+
+  // ── Open campaign dialog ───────────────────────────────────────────────────
+  function handleOpenCampaign(segment: Segment) {
+    setCampaignTarget(segment)
+    setCampaignChannel('EMAIL')
+    setCampaignSubject('')
+    setCampaignMessage('')
+    setCampaignSchedule(false)
+    setCampaignScheduledAt('')
+  }
+
+  // ── Submit campaign ────────────────────────────────────────────────────────
+  async function handleSendCampaign() {
+    if (!campaignTarget) return
+    if (!campaignMessage.trim()) {
+      toast.error('El mensaje es requerido')
+      return
+    }
+    if (campaignChannel === 'EMAIL' && !campaignSubject.trim()) {
+      toast.error('El asunto es requerido para campañas de correo')
+      return
+    }
+
+    setCampaignSubmitting(true)
+    try {
+      const body: Record<string, unknown> = {
+        name: `Campaña ${campaignTarget.name}`,
+        channel: campaignChannel,
+        body: campaignMessage,
+        segmentId: campaignTarget.id,
+      }
+      if (campaignChannel === 'EMAIL') body.subject = campaignSubject
+      if (campaignSchedule && campaignScheduledAt) body.scheduledAt = campaignScheduledAt
+
+      await fetchAPI('/crm/campaigns', { method: 'POST', body: JSON.stringify(body) })
+
+      const scheduledMsg = campaignSchedule && campaignScheduledAt
+        ? `programada para ${new Date(campaignScheduledAt).toLocaleString('es-CL')}`
+        : 'en cola de envío'
+      toast.success(`Campaña creada y ${scheduledMsg}`)
+      setCampaignTarget(null)
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al crear campaña')
+    } finally {
+      setCampaignSubmitting(false)
+    }
+  }
+
+  // ── Open bulk action dialog ────────────────────────────────────────────────
+  function handleOpenBulk(segment: Segment) {
+    setBulkTarget(segment)
+    setBulkAction('status')
+    setBulkStatus('CUSTOMER')
+  }
+
+  // ── Submit bulk action ─────────────────────────────────────────────────────
+  async function handleBulkAction() {
+    if (!bulkTarget) return
+    setBulkSubmitting(true)
+    try {
+      // Fetch all contacts (up to 500)
+      const data = await getSegmentContacts(bulkTarget.id, 1, 500)
+      const ids = data.contacts.map(c => c.id)
+
+      if (ids.length === 0) {
+        toast.error('El segmento no tiene contactos')
+        return
+      }
+
+      await fetchAPI('/crm/contacts/bulk-update', {
+        method: 'POST',
+        body: JSON.stringify({ ids, status: bulkStatus }),
+      })
+
+      toast.success(`Acción aplicada a ${ids.length} contacto${ids.length !== 1 ? 's' : ''}`)
+      setBulkTarget(null)
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al aplicar acción')
+    } finally {
+      setBulkSubmitting(false)
     }
   }
 
@@ -302,6 +408,26 @@ export default function SegmentsClient() {
                     >
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
+                    {/* ── NEW: Enviar campaña ─────────────────────────────── */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground"
+                      title="Enviar campaña"
+                      onClick={() => handleOpenCampaign(segment)}
+                    >
+                      <Megaphone className="h-3.5 w-3.5" />
+                    </Button>
+                    {/* ── NEW: Acción masiva ──────────────────────────────── */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground"
+                      title="Acción masiva"
+                      onClick={() => handleOpenBulk(segment)}
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                    </Button>
                     <SegmentBuilder
                       key={segment.id}
                       trigger={
@@ -365,6 +491,162 @@ export default function SegmentsClient() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Enviar campaña Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={!!campaignTarget} onOpenChange={open => !open && setCampaignTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Megaphone className="h-4 w-4" />
+              Enviar campaña a {campaignTarget?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {campaignTarget?.contactCount} contacto{campaignTarget?.contactCount !== 1 ? 's' : ''} recibirán este mensaje
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Canal */}
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-channel">Canal</Label>
+              <Select
+                value={campaignChannel}
+                onValueChange={v => setCampaignChannel(v as typeof campaignChannel)}
+              >
+                <SelectTrigger id="campaign-channel">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EMAIL">Correo</SelectItem>
+                  <SelectItem value="SMS">SMS</SelectItem>
+                  <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Asunto — solo para EMAIL */}
+            {campaignChannel === 'EMAIL' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="campaign-subject">Asunto</Label>
+                <Input
+                  id="campaign-subject"
+                  placeholder="Asunto del correo"
+                  value={campaignSubject}
+                  onChange={e => setCampaignSubject(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Mensaje */}
+            <div className="space-y-1.5">
+              <Label htmlFor="campaign-message">Mensaje</Label>
+              <Textarea
+                id="campaign-message"
+                placeholder="Escribe tu mensaje aquí…"
+                rows={4}
+                value={campaignMessage}
+                onChange={e => setCampaignMessage(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Usa {'{{name}}'} para el nombre del contacto
+              </p>
+            </div>
+
+            {/* Programar envío */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={campaignSchedule}
+                  onChange={e => setCampaignSchedule(e.target.checked)}
+                  className="rounded border-input accent-primary h-4 w-4"
+                />
+                <span className="text-sm">Programar envío</span>
+              </label>
+              {campaignSchedule && (
+                <Input
+                  type="datetime-local"
+                  value={campaignScheduledAt}
+                  onChange={e => setCampaignScheduledAt(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                />
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCampaignTarget(null)} disabled={campaignSubmitting}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSendCampaign} disabled={campaignSubmitting}>
+              {campaignSubmitting ? 'Creando...' : 'Enviar campaña'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Acción masiva Dialog ──────────────────────────────────────────────── */}
+      <Dialog open={!!bulkTarget} onOpenChange={open => !open && setBulkTarget(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Acción masiva — {bulkTarget?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {bulkTarget?.contactCount} contacto{bulkTarget?.contactCount !== 1 ? 's' : ''} serán afectados
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Acción */}
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-action">Acción</Label>
+              <Select
+                value={bulkAction}
+                onValueChange={v => setBulkAction(v as typeof bulkAction)}
+              >
+                <SelectTrigger id="bulk-action">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="status">Cambiar estado a…</SelectItem>
+                  <SelectItem value="addTag" disabled>Añadir etiqueta (próximamente)</SelectItem>
+                  <SelectItem value="removeTag" disabled>Quitar etiqueta (próximamente)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Estado destino */}
+            {bulkAction === 'status' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="bulk-status">Nuevo estado</Label>
+                <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                  <SelectTrigger id="bulk-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LEAD">Lead</SelectItem>
+                    <SelectItem value="PROSPECT">Prospecto</SelectItem>
+                    <SelectItem value="CUSTOMER">Cliente</SelectItem>
+                    <SelectItem value="VIP">VIP</SelectItem>
+                    <SelectItem value="CHURNED">Inactivo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkTarget(null)} disabled={bulkSubmitting}>
+              Cancelar
+            </Button>
+            <Button onClick={handleBulkAction} disabled={bulkSubmitting}>
+              {bulkSubmitting ? 'Aplicando...' : 'Aplicar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Contacts Sheet */}
       <Sheet open={!!selectedSegment} onOpenChange={handleSheetClose}>
