@@ -198,11 +198,9 @@ router.post('/booking/:slug/book', async (req, res) => {
     }
   }
 
-  // Email confirmations via Resend
+  // Email confirmations via Resend REST API (no SDK dependency needed)
   if (process.env.RESEND_API_KEY) {
     try {
-      const { Resend } = await import('resend')
-      const resend = new Resend(process.env.RESEND_API_KEY)
       const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'noreply@metria.app'
       const dateLabel = appt.scheduledAt.toLocaleString('es-CL', {
         timeZone: tz,
@@ -220,26 +218,36 @@ router.post('/booking/:slug/book', async (req, res) => {
         attendeeEmail: email ?? undefined
       })
 
+      const sendEmail = (payload: Record<string, unknown>) =>
+        fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        }).catch((err: unknown) => console.error('[booking] email send failed:', err))
+
       // Confirmation to the person who booked
       if (email) {
-        resend.emails.send({
+        sendEmail({
           from: fromEmail,
-          to: email,
+          to: [email],
           subject: `Cita confirmada — ${dateLabel}`,
           html: `<p>Hola ${name},</p><p>Tu cita ha sido confirmada para el <strong>${dateLabel}</strong>.</p><p>Te esperamos.</p>`,
           attachments: [{ filename: 'cita.ics', content: Buffer.from(icsContent).toString('base64') }]
-        }).catch(err => console.error('[booking] email to booker failed:', err))
+        })
       }
 
       // Notification to workspace owner
       const ownerEmail = ws.googleCalEmail
       if (ownerEmail) {
-        resend.emails.send({
+        sendEmail({
           from: fromEmail,
-          to: ownerEmail,
+          to: [ownerEmail],
           subject: `Nueva reserva: ${name} — ${dateLabel}`,
           html: `<p>Nueva cita agendada:</p><ul><li><strong>Cliente:</strong> ${name}</li><li><strong>Teléfono:</strong> ${phoneRaw}</li><li><strong>Email:</strong> ${email ?? 'No proporcionado'}</li><li><strong>Fecha:</strong> ${dateLabel}</li></ul>`
-        }).catch(err => console.error('[booking] email to owner failed:', err))
+        })
       }
     } catch (emailErr) {
       console.error('[booking] email tasks failed:', emailErr)

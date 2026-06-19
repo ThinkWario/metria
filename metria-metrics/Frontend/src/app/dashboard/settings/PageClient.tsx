@@ -20,6 +20,7 @@ import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { useUserStore } from "@/store/useUserStore"
 import { BillingSection } from "@/components/settings/billing-section"
 import { IntegrationHub } from "@/components/settings/integration-hub"
+import { GoogleCalendarCard } from "./components/GoogleCalendarCard"
 
 // Table structure for system event logs
 
@@ -268,8 +269,9 @@ function SettingsContent() {
                             </CardTitle>
                             <CardDescription>Conecta tus fuentes de datos con un solo clic de forma segura.</CardDescription>
                         </CardHeader>
-                        <CardContent>
+                        <CardContent className="space-y-4">
                             <IntegrationHub integrations={integrationsData} token={localStorage.getItem('metria_token') || ''} />
+                            <GoogleCalendarCard />
                         </CardContent>
                     </Card>
                 </div>
