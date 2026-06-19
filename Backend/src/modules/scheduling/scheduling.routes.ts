@@ -40,7 +40,15 @@ router.patch('/appointments/:id/status', ...auth, async (req: any, res) => {
   try {
     const workspaceId = req.user?.workspaceId
     if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
-    res.json(await updateAppointmentStatus(workspaceId, req.params.id, req.body.status))
+    const updated = await updateAppointmentStatus(workspaceId, req.params.id, req.body.status)
+    res.json(updated)
+    // Cancel Google Calendar event non-blockingly when appointment is cancelled
+    if (req.body.status === 'CANCELLED' && (updated as any).googleEventId) {
+      const { cancelCalendarEvent } = await import('./google-calendar.service')
+      cancelCalendarEvent(workspaceId, (updated as any).googleEventId).catch(err =>
+        console.error('[gcal] cancel event failed:', err)
+      )
+    }
   } catch (err: any) {
     res.status(400).json({ error: err.message })
   }

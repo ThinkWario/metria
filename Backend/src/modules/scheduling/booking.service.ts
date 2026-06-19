@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import { getAvailableSlots } from './scheduling.service'
+import { getFreeBusy } from './google-calendar.service'
 
 /**
  * Booking helpers shared by the authenticated config routes and the PUBLIC
@@ -59,13 +60,22 @@ function formatDateKey(d: Date, tz: string): string {
 export function findWorkspaceBySlug(slug: string) {
   return prisma.workspace.findUnique({
     where: { bookingSlug: slug },
-    select: { id: true, name: true, bookingTitle: true, bookingDurationMin: true }
+    select: {
+      id: true,
+      name: true,
+      bookingTitle: true,
+      bookingDurationMin: true,
+      googleCalRefreshToken: true,
+      googleCalEmail: true,
+      googleCalendarId: true
+    }
   })
 }
 
 /**
  * Available "HH:mm" slots for a single calendar date (in the workspace timezone),
  * derived from the existing availability engine. `dateStr` is "YYYY-MM-DD".
+ * If the workspace has Google Calendar connected, busy intervals are filtered out.
  */
 export async function getPublicSlotsForDate(workspaceId: string, dateStr: string): Promise<string[]> {
   const tz = await getWorkspaceTimezone(workspaceId)
@@ -78,9 +88,39 @@ export async function getPublicSlotsForDate(workspaceId: string, dateStr: string
 
   const slots = await getAvailableSlots(workspaceId, PUBLIC_BOOKING_TYPE, from, 3)
 
-  const times = slots
-    .filter(s => formatDateKey(s, tz) === dateStr)
-    .map(s => formatHHmm(s, tz))
+  // Filter to slots on the requested date in the workspace timezone
+  let daySlots = slots.filter(s => formatDateKey(s, tz) === dateStr)
+
+  // Filter out Google Calendar busy intervals if workspace is connected
+  const wsData = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { bookingDurationMin: true, googleCalRefreshToken: true }
+  })
+
+  if (wsData?.googleCalRefreshToken) {
+    try {
+      const durationMs = (wsData.bookingDurationMin ?? 30) * 60_000
+      // Wide window to cover timezone edge cases
+      const busyFrom = new Date(`${dateStr}T00:00:00.000Z`)
+      busyFrom.setUTCDate(busyFrom.getUTCDate() - 1)
+      const busyTo = new Date(busyFrom)
+      busyTo.setDate(busyTo.getDate() + 3)
+
+      const busyRaw = await getFreeBusy(workspaceId, busyFrom, busyTo)
+      if (busyRaw.length > 0) {
+        const busyIntervals = busyRaw.map(b => ({ start: new Date(b.start), end: new Date(b.end) }))
+        daySlots = daySlots.filter(slot => {
+          const slotEnd = new Date(slot.getTime() + durationMs)
+          return !busyIntervals.some(b => slot < b.end && slotEnd > b.start)
+        })
+      }
+    } catch (err) {
+      // Non-blocking: if Google Calendar fails, show all rule-based slots
+      console.error('[booking] FreeBusy filter error (non-blocking):', err)
+    }
+  }
+
+  const times = daySlots.map(s => formatHHmm(s, tz))
 
   // De-dupe + sort defensively (multiple rules could overlap)
   return Array.from(new Set(times)).sort()
