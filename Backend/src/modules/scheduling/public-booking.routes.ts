@@ -198,61 +198,8 @@ router.post('/booking/:slug/book', async (req, res) => {
     }
   }
 
-  // Email confirmations via Resend REST API (no SDK dependency needed)
-  if (process.env.RESEND_API_KEY) {
-    try {
-      const fromEmail = process.env.RESEND_FROM_EMAIL ?? 'noreply@metria.app'
-      const dateLabel = appt.scheduledAt.toLocaleString('es-CL', {
-        timeZone: tz,
-        dateStyle: 'full',
-        timeStyle: 'short'
-      } as Intl.DateTimeFormatOptions)
-
-      const icsContent = generateICS({
-        uid: appt.id,
-        title: ws.bookingTitle ?? 'Cita agendada',
-        start: appt.scheduledAt,
-        end: new Date(appt.scheduledAt.getTime() + appt.durationMin * 60_000),
-        description: `Cita con ${ws.name ?? ''}`,
-        organizerEmail: ws.googleCalEmail ?? fromEmail,
-        attendeeEmail: email ?? undefined
-      })
-
-      const sendEmail = (payload: Record<string, unknown>) =>
-        fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        }).catch((err: unknown) => console.error('[booking] email send failed:', err))
-
-      // Confirmation to the person who booked
-      if (email) {
-        sendEmail({
-          from: fromEmail,
-          to: [email],
-          subject: `Cita confirmada — ${dateLabel}`,
-          html: `<p>Hola ${name},</p><p>Tu cita ha sido confirmada para el <strong>${dateLabel}</strong>.</p><p>Te esperamos.</p>`,
-          attachments: [{ filename: 'cita.ics', content: Buffer.from(icsContent).toString('base64') }]
-        })
-      }
-
-      // Notification to workspace owner
-      const ownerEmail = ws.googleCalEmail
-      if (ownerEmail) {
-        sendEmail({
-          from: fromEmail,
-          to: [ownerEmail],
-          subject: `Nueva reserva: ${name} — ${dateLabel}`,
-          html: `<p>Nueva cita agendada:</p><ul><li><strong>Cliente:</strong> ${name}</li><li><strong>Teléfono:</strong> ${phoneRaw}</li><li><strong>Email:</strong> ${email ?? 'No proporcionado'}</li><li><strong>Fecha:</strong> ${dateLabel}</li></ul>`
-        })
-      }
-    } catch (emailErr) {
-      console.error('[booking] email tasks failed:', emailErr)
-    }
-  }
+  // Invitations are handled automatically by Google Calendar (sendUpdates: 'all')
+  // when the workspace has a connected Google account. No separate email needed.
 
   // Socket notification so dashboard and AI agent react in real time
   try {
@@ -267,38 +214,5 @@ router.post('/booking/:slug/book', async (req, res) => {
   } catch (_) { /* socket may not be initialized in test environments */ }
 })
 
-/** Generates a RFC-5545 .ics calendar file content string. */
-function generateICS(opts: {
-  uid: string
-  title: string
-  start: Date
-  end: Date
-  description: string
-  organizerEmail: string
-  attendeeEmail?: string
-}): string {
-  const fmt = (d: Date) => d.toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z'
-  return [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Metria//Booking//EN',
-    'BEGIN:VEVENT',
-    `UID:${opts.uid}@metria.app`,
-    `DTSTAMP:${fmt(new Date())}`,
-    `DTSTART:${fmt(opts.start)}`,
-    `DTEND:${fmt(opts.end)}`,
-    `SUMMARY:${opts.title}`,
-    `DESCRIPTION:${opts.description}`,
-    `ORGANIZER:mailto:${opts.organizerEmail}`,
-    opts.attendeeEmail ? `ATTENDEE;RSVP=TRUE:mailto:${opts.attendeeEmail}` : null,
-    'BEGIN:VALARM',
-    'TRIGGER:-PT60M',
-    'ACTION:DISPLAY',
-    'DESCRIPTION:Recordatorio de cita',
-    'END:VALARM',
-    'END:VEVENT',
-    'END:VCALENDAR'
-  ].filter(Boolean).join('\r\n')
-}
 
 export default router
