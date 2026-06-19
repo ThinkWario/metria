@@ -6,7 +6,8 @@ import { listWorkspaceCalendars } from '../../modules/scheduling/google-calendar
 
 const router = Router()
 const provider = new GoogleCalendarProvider()
-const REDIRECT_URI = () => process.env.GOOGLE_CALENDAR_REDIRECT_URI!
+const REDIRECT_URI = () =>
+  `${process.env.BACKEND_URL ?? 'http://localhost:4000'}/api/integrations/google-calendar/callback`
 const FRONTEND_URL = () => process.env.FRONTEND_URL ?? 'http://localhost:3000'
 
 // GET /api/integrations/google-calendar/auth

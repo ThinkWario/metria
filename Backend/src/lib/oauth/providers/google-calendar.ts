@@ -1,26 +1,29 @@
 import { IOAuthProvider, OAuthTokenResponse } from '../types'
 
 /**
- * Google Calendar OAuth Provider
- * Scopes: calendar read/write + email/profile for user identification.
- * Uses GOOGLE_CALENDAR_CLIENT_ID / GOOGLE_CALENDAR_CLIENT_SECRET env vars.
- * Falls back to GOOGLE_ADS_CLIENT_ID / SECRET if calendar-specific vars not set
- * (same GCP project is common).
+ * Google Calendar OAuth Provider — per-tenant.
+ * Scopes: calendar read/write + email/profile.
+ * Reuses GOOGLE_ADS_CLIENT_ID / GOOGLE_ADS_CLIENT_SECRET (same GCP project).
+ * Tokens (access + refresh) are stored per workspace in the DB — never shared.
  */
 export class GoogleCalendarProvider implements IOAuthProvider {
   readonly platform = 'GOOGLE_CALENDAR'
 
   private get clientId() {
-    return process.env.GOOGLE_CALENDAR_CLIENT_ID ?? process.env.GOOGLE_ADS_CLIENT_ID ?? ''
+    return process.env.GOOGLE_ADS_CLIENT_ID ?? ''
   }
   private get clientSecret() {
-    return process.env.GOOGLE_CALENDAR_CLIENT_SECRET ?? process.env.GOOGLE_ADS_CLIENT_SECRET ?? ''
+    return process.env.GOOGLE_ADS_CLIENT_SECRET ?? ''
+  }
+
+  private get redirectUri() {
+    return `${process.env.BACKEND_URL ?? 'http://localhost:4000'}/api/integrations/google-calendar/callback`
   }
 
   getAuthUrl(state: string): string {
     const params = new URLSearchParams({
       client_id: this.clientId,
-      redirect_uri: process.env.GOOGLE_CALENDAR_REDIRECT_URI!,
+      redirect_uri: this.redirectUri,
       response_type: 'code',
       scope: [
         'https://www.googleapis.com/auth/calendar',
