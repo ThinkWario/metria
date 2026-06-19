@@ -2,8 +2,14 @@
 import type { Conversation, StatusFilter } from '@/hooks/useInbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { MessageSquare, Search, UserCheck, X } from 'lucide-react'
+import { MessageSquare, MoreVertical, Search, UserCheck, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -32,6 +38,7 @@ interface Props {
   onSearchChange: (value: string) => void
   assignedToMe: boolean
   onAssignedToMeChange: (value: boolean) => void
+  onMarkAsUnread?: (id: string) => void
 }
 
 export function ConversationList({
@@ -45,6 +52,7 @@ export function ConversationList({
   onSearchChange,
   assignedToMe,
   onAssignedToMeChange,
+  onMarkAsUnread,
 }: Props) {
   return (
     <aside className="w-[320px] bg-card/30 backdrop-blur-xl border-r border-border/40 flex flex-col overflow-hidden shrink-0 animate-in slide-in-from-left duration-500">
@@ -186,6 +194,28 @@ export function ConversationList({
                     <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
                       {conv.lastMessageAt ? formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: false, locale: es }).replace('alrededor de ', '') : ''}
                     </span>
+                    {onMarkAsUnread && (conv.unreadCount ?? 0) === 0 && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={e => e.stopPropagation()}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                            aria-label="Opciones de conversación"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48" onClick={e => e.stopPropagation()}>
+                          <DropdownMenuItem
+                            onSelect={() => onMarkAsUnread(conv.id)}
+                            className="text-xs gap-2 cursor-pointer"
+                          >
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                            Marcar como no leído
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                 </div>
 

@@ -92,4 +92,16 @@ router.delete('/crm/forms/:id', ...auth, async (req: AuthRequest, res: Response)
   }
 })
 
+// ── Duplicate ─────────────────────────────────────────────────────────────────
+
+router.post('/crm/forms/:id/duplicate', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const duplicate = await fs.duplicateForm(workspaceId, req.params.id)
+    res.status(201).json(duplicate)
+  } catch (err: any) {
+    res.status(statusFor(err)).json({ error: err.message })
+  }
+})
+
 export default router

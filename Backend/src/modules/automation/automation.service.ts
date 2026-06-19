@@ -70,3 +70,19 @@ export async function listRuns(workspaceId: string, workflowId: string) {
     take: 50
   })
 }
+
+export async function duplicateWorkflow(workspaceId: string, id: string) {
+  const original = await prisma.workflow.findFirst({ where: { id, workspaceId } })
+  if (!original) throw new Error('Workflow not found')
+  return prisma.workflow.create({
+    data: {
+      workspaceId,
+      name: `Copia de ${original.name}`,
+      description: original.description,
+      triggerType: original.triggerType,
+      triggerConfig: (original.triggerConfig ?? undefined) as any,
+      nodes: (original.nodes ?? []) as any,
+      isActive: false,
+    }
+  })
+}

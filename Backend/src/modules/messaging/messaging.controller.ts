@@ -11,6 +11,7 @@ import {
   changeConversationStatus as _changeConversationStatus,
   assignConversation as _assignConversation,
   markConversationAsRead as _markConversationAsRead,
+  markConversationAsUnread as _markConversationAsUnread,
   trackAiMetric,
   type ConversationStatus
 } from './inbox.service'
@@ -323,6 +324,18 @@ export async function markAsReadHandler(req: Request, res: Response): Promise<vo
     const { conversationId } = req.params
     const result = await _markConversationAsRead(workspaceId, conversationId)
     res.json(result)
+  } catch (err: any) {
+    const status = err.message === 'Conversation not found' ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+}
+
+export async function markAsUnreadHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+    await _markConversationAsUnread(workspaceId, conversationId)
+    res.json({ ok: true })
   } catch (err: any) {
     const status = err.message === 'Conversation not found' ? 404 : 500
     res.status(status).json({ error: err.message })

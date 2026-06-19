@@ -7,8 +7,10 @@ import {
   bulkUpdateContactsHandler, bulkDeleteContactsHandler,
   listPipelinesHandler, createPipelineHandler,
   listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler, updateDealHandler,
+  deleteDealHandler, getWorkspaceUsersHandler,
   pipelineAnalyticsHandler,
-  listTicketsHandler, createTicketHandler, updateTicketHandler, resolveTicketHandler
+  listTicketsHandler, createTicketHandler, updateTicketHandler, resolveTicketHandler,
+  listTasksHandler, completeTaskHandler
 } from './crm.controller'
 
 const router = Router()
@@ -30,16 +32,22 @@ router.post('/crm/contacts/:contactId/health-score', ...auth, calculateHealthSco
 router.get('/crm/pipelines', ...auth, listPipelinesHandler)
 router.post('/crm/pipelines', ...auth, createPipelineHandler)
 router.get('/crm/pipelines/:pipelineId/analytics', ...auth, pipelineAnalyticsHandler)
+router.get('/crm/workspace/users', ...auth, getWorkspaceUsersHandler)
 router.get('/crm/deals', ...auth, listDealsHandler)
 router.post('/crm/deals', ...auth, createDealHandler)
 router.patch('/crm/deals/:dealId/move', ...auth, moveDealHandler)
 router.patch('/crm/deals/:dealId/close', ...auth, closeDealHandler)
 router.patch('/crm/deals/:dealId', ...auth, updateDealHandler)
+router.delete('/crm/deals/:dealId', ...auth, deleteDealHandler)
 
 // Tickets
 router.get('/crm/tickets', ...auth, listTicketsHandler)
 router.post('/crm/tickets', ...auth, createTicketHandler)
 router.patch('/crm/tickets/:ticketId', ...auth, updateTicketHandler)
 router.post('/crm/tickets/:ticketId/resolve', ...auth, resolveTicketHandler)
+
+// Tasks
+router.get('/crm/tasks', ...auth, listTasksHandler)
+router.patch('/crm/tasks/:taskId/complete', ...auth, completeTaskHandler)
 
 export default router

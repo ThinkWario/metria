@@ -198,6 +198,7 @@ export async function updateDeal(
     value?: number
     probability?: number | null
     expectedCloseAt?: string | null
+    assignedToUserId?: string | null
   }
 ) {
   const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId } })
@@ -210,13 +211,27 @@ export async function updateDeal(
   if (data.expectedCloseAt !== undefined) {
     updateData.expectedCloseAt = data.expectedCloseAt ? new Date(data.expectedCloseAt) : null
   }
+  if (data.assignedToUserId !== undefined) updateData.assignedToUserId = data.assignedToUserId
 
   return prisma.deal.update({
-    where: { id: dealId, workspaceId },
+    where: { id: dealId },
     data: updateData,
     include: {
       stage: { select: { id: true, name: true, color: true, isWon: true, isLost: true } },
       contact: { select: { id: true, name: true, phone: true, leadTemperature: true, leadScore: true } }
     }
+  })
+}
+
+export async function deleteDeal(workspaceId: string, dealId: string): Promise<void> {
+  const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId } })
+  if (!deal) throw new Error('Deal not found')
+  await prisma.deal.delete({ where: { id: dealId } })
+}
+
+export async function listWorkspaceUsers(workspaceId: string) {
+  return prisma.user.findMany({
+    where: { workspaceId },
+    select: { id: true, name: true, email: true }
   })
 }

@@ -189,6 +189,22 @@ export async function deleteCampaign(workspaceId: string, campaignId: string) {
   return prisma.campaign.delete({ where: { id: campaignId } })
 }
 
+export async function duplicateCampaign(workspaceId: string, campaignId: string) {
+  const original = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } })
+  if (!original) throw new Error('Campaign not found')
+  return prisma.campaign.create({
+    data: {
+      workspaceId,
+      name: `Copia de ${original.name}`,
+      channel: original.channel,
+      subject: original.subject,
+      body: original.body,
+      segmentId: original.segmentId,
+      status: 'DRAFT',
+    }
+  })
+}
+
 // ── Audience preview ───────────────────────────────────────────────────────────
 
 export async function previewAudience(workspaceId: string, segmentId: string) {

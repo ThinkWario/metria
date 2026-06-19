@@ -216,6 +216,18 @@ export function useInbox() {
     }
   }, [])
 
+  /** Optimistically sets unread badge to 1, then persists via PATCH /unread. */
+  const markAsUnread = useCallback(async (conversationId: string) => {
+    setConversations(prev => prev.map(c =>
+      c.id === conversationId ? { ...c, unreadCount: 1 } : c
+    ))
+    try {
+      await fetchAPI(`/messaging/conversations/${conversationId}/unread`, { method: 'PATCH' })
+    } catch {
+      // Non-critical; badge will resync on next list fetch
+    }
+  }, [])
+
   /** Optimistically change a conversation's workflow status; rolls back on failure. */
   const changeStatus = useCallback(async (conversationId: string, status: ConversationStatus) => {
     let snapshot: Conversation | undefined
@@ -293,6 +305,7 @@ export function useInbox() {
     handoverToHuman,
     handbackToBot,
     markAsRead,
+    markAsUnread,
     changeStatus,
     assignConversation,
     // Filters

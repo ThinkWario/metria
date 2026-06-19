@@ -14,7 +14,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription
 } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
-import { Filter, Pencil, Trash2, Users, Search, RefreshCw } from 'lucide-react'
+import { Filter, Pencil, Trash2, Users, Search, RefreshCw, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 import { SegmentBuilder } from '@/components/crm/SegmentBuilder'
 import {
@@ -64,6 +64,9 @@ export default function SegmentsClient() {
 
   // Recalculate state
   const [recalculating, setRecalculating] = useState<string | null>(null)
+
+  // Duplicate state
+  const [duplicating, setDuplicating] = useState<string | null>(null)
 
   // Contacts sheet state
   const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null)
@@ -130,6 +133,19 @@ export default function SegmentsClient() {
       toast.error(err.message ?? 'Error al recalcular segmento')
     } finally {
       setRecalculating(null)
+    }
+  }
+
+  async function handleDuplicate(segment: Segment) {
+    setDuplicating(segment.id)
+    try {
+      const duplicate = await fetchAPI(`/crm/segments/${segment.id}/duplicate`, { method: 'POST' })
+      setSegments(prev => [duplicate, ...prev])
+      toast.success('Duplicado creado')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al duplicar segmento')
+    } finally {
+      setDuplicating(null)
     }
   }
 
@@ -275,6 +291,16 @@ export default function SegmentsClient() {
                       onClick={() => handleRecalculate(segment)}
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${recalculating === segment.id ? 'animate-spin' : ''}`} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground"
+                      title="Duplicar"
+                      disabled={duplicating === segment.id}
+                      onClick={() => handleDuplicate(segment)}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
                     </Button>
                     <SegmentBuilder
                       key={segment.id}

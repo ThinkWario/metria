@@ -244,6 +244,24 @@ export async function deleteForm(workspaceId: string, formId: string) {
   await prisma.form.delete({ where: { id: formId } })
 }
 
+export async function duplicateForm(workspaceId: string, formId: string) {
+  const original = await getForm(workspaceId, formId)
+  const baseSlug = `${original.slug}-copia`
+  const slug = await uniqueSlug(baseSlug)
+  return prisma.form.create({
+    data: {
+      workspaceId,
+      name: `Copia de ${original.name}`,
+      description: original.description,
+      fields: original.fields as any,
+      slug,
+      isActive: false,
+      submitButtonText: original.submitButtonText,
+      successMessage: original.successMessage,
+    }
+  })
+}
+
 // ── Public read ──────────────────────────────────────────────────────────────
 
 /**

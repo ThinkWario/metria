@@ -13,7 +13,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
-import { Megaphone, Plus, Pencil, Trash2, Users, CheckCircle2, XCircle, Search } from 'lucide-react'
+import { Megaphone, Plus, Pencil, Trash2, Users, CheckCircle2, XCircle, Search, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignComposer } from '@/components/crm/CampaignComposer'
 import { CHANNEL_META, STATUS_META } from '@/components/crm/campaign-presentation'
@@ -21,6 +21,7 @@ import {
   listCampaigns, deleteCampaign, getCampaign,
   type Campaign, type CampaignListItem, type CampaignDetail
 } from '@/lib/campaigns-api'
+import { fetchAPI } from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -35,6 +36,7 @@ export default function CampaignsClient() {
   const [detail, setDetail] = useState<CampaignDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [duplicating, setDuplicating] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -97,6 +99,20 @@ export default function CampaignsClient() {
       toast.error('No se pudieron cargar las estadísticas')
     } finally {
       setDetailLoading(false)
+    }
+  }
+
+  async function handleDuplicate(c: CampaignListItem) {
+    setDuplicating(c.id)
+    try {
+      const duplicate = await fetchAPI(`/crm/campaigns/${c.id}/duplicate`, { method: 'POST' })
+      const item: CampaignListItem = { ...duplicate, recipientCount: 0, sentCount: 0 }
+      setCampaigns(prev => [item, ...prev])
+      toast.success('Duplicado creado')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al duplicar campaña')
+    } finally {
+      setDuplicating(null)
     }
   }
 
@@ -206,32 +222,44 @@ export default function CampaignsClient() {
                       </div>
                     </div>
 
-                    {/* Edit / delete — only for editable campaigns */}
-                    {EDITABLE.has(c.status) && (
-                      <div
-                        className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                        onClick={(e) => e.stopPropagation()}
+                    {/* Actions */}
+                    <div
+                      className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                        title="Duplicar"
+                        disabled={duplicating === c.id}
+                        onClick={() => handleDuplicate(c)}
                       >
-                        <CampaignComposer
-                          key={c.id}
-                          initialData={c}
-                          trigger={
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                          }
-                          onSaved={handleSaved}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() => setDeleteTarget(c)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    )}
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                      {EDITABLE.has(c.status) && (
+                        <>
+                          <CampaignComposer
+                            key={c.id}
+                            initialData={c}
+                            trigger={
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                            }
+                            onSaved={handleSaved}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() => setDeleteTarget(c)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
 

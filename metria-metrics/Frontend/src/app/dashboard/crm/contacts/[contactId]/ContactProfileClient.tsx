@@ -2,10 +2,10 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
-import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import ContactTimeline from '@/components/crm/ContactTimeline'
 import ContactTasks from '@/components/crm/ContactTasks'
-import { Trophy, Wallet, ShoppingBag, GitBranch } from 'lucide-react'
+import { Trophy, Wallet, ShoppingBag, GitBranch, Pencil } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 
@@ -43,6 +43,13 @@ const TICKET_PRIORITY_COLOR: Record<string, string> = {
 const PLATFORM_LABEL: Record<string, string> = {
   WHATSAPP: 'WhatsApp', INSTAGRAM: 'Instagram', TELEGRAM: 'Telegram'
 }
+const TEMP_COLOR: Record<string, string> = {
+  COLD: 'bg-blue-100 text-blue-700', WARM: 'bg-orange-100 text-orange-700', HOT: 'bg-red-100 text-red-700'
+}
+const LEAD_TYPE_COLOR: Record<string, string> = {
+  CURIOUS: 'bg-purple-100 text-purple-700', QUOTING: 'bg-indigo-100 text-indigo-700',
+  READY_TO_BUY: 'bg-green-100 text-green-700', POST_SALE: 'bg-teal-100 text-teal-700'
+}
 
 type Tab = 'resumen' | 'conversaciones' | 'deals' | 'tickets' | 'notas' | 'actividad' | 'tareas'
 
@@ -68,6 +75,11 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   const [valueLoading, setValueLoading] = useState(true)
   const [valueError, setValueError] = useState(false)
   const router = useRouter()
+  const [editOpen, setEditOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -122,6 +134,62 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
     }
   }
 
+  function openEditDialog() {
+    if (!contact) return
+    setEditName(contact.name)
+    setEditEmail(contact.email ?? '')
+    setEditPhone(contact.phone?.split('@')[0] ?? '')
+    setEditOpen(true)
+  }
+
+  async function handleEditSave() {
+    if (!contact || savingEdit) return
+    const newName = editName.trim()
+    if (!newName) { toast.error('El nombre no puede estar vacío'); return }
+    setSavingEdit(true)
+    const prev = { name: contact.name, email: contact.email, phone: contact.phone }
+    const payload = { name: newName, email: editEmail.trim() || null, phone: editPhone.trim() || null }
+    setContact(c => c ? { ...c, ...payload } : c)
+    try {
+      await fetchAPI(`/crm/contacts/${contactId}`, { method: 'PATCH', body: JSON.stringify(payload) })
+      toast.success('Contacto actualizado')
+      setEditOpen(false)
+    } catch {
+      setContact(c => c ? { ...c, ...prev } : c)
+      toast.error('Error al actualizar el contacto')
+    } finally { setSavingEdit(false) }
+  }
+
+  async function handleTemperatureChange(newVal: string) {
+    if (!contact) return
+    const temperature: string | null = newVal || null
+    if (temperature === contact.leadTemperature) return
+    const prev = contact.leadTemperature
+    setContact(c => c ? { ...c, leadTemperature: temperature } : c)
+    try {
+      await fetchAPI(`/crm/contacts/${contactId}`, { method: 'PATCH', body: JSON.stringify({ temperature }) })
+      toast.success('Temperatura actualizada')
+    } catch {
+      setContact(c => c ? { ...c, leadTemperature: prev } : c)
+      toast.error('Error al actualizar la temperatura')
+    }
+  }
+
+  async function handleContactTypeChange(newVal: string) {
+    if (!contact) return
+    const contactType: string | null = newVal || null
+    if (contactType === contact.leadType) return
+    const prev = contact.leadType
+    setContact(c => c ? { ...c, leadType: contactType } : c)
+    try {
+      await fetchAPI(`/crm/contacts/${contactId}`, { method: 'PATCH', body: JSON.stringify({ contactType }) })
+      toast.success('Tipo de contacto actualizado')
+    } catch {
+      setContact(c => c ? { ...c, leadType: prev } : c)
+      toast.error('Error al actualizar el tipo de contacto')
+    }
+  }
+
   if (!mounted || loading) {
     return (
       <div className="space-y-4 animate-pulse">
@@ -159,8 +227,13 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
         <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-lg font-bold uppercase">
           {contact.name.charAt(0)}
         </div>
-        <div>
-          <h1 className="text-xl font-semibold">{contact.name}</h1>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-xl font-semibold truncate">{contact.name}</h1>
+            <button onClick={openEditDialog} className="text-muted-foreground hover:text-foreground p-0.5 rounded" aria-label="Editar contacto">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <p className="text-sm text-muted-foreground">{contact.phone?.split('@')[0] ?? contact.email ?? '—'}</p>
         </div>
         <Select value={contact.status} onValueChange={handleStatusChange}>
@@ -177,11 +250,29 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
             <SelectItem value="CHURNED">Inactivo</SelectItem>
           </SelectContent>
         </Select>
-        <LeadQualificationBadge
-          temperature={contact.leadTemperature}
-          type={contact.leadType}
-          score={contact.leadScore}
-        />
+        <Select value={contact.leadTemperature ?? ''} onValueChange={handleTemperatureChange}>
+          <SelectTrigger className={`h-6 text-xs font-medium px-2.5 rounded-full border-0 shadow-none w-auto min-w-0 gap-1 focus:ring-0 focus:ring-offset-0 ${TEMP_COLOR[contact.leadTemperature ?? ''] ?? 'bg-muted/50 text-muted-foreground'}`}>
+            <SelectValue placeholder="Temperatura" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">Sin definir</SelectItem>
+            <SelectItem value="COLD">Frío</SelectItem>
+            <SelectItem value="WARM">Tibio</SelectItem>
+            <SelectItem value="HOT">Caliente</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={contact.leadType ?? ''} onValueChange={handleContactTypeChange}>
+          <SelectTrigger className={`h-6 text-xs font-medium px-2.5 rounded-full border-0 shadow-none w-auto min-w-0 gap-1 focus:ring-0 focus:ring-offset-0 ${LEAD_TYPE_COLOR[contact.leadType ?? ''] ?? 'bg-muted/50 text-muted-foreground'}`}>
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">Sin definir</SelectItem>
+            <SelectItem value="CURIOUS">Curioso</SelectItem>
+            <SelectItem value="QUOTING">Cotizando</SelectItem>
+            <SelectItem value="READY_TO_BUY">Listo para comprar</SelectItem>
+            <SelectItem value="POST_SALE">Post-venta</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Single flat tab bar */}
@@ -320,6 +411,60 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
           <ContactTasks contactId={contact.id} />
         )}
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Editar contacto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Nombre</label>
+              <input
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                placeholder="Nombre del contacto"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Email</label>
+              <input
+                type="email"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+                value={editEmail}
+                onChange={e => setEditEmail(e.target.value)}
+                placeholder="email@ejemplo.com"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Teléfono</label>
+              <input
+                type="tel"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+                value={editPhone}
+                onChange={e => setEditPhone(e.target.value)}
+                placeholder="+56 9 1234 5678"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => setEditOpen(false)}
+              className="px-3 py-1.5 text-sm rounded-lg border hover:bg-muted"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleEditSave}
+              disabled={savingEdit}
+              className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {savingEdit ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -87,6 +87,19 @@ router.delete('/crm/campaigns/:id', ...auth, async (req: AuthRequest, res: Respo
   }
 })
 
+// ── Duplicate ─────────────────────────────────────────────────────────────────
+
+router.post('/crm/campaigns/:id/duplicate', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    res.status(201).json(await cs.duplicateCampaign(workspaceId, req.params.id))
+  } catch (err: any) {
+    const msg = err.message.toLowerCase()
+    const status = msg.includes('not found') ? 404 : 400
+    res.status(status).json({ error: err.message })
+  }
+})
+
 // ── Send now ───────────────────────────────────────────────────────────────────
 
 router.post('/crm/campaigns/:id/send', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {

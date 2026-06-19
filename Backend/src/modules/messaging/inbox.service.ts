@@ -314,6 +314,26 @@ export async function markConversationAsRead(workspaceId: string, conversationId
   return { marked: result.count }
 }
 
+/**
+ * Marks the last inbound message in a conversation as unread by setting readAt to null.
+ * Scoped to the workspace to prevent cross-tenant access.
+ */
+export async function markConversationAsUnread(workspaceId: string, conversationId: string): Promise<void> {
+  const existing = await prisma.conversation.findFirst({
+    where: { id: conversationId, workspaceId },
+    select: { id: true }
+  })
+  if (!existing) throw new Error('Conversation not found')
+
+  const last = await prisma.message.findFirst({
+    where: { conversationId, direction: 'INBOUND' },
+    orderBy: { sentAt: 'desc' }
+  })
+  if (last) {
+    await prisma.message.update({ where: { id: last.id }, data: { readAt: null } })
+  }
+}
+
 export async function trackAiMetric(
   workspaceId: string,
   channelId: string,

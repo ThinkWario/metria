@@ -59,6 +59,7 @@ export default function FormsClient() {
   const [deleting, setDeleting] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [duplicating, setDuplicating] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<FormSubmission[]>([])
@@ -116,6 +117,19 @@ export default function FormsClient() {
       toast.error(err?.message ?? 'No se pudo cambiar el estado')
     } finally {
       setTogglingId(t => (t === form.id ? null : t))
+    }
+  }
+
+  async function handleDuplicate(form: Form) {
+    setDuplicating(form.id)
+    try {
+      const duplicate = await fetchAPI(`/crm/forms/${form.id}/duplicate`, { method: 'POST' })
+      setForms(prev => [duplicate, ...prev])
+      toast.success('Duplicado creado')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al duplicar formulario')
+    } finally {
+      setDuplicating(null)
     }
   }
 
@@ -259,6 +273,17 @@ export default function FormsClient() {
                       )}
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                        title="Duplicar"
+                        disabled={duplicating === form.id}
+                        onClick={() => handleDuplicate(form)}
+                        aria-label="Duplicar formulario"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
                       <FormBuilder
                         initialData={form}
                         trigger={

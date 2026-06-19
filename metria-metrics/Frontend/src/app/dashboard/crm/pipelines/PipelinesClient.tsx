@@ -14,8 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Plus, Trophy, X, GripVertical,
   Flame, Thermometer, Snowflake, Phone, Calendar, Clock,
-  Check, KanbanSquare, Pencil, BarChart2
+  Check, KanbanSquare, Pencil, BarChart2, Trash2, User
 } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from '@/components/ui/alert-dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartTooltip,
   ResponsiveContainer, PieChart, Pie, Cell
@@ -28,10 +33,12 @@ interface Pipeline { id: string; name: string; isDefault: boolean; stages: Stage
 interface Deal {
   id: string; title: string; value: string; status: string
   probability?: number | null; expectedCloseAt?: string | null; createdAt: string
+  assignedToUserId?: string | null
   contact: { id: string; name: string; phone?: string | null; leadTemperature?: string | null; leadScore?: number | null }
   stage: { id: string; name: string; color: string }
 }
 interface ContactSearch { id: string; name: string; phone?: string | null; email?: string | null }
+interface WorkspaceUser { id: string; name: string | null; email: string }
 
 // ── Analytics types ────────────────────────────────────────────────────────────
 interface StageMetric {
@@ -329,21 +336,39 @@ function LostReasonDialog({
 
 // ── Deal Card ──────────────────────────────────────────────────────────────────
 function DealCard({
-  deal, onWon, onLost, onEdit, overlay = false
+  deal, onWon, onLost, onEdit, onDelete, onAssign, workspaceUsers, overlay = false
 }: {
   deal: Deal
   onWon: (id: string) => void
   onLost: (id: string) => void
   onEdit: (deal: Deal) => void
+  onDelete: (id: string) => void
+  onAssign: (dealId: string, userId: string | null) => void
+  workspaceUsers: WorkspaceUser[]
   overlay?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: deal.id })
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
   const prob = deal.probability ?? null
   const probBar = prob != null ? (prob >= 70 ? 'bg-emerald-500' : prob >= 40 ? 'bg-amber-500' : 'bg-red-500') : null
   const days = daysAgo(deal.createdAt)
   const style = !overlay ? { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.3 : 1, touchAction: 'none' } : {}
+  const assignedUser = workspaceUsers.find(u => u.id === deal.assignedToUserId) ?? null
+
+  async function handleConfirmDelete() {
+    setDeleting(true)
+    try {
+      await onDelete(deal.id)
+      setDeleteOpen(false)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
+    <>
     <div
       ref={!overlay ? setNodeRef : undefined}
       style={style}
@@ -408,6 +433,48 @@ function DealCard({
             </div>
           )}
         </div>
+
+        {/* Assignee chip */}
+        {!overlay && (
+          <div className="px-3 pt-1.5" onClick={e => e.stopPropagation()}>
+            <Popover open={assignOpen} onOpenChange={setAssignOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  title="Asignar vendedor"
+                >
+                  <User className="h-2.5 w-2.5 shrink-0" />
+                  <span className="truncate max-w-[120px]">
+                    {assignedUser ? (assignedUser.name ?? assignedUser.email) : 'Sin asignar'}
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-52 p-1" align="start">
+                <button
+                  className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted text-muted-foreground"
+                  onClick={() => { onAssign(deal.id, null); setAssignOpen(false) }}
+                >
+                  Sin asignar
+                </button>
+                {workspaceUsers.map(u => (
+                  <button
+                    key={u.id}
+                    className={[
+                      'w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted flex items-center gap-2',
+                      deal.assignedToUserId === u.id ? 'font-semibold text-primary' : ''
+                    ].join(' ')}
+                    onClick={() => { onAssign(deal.id, u.id); setAssignOpen(false) }}
+                  >
+                    <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-[9px] font-bold shrink-0">
+                      {(u.name ?? u.email)[0].toUpperCase()}
+                    </div>
+                    <span className="truncate">{u.name ?? u.email}</span>
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
       </div>
 
       {/* Footer */}
@@ -421,36 +488,73 @@ function DealCard({
             </span>
           )}
         </div>
-        {deal.status === 'OPEN' && !overlay && (
+        {!overlay && (
           <div className="flex items-center gap-1">
+            {deal.status === 'OPEN' && (
+              <>
+                <button
+                  onClick={e => { e.stopPropagation(); onWon(deal.id) }}
+                  className="h-5 w-5 rounded flex items-center justify-center hover:bg-emerald-100 text-muted-foreground hover:text-emerald-600 transition-colors"
+                  title="Marcar ganado"
+                >
+                  <Trophy className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); onLost(deal.id) }}
+                  className="h-5 w-5 rounded flex items-center justify-center hover:bg-red-100 text-muted-foreground hover:text-red-600 transition-colors"
+                  title="Marcar perdido"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </>
+            )}
             <button
-              onClick={e => { e.stopPropagation(); onWon(deal.id) }}
-              className="h-5 w-5 rounded flex items-center justify-center hover:bg-emerald-100 text-muted-foreground hover:text-emerald-600 transition-colors"
-              title="Marcar ganado"
+              onClick={e => { e.stopPropagation(); setDeleteOpen(true) }}
+              className="h-5 w-5 rounded flex items-center justify-center hover:bg-red-100 text-muted-foreground/40 hover:text-red-600 transition-colors"
+              title="Eliminar deal"
             >
-              <Trophy className="h-3 w-3" />
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); onLost(deal.id) }}
-              className="h-5 w-5 rounded flex items-center justify-center hover:bg-red-100 text-muted-foreground hover:text-red-600 transition-colors"
-              title="Marcar perdido"
-            >
-              <X className="h-3 w-3" />
+              <Trash2 className="h-3 w-3" />
             </button>
           </div>
         )}
       </div>
     </div>
+
+    {/* Delete confirmation dialog — rendered outside the draggable div */}
+    <AlertDialog open={deleteOpen} onOpenChange={v => { if (!deleting) setDeleteOpen(v) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar este deal?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta acción no se puede deshacer. El deal <strong>{deal.title}</strong> será eliminado permanentemente.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleConfirmDelete}
+            disabled={deleting}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {deleting ? 'Eliminando...' : 'Eliminar'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
 
 // ── Stage Column ───────────────────────────────────────────────────────────────
-function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit }: {
+function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit, onDelete, onAssign, workspaceUsers }: {
   stage: Stage; deals: Deal[]
   onAdd: (stageId: string) => void
   onWon: (id: string) => void
   onLost: (id: string) => void
   onEdit: (deal: Deal) => void
+  onDelete: (id: string) => void
+  onAssign: (dealId: string, userId: string | null) => void
+  workspaceUsers: WorkspaceUser[]
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
   const openDeals = deals.filter(d => d.status === 'OPEN')
@@ -486,7 +590,7 @@ function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit }: {
         ].join(' ')}
       >
         {deals.map(deal => (
-          <DealCard key={deal.id} deal={deal} onWon={onWon} onLost={onLost} onEdit={onEdit} />
+          <DealCard key={deal.id} deal={deal} onWon={onWon} onLost={onLost} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign} workspaceUsers={workspaceUsers} />
         ))}
         {deals.length === 0 && (
           <button
@@ -736,10 +840,18 @@ export default function PipelinesClient() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [analyticsError, setAnalyticsError] = useState<string | null>(null)
+  const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (!mounted) return
+    fetchAPI('/crm/workspace/users')
+      .then((data: WorkspaceUser[]) => setWorkspaceUsers(Array.isArray(data) ? data : []))
+      .catch(() => setWorkspaceUsers([]))
+  }, [mounted])
 
   useEffect(() => {
     if (!mounted) return
@@ -827,6 +939,38 @@ export default function PipelinesClient() {
   const handleEdit = useCallback((deal: Deal) => {
     setEditModal({ open: true, deal })
   }, [])
+
+  const handleDelete = useCallback(async (dealId: string) => {
+    setDeals(prev => prev.filter(d => d.id !== dealId))
+    try {
+      await fetchAPI(`/crm/deals/${dealId}`, { method: 'DELETE' })
+      toast.success('Deal eliminado')
+    } catch (err: any) {
+      // Rollback: re-fetch deals so the removed deal reappears
+      if (selectedPipelineId) {
+        fetchAPI(`/crm/deals?pipelineId=${selectedPipelineId}`)
+          .then(setDeals)
+          .catch(console.error)
+      }
+      toast.error(err.message ?? 'Error al eliminar el deal')
+      throw err
+    }
+  }, [selectedPipelineId])
+
+  const handleAssign = useCallback(async (dealId: string, userId: string | null) => {
+    const userName = userId ? (workspaceUsers.find(u => u.id === userId)?.name ?? workspaceUsers.find(u => u.id === userId)?.email ?? '') : null
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, assignedToUserId: userId } : d))
+    try {
+      await fetchAPI(`/crm/deals/${dealId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ assignedToUserId: userId })
+      })
+      toast.success(userName ? `Deal asignado a ${userName}` : 'Asignación removida')
+    } catch (err: any) {
+      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, assignedToUserId: d.assignedToUserId } : d))
+      toast.error(err.message ?? 'Error al asignar el deal')
+    }
+  }, [workspaceUsers])
 
   async function handleCreatePipeline() {
     setCreatingPipeline(true)
@@ -928,12 +1072,15 @@ export default function PipelinesClient() {
               onWon={handleWon}
               onLost={id => setLostDialog({ open: true, dealId: id })}
               onEdit={handleEdit}
+              onDelete={handleDelete}
+              onAssign={handleAssign}
+              workspaceUsers={workspaceUsers}
             />
           ))}
         </div>
 
         <DragOverlay dropAnimation={null}>
-          {activeDeal && <DealCard deal={activeDeal} onWon={() => {}} onLost={() => {}} onEdit={() => {}} overlay />}
+          {activeDeal && <DealCard deal={activeDeal} onWon={() => {}} onLost={() => {}} onEdit={() => {}} onDelete={() => Promise.resolve()} onAssign={() => {}} workspaceUsers={[]} overlay />}
         </DragOverlay>
       </DndContext>
 

@@ -81,11 +81,33 @@ export async function getContact(workspaceId: string, contactId: string) {
 export async function updateContact(
   workspaceId: string,
   contactId: string,
-  data: { status?: string; ltv?: number; shopifyCustomerId?: string }
+  data: {
+    name?: string
+    email?: string | null
+    phone?: string | null
+    status?: string
+    temperature?: string | null
+    contactType?: string | null
+    ltv?: number
+    shopifyCustomerId?: string
+  }
 ) {
   const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
   if (!contact) throw new Error('Contact not found')
-  return prisma.contact.update({ where: { id: contactId, workspaceId }, data })
+  const { name, email, phone, status, temperature, contactType, ltv, shopifyCustomerId } = data
+  return prisma.contact.update({
+    where: { id: contactId, workspaceId },
+    data: {
+      ...(name !== undefined && { name }),
+      ...(email !== undefined && { email: email || null }),
+      ...(phone !== undefined && { phone: phone || null }),
+      ...(status !== undefined && { status }),
+      ...(temperature !== undefined && { leadTemperature: temperature }),
+      ...(contactType !== undefined && { leadType: contactType }),
+      ...(ltv !== undefined && { ltv }),
+      ...(shopifyCustomerId !== undefined && { shopifyCustomerId }),
+    }
+  })
 }
 
 export async function addNote(workspaceId: string, contactId: string, userId: string, content: string) {

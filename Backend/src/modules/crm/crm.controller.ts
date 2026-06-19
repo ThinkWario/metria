@@ -3,6 +3,7 @@ import type { AuthRequest } from '../../middleware/auth'
 import * as cs from './contact.service'
 import * as ps from './pipeline.service'
 import * as ts from './ticket.service'
+import { prisma } from '../../lib/prisma'
 
 function notFoundStatus(msg: string) {
   return msg.toLowerCase().includes('not found') ? 404 : 500
@@ -34,7 +35,10 @@ export async function createContactHandler(req: AuthRequest, res: Response): Pro
 
 export async function updateContactHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
-    res.json(await cs.updateContact(req.user!.workspaceId!, req.params.contactId, req.body))
+    const { name, email, phone, status, temperature, contactType, ltv, shopifyCustomerId } = req.body
+    res.json(await cs.updateContact(req.user!.workspaceId!, req.params.contactId, {
+      name, email, phone, status, temperature, contactType, ltv, shopifyCustomerId
+    }))
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
@@ -136,9 +140,26 @@ export async function closeDealHandler(req: AuthRequest, res: Response): Promise
 
 export async function updateDealHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { title, value, probability, expectedCloseAt } = req.body
-    res.json(await ps.updateDeal(req.user!.workspaceId!, req.params.dealId, { title, value, probability, expectedCloseAt }))
+    const { title, value, probability, expectedCloseAt, assignedToUserId } = req.body
+    res.json(await ps.updateDeal(req.user!.workspaceId!, req.params.dealId, { title, value, probability, expectedCloseAt, assignedToUserId }))
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+export async function deleteDealHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    await ps.deleteDeal(req.user!.workspaceId!, req.params.dealId)
+    res.status(204).send()
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+export async function getWorkspaceUsersHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const users = await prisma.user.findMany({
+      where: { workspaceId: req.user!.workspaceId! },
+      select: { id: true, name: true, email: true }
+    })
+    res.json(users)
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
 }
 
 export async function pipelineAnalyticsHandler(req: AuthRequest, res: Response): Promise<void> {
@@ -173,5 +194,59 @@ export async function updateTicketHandler(req: AuthRequest, res: Response): Prom
 export async function resolveTicketHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     res.json(await ts.resolveTicket(req.user!.workspaceId!, req.params.ticketId))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+export async function listTasksHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const filter = (req.query.filter as string) ?? 'all'
+
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000)
+
+    const dateFilter: Record<string, unknown> =
+      filter === 'today'    ? { dueAt: { gte: startOfToday, lt: startOfTomorrow } } :
+      filter === 'overdue'  ? { dueAt: { lt: startOfToday } } :
+      filter === 'upcoming' ? { dueAt: { gte: startOfTomorrow } } :
+      {}
+
+    const tasks = await prisma.contactTask.findMany({
+      where: {
+        workspaceId,
+        completedAt: null,
+        ...dateFilter,
+      },
+      include: {
+        contact: { select: { id: true, name: true } },
+      },
+      orderBy: [
+        { dueAt: { sort: 'asc', nulls: 'last' } },
+        { priority: 'desc' },
+      ],
+    })
+
+    res.json(tasks)
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
+export async function completeTaskHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const { taskId } = req.params
+
+    const task = await prisma.contactTask.findFirst({ where: { id: taskId, workspaceId } })
+    if (!task) { res.status(404).json({ error: 'Task not found' }); return }
+
+    const updated = await prisma.contactTask.update({
+      where: { id: taskId },
+      data: { completedAt: new Date() },
+      include: { contact: { select: { id: true, name: true } } },
+    })
+
+    res.json(updated)
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }

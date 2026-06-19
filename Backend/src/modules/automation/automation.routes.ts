@@ -96,6 +96,16 @@ router.delete('/crm/workflows/:id', ...auth, async (req: AuthRequest, res: Respo
   }
 })
 
+// ── Duplicate ─────────────────────────────────────────────────────────────────
+router.post('/crm/workflows/:id/duplicate', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    res.status(201).json(await ws.duplicateWorkflow(req.user!.workspaceId!, req.params.id))
+  } catch (err: any) {
+    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+})
+
 // ── Runs ─────────────────────────────────────────────────────────────────────
 router.get('/crm/workflows/:id/runs', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {

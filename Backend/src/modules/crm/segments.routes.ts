@@ -95,6 +95,19 @@ router.delete('/crm/segments/:id', ...auth, async (req: AuthRequest, res: Respon
   }
 })
 
+// ── Duplicate ──────────────────────────────────────────────────────────────────
+
+router.post('/crm/segments/:id/duplicate', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const duplicate = await ss.duplicateSegment(workspaceId, req.params.id)
+    res.status(201).json(duplicate)
+  } catch (err: any) {
+    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+})
+
 // ── Get contacts for a segment ─────────────────────────────────────────────────
 
 router.get('/crm/segments/:id/contacts', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {

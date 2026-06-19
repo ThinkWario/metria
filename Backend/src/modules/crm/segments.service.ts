@@ -209,3 +209,16 @@ export async function previewSegmentCount(workspaceId: string, filters: SegmentF
   const where = buildWhereFromFilters(workspaceId, filters)
   return prisma.contact.count({ where })
 }
+
+export async function duplicateSegment(workspaceId: string, segmentId: string) {
+  const original = await getSegment(workspaceId, segmentId)
+  return prisma.segment.create({
+    data: {
+      workspaceId,
+      name: `Copia de ${original.name}`,
+      description: original.description,
+      filters: original.filters as any,
+      contactCount: 0,
+    }
+  })
+}

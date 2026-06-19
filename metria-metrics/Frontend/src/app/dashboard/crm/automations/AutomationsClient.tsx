@@ -14,13 +14,14 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { Zap, Pencil, Trash2, Play, History, Search } from 'lucide-react'
+import { Zap, Pencil, Trash2, Play, History, Search, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 import { AutomationBuilder } from '@/components/crm/AutomationBuilder'
 import {
   listWorkflows, getCatalog, deleteWorkflow, updateWorkflow, getWorkflowRuns,
   type Workflow, type WorkflowCatalog, type WorkflowRun
 } from '@/lib/crm-automations-api'
+import { fetchAPI } from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -38,6 +39,7 @@ export default function AutomationsClient() {
   const [runs, setRuns] = useState<WorkflowRun[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
   const [runsError, setRunsError] = useState<string | null>(null)
+  const [duplicating, setDuplicating] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -106,6 +108,19 @@ export default function AutomationsClient() {
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
+    }
+  }
+
+  async function handleDuplicate(workflow: Workflow) {
+    setDuplicating(workflow.id)
+    try {
+      const duplicate = await fetchAPI(`/crm/workflows/${workflow.id}/duplicate`, { method: 'POST' })
+      setWorkflows(prev => [duplicate, ...prev])
+      toast.success('Duplicado creado')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al duplicar automatización')
+    } finally {
+      setDuplicating(null)
     }
   }
 
@@ -214,6 +229,16 @@ export default function AutomationsClient() {
                       onClick={() => setSelectedWorkflowId(workflow.id)}
                     >
                       <History className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground"
+                      title="Duplicar"
+                      disabled={duplicating === workflow.id}
+                      onClick={() => handleDuplicate(workflow)}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
                     </Button>
                     <AutomationBuilder
                       key={workflow.id}

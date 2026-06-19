@@ -1,7 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, Plus, CheckCircle2, Circle } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   getContactTasks, createContactTask, updateContactTask, deleteContactTask,
   type ContactTask
@@ -28,6 +29,11 @@ function formatDate(dateStr?: string) {
   return new Date(dateStr).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function toDateInputValue(isoStr?: string) {
+  if (!isoStr) return ''
+  return isoStr.split('T')[0]
+}
+
 interface NewTaskForm {
   title: string
   dueAt: string
@@ -40,6 +46,12 @@ export default function ContactTasks({ contactId }: { contactId: string }) {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<NewTaskForm>(EMPTY_FORM)
+
+  // Inline edit state
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editingDueAtId, setEditingDueAtId] = useState<string | null>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ['contact-tasks', contactId],
@@ -69,10 +81,30 @@ export default function ContactTasks({ contactId }: { contactId: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['contact-tasks', contactId] })
   })
 
+  const updateMutation = useMutation({
+    mutationFn: ({ taskId, data }: { taskId: string; data: Parameters<typeof updateContactTask>[1] }) =>
+      updateContactTask(taskId, data),
+    onSuccess: (_result, { taskId, data }) => {
+      qc.setQueryData<ContactTask[]>(['contact-tasks', contactId], old =>
+        old?.map(t => t.id === taskId ? { ...t, ...(data as Partial<ContactTask>) } : t) ?? []
+      )
+      toast.success('Tarea actualizada')
+    },
+    onError: () => toast.error('Error al actualizar la tarea')
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (taskId: string) => deleteContactTask(taskId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['contact-tasks', contactId] })
   })
+
+  function commitTitleEdit(task: ContactTask) {
+    const trimmed = editTitle.trim()
+    setEditingTitleId(null)
+    if (trimmed && trimmed !== task.title) {
+      updateMutation.mutate({ taskId: task.id, data: { title: trimmed } })
+    }
+  }
 
   // Sort: incomplete first (by dueAt), then completed
   const sorted = [...tasks].sort((a, b) => {
@@ -162,6 +194,9 @@ export default function ContactTasks({ contactId }: { contactId: string }) {
           {sorted.map(task => {
             const overdue = isOverdue(task.dueAt, task.completedAt)
             const completed = !!task.completedAt
+            const isEditingTitle = editingTitleId === task.id
+            const isEditingDueAt = editingDueAtId === task.id
+
             return (
               <div
                 key={task.id}
@@ -182,23 +217,100 @@ export default function ContactTasks({ contactId }: { contactId: string }) {
                   }
                 </button>
 
-                {/* Title */}
-                <span className={`flex-1 text-sm ${completed ? 'line-through text-muted-foreground' : ''}`}>
-                  {task.title}
-                </span>
-
-                {/* Priority badge */}
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORITY_BADGE[task.priority] ?? 'bg-muted text-muted-foreground'}`}>
-                  {PRIORITY_LABEL[task.priority] ?? task.priority}
-                </span>
-
-                {/* Due date chip */}
-                {task.dueAt && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    overdue ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground'
-                  }`}>
-                    {formatDate(task.dueAt)}
+                {/* Title — click to edit */}
+                {isEditingTitle ? (
+                  <input
+                    ref={titleInputRef}
+                    autoFocus
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    onBlur={() => commitTitleEdit(task)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { e.preventDefault(); commitTitleEdit(task) }
+                      if (e.key === 'Escape') { setEditingTitleId(null) }
+                    }}
+                    className="flex-1 text-sm border rounded px-2 py-0.5 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                ) : (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className={`flex-1 text-sm ${
+                      completed
+                        ? 'line-through text-muted-foreground'
+                        : 'cursor-pointer hover:underline decoration-dotted underline-offset-2'
+                    }`}
+                    onClick={() => {
+                      if (completed) return
+                      setEditingTitleId(task.id)
+                      setEditTitle(task.title)
+                    }}
+                    onKeyDown={e => {
+                      if ((e.key === 'Enter' || e.key === ' ') && !completed) {
+                        e.preventDefault()
+                        setEditingTitleId(task.id)
+                        setEditTitle(task.title)
+                      }
+                    }}
+                  >
+                    {task.title}
                   </span>
+                )}
+
+                {/* Priority — always a select, styled as badge */}
+                <select
+                  value={task.priority}
+                  disabled={updateMutation.isPending}
+                  onChange={e => updateMutation.mutate({ taskId: task.id, data: { priority: e.target.value } })}
+                  className={`text-xs px-2 py-0.5 rounded-full font-medium border-0 cursor-pointer appearance-none focus:outline-none focus:ring-1 focus:ring-ring ${
+                    PRIORITY_BADGE[task.priority] ?? 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  <option value="LOW">Baja</option>
+                  <option value="MEDIUM">Media</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="URGENT">Urgente</option>
+                </select>
+
+                {/* Due date — click chip to edit */}
+                {task.dueAt && (
+                  isEditingDueAt ? (
+                    <input
+                      type="date"
+                      autoFocus
+                      defaultValue={toDateInputValue(task.dueAt)}
+                      onBlur={() => setEditingDueAtId(null)}
+                      onChange={e => {
+                        const val = e.target.value
+                        if (val) {
+                          updateMutation.mutate({
+                            taskId: task.id,
+                            data: { dueAt: new Date(val).toISOString() }
+                          })
+                          setEditingDueAtId(null)
+                        }
+                      }}
+                      className="text-xs border rounded px-1.5 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring w-32"
+                    />
+                  ) : (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      title="Haz clic para editar la fecha"
+                      onClick={() => setEditingDueAtId(task.id)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setEditingDueAtId(task.id)
+                        }
+                      }}
+                      className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:ring-1 hover:ring-ring transition-all ${
+                        overdue ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {formatDate(task.dueAt)}
+                    </span>
+                  )
                 )}
 
                 {/* Delete */}

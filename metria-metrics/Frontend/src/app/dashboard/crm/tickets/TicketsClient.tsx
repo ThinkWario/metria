@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { fetchAPI } from '@/lib/api'
 import { toast } from 'sonner'
+import { Plus } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -9,6 +10,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
 
 const PRIORITY_COLOR: Record<string, string> = {
   URGENT: 'bg-red-100 text-red-700',
@@ -35,12 +44,34 @@ interface Ticket {
   contact: { id: string; name: string; phone: string | null }
 }
 
+interface Contact {
+  id: string
+  name: string
+}
+
+interface NewTicketForm {
+  title: string
+  description: string
+  priority: string
+  contactId: string
+}
+
+const EMPTY_TICKET: NewTicketForm = { title: '', description: '', priority: 'MEDIUM', contactId: '' }
+
 export default function TicketsClient() {
   const [mounted, setMounted] = useState(false)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('')
+
+  // Dialog state
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [form, setForm] = useState<NewTicketForm>(EMPTY_TICKET)
+  const [saving, setSaving] = useState(false)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [contactsLoading, setContactsLoading] = useState(false)
+  const [contactSearch, setContactSearch] = useState('')
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -80,6 +111,50 @@ export default function TicketsClient() {
     }
   }
 
+  async function handleOpenDialog(open: boolean) {
+    setDialogOpen(open)
+    if (open && contacts.length === 0 && !contactsLoading) {
+      setContactsLoading(true)
+      try {
+        const data = await fetchAPI('/crm/contacts?limit=100')
+        const arr: Contact[] = Array.isArray(data) ? data : (data.contacts ?? data.items ?? [])
+        setContacts(arr)
+      } catch {
+        // non-fatal: user sees empty select
+      } finally {
+        setContactsLoading(false)
+      }
+    }
+    if (!open) {
+      setForm(EMPTY_TICKET)
+      setContactSearch('')
+    }
+  }
+
+  async function handleCreateTicket() {
+    if (!form.title.trim()) { toast.error('El título es obligatorio'); return }
+    if (!form.contactId) { toast.error('Selecciona un contacto'); return }
+    setSaving(true)
+    try {
+      const newTicket = await fetchAPI('/crm/tickets', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          priority: form.priority,
+          contactId: form.contactId,
+        })
+      })
+      setTickets(ts => [newTicket, ...ts])
+      toast.success('Ticket creado')
+      handleOpenDialog(false)
+    } catch {
+      toast.error('Error al crear el ticket')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (!mounted) {
     return (
       <div className="space-y-2">
@@ -91,10 +166,13 @@ export default function TicketsClient() {
   }
 
   const now = Date.now()
+  const filteredContacts = contactSearch.trim()
+    ? contacts.filter(c => c.name.toLowerCase().includes(contactSearch.toLowerCase()))
+    : contacts
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
+      {/* Filters + action */}
       <div className="flex items-center gap-3">
         <select
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
@@ -112,6 +190,14 @@ export default function TicketsClient() {
           <option value="">Todas las prioridades</option>
           {['URGENT', 'HIGH', 'MEDIUM', 'LOW'].map(p => <option key={p} value={p}>{p}</option>)}
         </select>
+
+        <button
+          onClick={() => handleOpenDialog(true)}
+          className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Nuevo Ticket
+        </button>
       </div>
 
       {loading ? (
@@ -192,6 +278,115 @@ export default function TicketsClient() {
           </table>
         </div>
       )}
+
+      {/* Create ticket dialog */}
+      <Dialog open={dialogOpen} onOpenChange={handleOpenDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nuevo Ticket</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Title */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Título <span className="text-destructive">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Describe el problema o solicitud"
+                value={form.title}
+                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') handleCreateTicket() }}
+                className="w-full text-sm border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                autoFocus
+              />
+            </div>
+
+            {/* Description */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-muted-foreground">Descripción</label>
+              <Textarea
+                placeholder="Detalles opcionales..."
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                rows={3}
+                className="text-sm resize-none"
+              />
+            </div>
+
+            {/* Priority */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Prioridad</label>
+              <select
+                value={form.priority}
+                onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                className="w-full text-sm border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="URGENT">Urgente</option>
+                <option value="HIGH">Alta</option>
+                <option value="MEDIUM">Media</option>
+                <option value="LOW">Baja</option>
+              </select>
+            </div>
+
+            {/* Contact */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Contacto <span className="text-destructive">*</span>
+              </label>
+              {contactsLoading ? (
+                <div className="h-9 rounded-lg bg-muted/40 animate-pulse" />
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Buscar contacto..."
+                    value={contactSearch}
+                    onChange={e => setContactSearch(e.target.value)}
+                    className="w-full text-sm border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  {(contactSearch.trim() || form.contactId) && (
+                    <select
+                      size={Math.min(filteredContacts.length, 5) || 1}
+                      value={form.contactId}
+                      onChange={e => {
+                        setForm(f => ({ ...f, contactId: e.target.value }))
+                        const c = contacts.find(x => x.id === e.target.value)
+                        if (c) setContactSearch(c.name)
+                      }}
+                      className="w-full text-sm border rounded-lg px-2 py-1 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      {filteredContacts.length === 0
+                        ? <option value="" disabled>Sin resultados</option>
+                        : filteredContacts.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))
+                      }
+                    </select>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <button
+              onClick={() => handleOpenDialog(false)}
+              className="px-4 py-2 rounded-lg border text-sm font-medium hover:bg-muted/50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleCreateTicket}
+              disabled={saving || !form.title.trim() || !form.contactId}
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+            >
+              {saving ? 'Creando...' : 'Crear Ticket'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
