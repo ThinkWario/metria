@@ -26,6 +26,11 @@ model Workspace {
   bookingSlug              String?                   @unique @map("booking_slug")
   bookingTitle             String?                   @map("booking_title")
   bookingDurationMin       Int                       @default(30) @map("booking_duration_min")
+  googleCalAccessToken     String?                   @map("google_cal_access_token")
+  googleCalRefreshToken    String?                   @map("google_cal_refresh_token")
+  googleCalEmail           String?                   @map("google_cal_email")
+  googleCalendarId         String?                   @map("google_calendar_id")
+  googleCalTokenExpiry     DateTime?                 @map("google_cal_token_expiry")
   adProductMappings        AdProductMapping[]
   adSpends                 AdSpend[]
   auditLogs                AuditLog[]
@@ -349,8 +354,8 @@ model Contact {
   ltv               Decimal              @default(0) @db.Decimal(10, 2)
   healthScore       Int?                 @map("health_score")
   leadScore         Int?                 @map("lead_score")
-  leadTemperature   String?              @map("lead_temperature")   // COLD | WARM | HOT
-  leadType          String?              @map("lead_type")          // CURIOUS | QUOTING | READY_TO_BUY | POST_SALE
+  leadTemperature   String?              @map("lead_temperature") // COLD | WARM | HOT
+  leadType          String?              @map("lead_type") // CURIOUS | QUOTING | READY_TO_BUY | POST_SALE
   qualificationData Json?                @map("qualification_data")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
@@ -651,8 +656,8 @@ model KnowledgeDocument {
   workspaceId String           @map("workspace_id")
   botAgentId  String?          @map("bot_agent_id")
   name        String
-  sourceType  String           @map("source_type")      // PDF | TEXT | FAQ
-  status      String           @default("PROCESSING")   // PROCESSING | READY | ERROR
+  sourceType  String           @map("source_type") // PDF | TEXT | FAQ
+  status      String           @default("PROCESSING") // PROCESSING | READY | ERROR
   error       String?
   createdAt   DateTime         @default(now()) @map("created_at")
   chunks      KnowledgeChunk[]
@@ -678,9 +683,9 @@ model KnowledgeChunk {
 model AvailabilityRule {
   id          String    @id @default(uuid())
   workspaceId String    @map("workspace_id")
-  dayOfWeek   Int       @map("day_of_week")              // 0=Sunday .. 6
-  startTime   String    @map("start_time")               // "09:00"
-  endTime     String    @map("end_time")                 // "18:00"
+  dayOfWeek   Int       @map("day_of_week") // 0=Sunday .. 6
+  startTime   String    @map("start_time") // "09:00"
+  endTime     String    @map("end_time") // "18:00"
   slotMinutes Int       @default(60) @map("slot_minutes")
   apptType    String    @default("SITE_VISIT") @map("appt_type") // SITE_VISIT | CALL
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -694,12 +699,13 @@ model Appointment {
   workspaceId String    @map("workspace_id")
   contactId   String    @map("contact_id")
   dealId      String?   @map("deal_id")
-  type        String    @default("SITE_VISIT")           // SITE_VISIT | CALL
+  type        String    @default("SITE_VISIT") // SITE_VISIT | CALL
   scheduledAt DateTime  @map("scheduled_at")
   durationMin Int       @default(60) @map("duration_min")
-  status      String    @default("SCHEDULED")            // SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
-  notes       String?
-  createdBy   String    @map("created_by")               // 'BOT' | userId
+  status      String    @default("SCHEDULED") // SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
+  notes         String?
+  googleEventId String?   @map("google_event_id")
+  createdBy   String    @map("created_by") // 'BOT' | userId
   createdAt   DateTime  @default(now()) @map("created_at")
   contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -727,7 +733,7 @@ model FollowUpJob {
   conversationId String    @map("conversation_id")
   ruleId         String    @map("rule_id")
   scheduledAt    DateTime  @map("scheduled_at")
-  status         String    @default("PENDING")           // PENDING | SENT | CANCELLED
+  status         String    @default("PENDING") // PENDING | SENT | CANCELLED
   sentAt         DateTime? @map("sent_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 
@@ -833,8 +839,8 @@ model Workflow {
   description   String?
   isActive      Boolean          @default(true)
   triggerType   ContactEventType
-  triggerConfig Json?            // filtro opcional, p.ej. { stageId } o { temperature }
-  nodes         Json             // arreglo ordenado de nodos { type, config, ... }
+  triggerConfig Json? // filtro opcional, p.ej. { stageId } o { temperature }
+  nodes         Json // arreglo ordenado de nodos { type, config, ... }
   runCount      Int              @default(0)
   lastRunAt     DateTime?
   createdAt     DateTime         @default(now())
@@ -854,9 +860,9 @@ model WorkflowRun {
   contactId   String?
   status      WorkflowRunStatus @default(RUNNING)
   cursor      Int               @default(0) // índice del próximo nodo a ejecutar
-  resumeAt    DateTime?                     // para nodos de espera (wait)
-  context     Json?                         // payload del evento + variables acumuladas
-  log         Json?                         // bitácora de ejecución
+  resumeAt    DateTime? // para nodos de espera (wait)
+  context     Json? // payload del evento + variables acumuladas
+  log         Json? // bitácora de ejecución
   createdAt   DateTime          @default(now())
   completedAt DateTime?
 
@@ -871,18 +877,18 @@ model WorkflowRun {
 // ── F3: Formularios / captura de leads ───────────────────────────────────────
 
 model Form {
-  id               String           @id @default(cuid())
+  id               String   @id @default(cuid())
   workspaceId      String
   name             String
   description      String?
-  fields           Json             // [{ id, label, type: text|email|tel|textarea|select, required, options? }]
-  slug             String           @unique
-  isActive         Boolean          @default(true)
-  submitButtonText String           @default("Enviar")
-  successMessage   String           @default("¡Gracias! Te contactaremos pronto.")
-  submissionCount  Int              @default(0)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  fields           Json // [{ id, label, type: text|email|tel|textarea|select, required, options? }]
+  slug             String   @unique
+  isActive         Boolean  @default(true)
+  submitButtonText String   @default("Enviar")
+  successMessage   String   @default("¡Gracias! Te contactaremos pronto.")
+  submissionCount  Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   submissions FormSubmission[]
@@ -919,14 +925,14 @@ model Campaign {
   id          String         @id @default(cuid())
   workspaceId String
   name        String
-  channel     String         // EMAIL | SMS | WHATSAPP
-  subject     String?        // solo email
-  body        String         // soporta merge tags {{name}}, {{phone}}
+  channel     String // EMAIL | SMS | WHATSAPP
+  subject     String? // solo email
+  body        String // soporta merge tags {{name}}, {{phone}}
   segmentId   String?
   status      CampaignStatus @default(DRAFT)
   scheduledAt DateTime?
   sentAt      DateTime?
-  stats       Json?          // { total, sent, failed, opened, clicked }
+  stats       Json? // { total, sent, failed, opened, clicked }
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -957,8 +963,8 @@ model CampaignRecipient {
 model Suppression {
   id          String   @id @default(cuid())
   workspaceId String
-  channel     String   // EMAIL | SMS
-  value       String   // email o teléfono
+  channel     String // EMAIL | SMS
+  value       String // email o teléfono
   reason      String?
   createdAt   DateTime @default(now())
 
@@ -979,8 +985,8 @@ model PaymentLink {
   currency    String    @default("CLP")
   description String?
   provider    String    @default("MERCADOPAGO")
-  externalId  String?   // id de la preferencia en el proveedor
-  url         String?   // init_point / checkout URL
+  externalId  String? // id de la preferencia en el proveedor
+  url         String? // init_point / checkout URL
   status      String    @default("PENDING") // PENDING | PAID | EXPIRED | CANCELLED
   createdAt   DateTime  @default(now())
   paidAt      DateTime?

@@ -40,6 +40,7 @@ import knowledgeRoutes from './modules/knowledge/knowledge.routes'
 import schedulingRoutes from './modules/scheduling/scheduling.routes'
 import publicBookingRoutes from './modules/scheduling/public-booking.routes'
 import composioRoutes from './routes/composio'
+import googleCalendarRoutes from './routes/integrations/google-calendar.routes'
 import { startFollowUpCron } from './modules/ai-agent/followup.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 import { startWorkflowCron } from './modules/automation/automation.cron'
@@ -97,6 +98,7 @@ app.use('/api/public', publicBookingRoutes)
 app.use('/api/public', publicFormsRoutes)
 app.use('/api/public', paymentLinksWebhook)
 app.use('/api/composio', composioRoutes)
+app.use('/api/integrations/google-calendar', googleCalendarRoutes)
 
 // Start cron jobs
 startAnalyticsCron()

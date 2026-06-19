@@ -1,5 +1,6 @@
 import { MetaAdsProvider } from './providers/meta'
 import { GoogleAdsProvider } from './providers/google'
+import { GoogleCalendarProvider } from './providers/google-calendar'
 import { ShopifyProvider } from './providers/shopify'
 import { IOAuthProvider } from './types'
 
@@ -7,6 +8,7 @@ export class OAuthManager {
   private static providers: Record<string, IOAuthProvider> = {
     meta: new MetaAdsProvider(),
     google: new GoogleAdsProvider(),
+    google_calendar: new GoogleCalendarProvider(),
     shopify: new ShopifyProvider()
   }
 
