@@ -12,6 +12,7 @@ import { emitContactEvent } from '../automation/emit'
  *     type: 'text'|'email'|'tel'|'textarea'|'select'     // input kind
  *     required: boolean                                  // must be filled
  *     options?: string[]                                 // ONLY for type 'select'
+ *     conditions?: FieldCondition[]                      // AND-combined visibility rules
  *   }>
  *
  * Public submissions are treated as hostile: every value is re-validated
@@ -21,15 +22,25 @@ import { emitContactEvent } from '../automation/emit'
 
 export type FormFieldType = 'text' | 'email' | 'tel' | 'textarea' | 'select'
 
+export type ConditionOp = 'eq' | 'neq' | 'contains'
+
+export interface FieldCondition {
+  fieldId: string
+  op: ConditionOp
+  value: string // case-insensitive comparison
+}
+
 export interface FormField {
   id: string
   label: string
   type: FormFieldType
   required: boolean
   options?: string[]
+  conditions?: FieldCondition[] // undefined/[] = always visible; AND semantics
 }
 
 const FIELD_TYPES: FormFieldType[] = ['text', 'email', 'tel', 'textarea', 'select']
+const CONDITION_OPS: ConditionOp[] = ['eq', 'neq', 'contains']
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 // Permissive phone: digits, spaces, +, -, (), at least 6 digits checked separately.
 const PHONE_CHARS_RE = /^[\d\s+\-()]+$/
@@ -111,7 +122,71 @@ export function normalizeFields(raw: unknown): FormField[] {
       options = cleanOpts
     }
 
-    return { id, label, type, required, ...(options ? { options } : {}) }
+    const conditions = normalizeConditions(f?.conditions, label, seenIds)
+
+    return {
+      id,
+      label,
+      type,
+      required,
+      ...(options ? { options } : {}),
+      ...(conditions.length ? { conditions } : {})
+    }
+  })
+}
+
+/**
+ * Validates a field's `conditions` array. Each condition references another
+ * field by id with a comparison op + expected value. `seenIds` holds the ids
+ * declared *before* this field; conditions may only reference earlier fields,
+ * which prevents cycles and forward references the client could exploit.
+ */
+function normalizeConditions(
+  raw: unknown,
+  label: string,
+  seenIds: Set<string>
+): FieldCondition[] {
+  if (raw == null) return []
+  if (!Array.isArray(raw)) throw new Error(`Las condiciones de "${label}" deben ser un arreglo`)
+
+  return raw.map((c: any): FieldCondition => {
+    const fieldId = String(c?.fieldId ?? '').trim()
+    if (!fieldId) throw new Error(`Una condición de "${label}" no referencia ningún campo`)
+    if (!seenIds.has(fieldId)) {
+      throw new Error(`La condición de "${label}" referencia un campo inválido: ${fieldId}`)
+    }
+
+    const op = String(c?.op ?? '') as ConditionOp
+    if (!CONDITION_OPS.includes(op)) {
+      throw new Error(`Operador de condición inválido en "${label}": ${op}`)
+    }
+
+    const value = String(c?.value ?? '').trim().slice(0, MAX_VALUE)
+
+    return { fieldId, op, value }
+  })
+}
+
+/**
+ * Decides whether a field is visible given the currently submitted values.
+ * No conditions ⇒ always visible. All conditions must pass (AND semantics).
+ * Comparisons are case-insensitive.
+ */
+export function isFieldVisible(field: FormField, values: Record<string, string>): boolean {
+  if (!field.conditions?.length) return true
+  return field.conditions.every((cond) => {
+    const actual = (values[cond.fieldId] ?? '').toLowerCase()
+    const expected = cond.value.toLowerCase()
+    switch (cond.op) {
+      case 'eq':
+        return actual === expected
+      case 'neq':
+        return actual !== expected
+      case 'contains':
+        return actual.includes(expected)
+      default:
+        return true
+    }
   })
 }
 
@@ -304,7 +379,17 @@ function validateSubmission(
   let firstPhone: string | undefined
   let name: string | undefined
 
+  // Normalize submitted values to plain strings for condition evaluation, then
+  // keep only fields whose visibility conditions pass. Hidden fields are never
+  // validated nor persisted — they aren't part of the prospect's actual answer.
+  const submittedValues: Record<string, string> = {}
   for (const field of fields) {
+    const rv = data?.[field.id]
+    submittedValues[field.id] = rv == null ? '' : String(rv).trim()
+  }
+  const visibleFields = fields.filter((f) => isFieldVisible(f, submittedValues))
+
+  for (const field of visibleFields) {
     const rawVal = data?.[field.id]
     const value = rawVal == null ? '' : String(rawVal).trim().slice(0, MAX_VALUE)
 
