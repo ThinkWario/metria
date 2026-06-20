@@ -41,6 +41,7 @@ import schedulingRoutes from './modules/scheduling/scheduling.routes'
 import publicBookingRoutes from './modules/scheduling/public-booking.routes'
 import composioRoutes from './routes/composio'
 import googleCalendarRoutes from './routes/integrations/google-calendar.routes'
+import trackingRoutes from './modules/tracking/tracking.routes'
 import { startFollowUpCron } from './modules/ai-agent/followup.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 import { startWorkflowCron } from './modules/automation/automation.cron'
@@ -60,6 +61,9 @@ app.use('/api/webhooks/instagram', express.raw({ type: 'application/json' }))
 
 // Standard JSON body parser for everything else (15mb for base64 PDF ingestion)
 app.use(express.json({ limit: '15mb' }))
+
+// Public tracking routes (no auth — pixel is embedded in emails)
+app.use('/t', trackingRoutes)
 
 // Register API Routes
 app.use('/health', healthRoutes)
