@@ -863,6 +863,7 @@ model WorkflowRun {
   resumeAt    DateTime? // para nodos de espera (wait)
   context     Json? // payload del evento + variables acumuladas
   log         Json? // bitácora de ejecución
+  meta        Json? // { waitingForContactId?: string }
   createdAt   DateTime          @default(now())
   completedAt DateTime?
 
@@ -952,6 +953,7 @@ model CampaignRecipient {
   error       String?
   sentAt      DateTime?
   openedAt    DateTime?
+  clickedAt   DateTime? @map("clicked_at")
   createdAt   DateTime  @default(now())
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
