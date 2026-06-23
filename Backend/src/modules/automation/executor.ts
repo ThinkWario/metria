@@ -49,6 +49,25 @@ export async function resumeRun(runId: string): Promise<void> {
       return
     }
 
+    if (node?.type === 'wait_for_reply') {
+      const cfg = node.config ?? {}
+      const timeoutHours = Math.max(Number(cfg.timeoutHours) || 24, 1)
+      const resumeAt = new Date(Date.now() + timeoutHours * 3_600_000)
+      const existingMeta = (run.meta as Record<string, any>) ?? {}
+      log.push({ node: i, type: 'wait_for_reply', timeoutAt: resumeAt.toISOString() })
+      await prisma.workflowRun.update({
+        where: { id: runId },
+        data: {
+          status: 'WAITING',
+          cursor: i + 1,
+          resumeAt,
+          meta: { ...existingMeta, waitingForReply: true, waitingForContactId: run.contactId },
+          log: log as any
+        }
+      })
+      return
+    }
+
     try {
       const cont = await executeNode(run.workspaceId, run.contactId, node, run.context)
       log.push({ node: i, type: node?.type, ok: true, at: new Date().toISOString() })
@@ -128,6 +147,14 @@ async function executeNode(
         if (deal) await prisma.deal.update({ where: { id: deal.id }, data: { stageId: cfg.stageId } })
       }
       return
+
+    case 'send_campaign': {
+      const campaignId = cfg.campaignId
+      if (!contactId || !campaignId) return
+      const { sendToSingleContact } = await import('../campaigns/campaigns.service')
+      await sendToSingleContact({ campaignId, contactId, workspaceId })
+      return
+    }
 
     case 'webhook':
       if (cfg.url && httpFetch) {

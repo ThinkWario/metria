@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import type { ContactEventType } from '@prisma/client'
-import { startRun } from './executor'
+import { startRun, resumeRun } from './executor'
 
 /**
  * Encuentra los workflows activos cuyo trigger coincide con el evento emitido y
@@ -13,6 +13,11 @@ export async function dispatchWorkflows(
   type: ContactEventType,
   ctx: { event?: any; metadata?: Record<string, any> }
 ): Promise<void> {
+  // Un mensaje entrante reanuda los runs que esperaban respuesta de este contacto.
+  if (type === 'MESSAGE_RECEIVED' && contactId) {
+    await resumeWaitingForReply(workspaceId, contactId)
+  }
+
   const workflows = await prisma.workflow.findMany({
     where: { workspaceId, isActive: true, triggerType: type }
   })
@@ -37,6 +42,33 @@ export async function dispatchWorkflows(
     })
     // No await en cadena para no acoplar la latencia de un run con el siguiente
     await startRun(run.id).catch(err => console.error('[automation] run error:', err))
+  }
+}
+
+/**
+ * Reanuda los runs en estado WAITING que esperaban una respuesta de este
+ * contacto (nodo wait_for_reply). Limpia las marcas en meta y continúa la
+ * ejecución desde el cursor guardado.
+ */
+async function resumeWaitingForReply(workspaceId: string, contactId: string): Promise<void> {
+  const waitingRuns = await prisma.workflowRun.findMany({
+    where: {
+      workspaceId,
+      status: 'WAITING',
+      meta: { path: ['waitingForContactId'], equals: contactId }
+    }
+  })
+  for (const run of waitingRuns) {
+    const existingMeta = (run.meta as Record<string, any>) ?? {}
+    await prisma.workflowRun.update({
+      where: { id: run.id },
+      data: {
+        status: 'RUNNING',
+        resumeAt: null,
+        meta: { ...existingMeta, waitingForReply: false, waitingForContactId: null }
+      }
+    })
+    await resumeRun(run.id).catch(err => console.error('[automation] resume-on-reply error:', err))
   }
 }
 
