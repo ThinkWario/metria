@@ -15,7 +15,7 @@ import {
   Plus, Trophy, X, GripVertical,
   Flame, Thermometer, Snowflake, Phone, Calendar, Clock,
   Check, KanbanSquare, Pencil, BarChart2, Trash2, User,
-  Settings, ChevronUp, ChevronDown, FileText
+  Settings, ChevronUp, ChevronDown, CreditCard
 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -28,7 +28,7 @@ import {
 } from 'recharts'
 import { toast } from 'sonner'
 import Link from 'next/link'
-import InvoiceModal from '@/components/invoices/InvoiceModal'
+import { PaymentLinkModal } from '@/components/payments/PaymentLinkModal'
 
 interface Stage { id: string; name: string; color: string; order: number; isWon: boolean; isLost: boolean }
 interface Pipeline { id: string; name: string; isDefault: boolean; stages: Stage[]; _count: { deals: number } }
@@ -551,7 +551,7 @@ function LostReasonDialog({
 
 // ── Deal Card ──────────────────────────────────────────────────────────────────
 function DealCard({
-  deal, onWon, onLost, onEdit, onDelete, onAssign, workspaceUsers, overlay = false
+  deal, onWon, onLost, onEdit, onDelete, onAssign, onCobrar, workspaceUsers, contactRevenues = {}, overlay = false
 }: {
   deal: Deal
   onWon: (id: string) => void
@@ -559,14 +559,15 @@ function DealCard({
   onEdit: (deal: Deal) => void
   onDelete: (id: string) => void
   onAssign: (dealId: string, userId: string | null) => void
+  onCobrar: (deal: Deal) => void
   workspaceUsers: WorkspaceUser[]
+  contactRevenues?: Record<string, number>
   overlay?: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: deal.id })
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
-  const [invoiceOpen, setInvoiceOpen] = useState(false)
   const prob = deal.probability ?? null
   const probBar = prob != null ? (prob >= 70 ? 'bg-emerald-500' : prob >= 40 ? 'bg-amber-500' : 'bg-red-500') : null
   const days = daysAgo(deal.createdAt)
@@ -638,6 +639,13 @@ function DealCard({
             <p className="text-lg font-bold tabular-nums">{formatCLP(deal.value)}</p>
             {!overlay && <Pencil className="h-3 w-3 text-muted-foreground/40 ml-auto" />}
           </div>
+          {!overlay && contactRevenues[deal.contact.id] > 0 && (
+            <div className="mt-1">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800">
+                Revenue real: {formatCLPFull(contactRevenues[deal.contact.id])}
+              </span>
+            </div>
+          )}
           {probBar && prob != null && (
             <div className="mt-1.5">
               <div className="flex justify-between text-[10px] text-muted-foreground mb-0.5">
@@ -706,15 +714,6 @@ function DealCard({
         </div>
         {!overlay && (
           <div className="flex items-center gap-1">
-            {deal.status === 'WON' && (
-              <button
-                onClick={e => { e.stopPropagation(); setInvoiceOpen(true) }}
-                className="h-5 w-5 rounded flex items-center justify-center hover:bg-violet-100 text-muted-foreground hover:text-violet-600 transition-colors"
-                title="Generar factura"
-              >
-                <FileText className="h-3 w-3" />
-              </button>
-            )}
             {deal.status === 'OPEN' && (
               <>
                 <button
@@ -734,6 +733,13 @@ function DealCard({
               </>
             )}
             <button
+              onClick={e => { e.stopPropagation(); onCobrar(deal) }}
+              className="h-5 w-5 rounded flex items-center justify-center hover:bg-violet-100 text-muted-foreground hover:text-violet-600 transition-colors"
+              title="Crear link de cobro"
+            >
+              <CreditCard className="h-3 w-3" />
+            </button>
+            <button
               onClick={e => { e.stopPropagation(); setDeleteOpen(true) }}
               className="h-5 w-5 rounded flex items-center justify-center hover:bg-red-100 text-muted-foreground/40 hover:text-red-600 transition-colors"
               title="Eliminar deal"
@@ -744,16 +750,6 @@ function DealCard({
         )}
       </div>
     </div>
-
-    {/* Invoice modal — rendered outside the draggable div */}
-    {invoiceOpen && (
-      <InvoiceModal
-        open={invoiceOpen}
-        onOpenChange={setInvoiceOpen}
-        contactId={deal.contact.id}
-        dealId={deal.id}
-      />
-    )}
 
     {/* Delete confirmation dialog — rendered outside the draggable div */}
     <AlertDialog open={deleteOpen} onOpenChange={v => { if (!deleting) setDeleteOpen(v) }}>
@@ -781,7 +777,7 @@ function DealCard({
 }
 
 // ── Stage Column ───────────────────────────────────────────────────────────────
-function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit, onDelete, onAssign, workspaceUsers }: {
+function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit, onDelete, onAssign, onCobrar, workspaceUsers, contactRevenues }: {
   stage: Stage; deals: Deal[]
   onAdd: (stageId: string) => void
   onWon: (id: string) => void
@@ -789,7 +785,9 @@ function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit, onDelete, onA
   onEdit: (deal: Deal) => void
   onDelete: (id: string) => void
   onAssign: (dealId: string, userId: string | null) => void
+  onCobrar: (deal: Deal) => void
   workspaceUsers: WorkspaceUser[]
+  contactRevenues: Record<string, number>
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
   const openDeals = deals.filter(d => d.status === 'OPEN')
@@ -825,7 +823,7 @@ function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit, onDelete, onA
         ].join(' ')}
       >
         {deals.map(deal => (
-          <DealCard key={deal.id} deal={deal} onWon={onWon} onLost={onLost} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign} workspaceUsers={workspaceUsers} />
+          <DealCard key={deal.id} deal={deal} onWon={onWon} onLost={onLost} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign} onCobrar={onCobrar} workspaceUsers={workspaceUsers} contactRevenues={contactRevenues} />
         ))}
         {deals.length === 0 && (
           <button
@@ -1077,6 +1075,8 @@ export default function PipelinesClient() {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([])
+  const [contactRevenues, setContactRevenues] = useState<Record<string, number>>({})
+  const [cobrarModal, setCobrarModal] = useState<{ open: boolean; deal: Deal | null }>({ open: false, deal: null })
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -1118,6 +1118,15 @@ export default function PipelinesClient() {
       .catch((err: Error) => setAnalyticsError(err.message ?? 'Error al cargar analítica'))
       .finally(() => setAnalyticsLoading(false))
   }, [mounted, selectedPipelineId, showAnalytics])
+
+  useEffect(() => {
+    if (!mounted || !selectedPipelineId) return
+    fetchAPI(`/crm/pipelines/${selectedPipelineId}/roi-summary`)
+      .then((data: { contactRevenues: Record<string, number> }) => {
+        setContactRevenues(data.contactRevenues ?? {})
+      })
+      .catch(() => setContactRevenues({}))
+  }, [mounted, selectedPipelineId])
 
   const handleDragStart = useCallback((event: any) => {
     setActiveDeal(deals.find(d => d.id === event.active.id) ?? null)
@@ -1207,6 +1216,10 @@ export default function PipelinesClient() {
       toast.error(err.message ?? 'Error al asignar el deal')
     }
   }, [workspaceUsers])
+
+  const handleCobrar = useCallback((deal: Deal) => {
+    setCobrarModal({ open: true, deal })
+  }, [])
 
   const refreshPipelines = useCallback(async () => {
     try {
@@ -1337,13 +1350,15 @@ export default function PipelinesClient() {
               onEdit={handleEdit}
               onDelete={handleDelete}
               onAssign={handleAssign}
+              onCobrar={handleCobrar}
               workspaceUsers={workspaceUsers}
+              contactRevenues={contactRevenues}
             />
           ))}
         </div>
 
         <DragOverlay dropAnimation={null}>
-          {activeDeal && <DealCard deal={activeDeal} onWon={() => {}} onLost={() => {}} onEdit={() => {}} onDelete={() => Promise.resolve()} onAssign={() => {}} workspaceUsers={[]} overlay />}
+          {activeDeal && <DealCard deal={activeDeal} onWon={() => {}} onLost={() => {}} onEdit={() => {}} onDelete={() => Promise.resolve()} onAssign={() => {}} onCobrar={() => {}} workspaceUsers={[]} overlay />}
         </DragOverlay>
       </DndContext>
 
@@ -1379,6 +1394,21 @@ export default function PipelinesClient() {
         onClose={() => setLostDialog({ open: false, dealId: '' })}
         onConfirm={handleLostConfirm}
       />
+
+      {/* Payment Link Modal */}
+      {cobrarModal.deal && (
+        <PaymentLinkModal
+          open={cobrarModal.open}
+          onClose={() => setCobrarModal({ open: false, deal: null })}
+          deal={{
+            id: cobrarModal.deal.id,
+            value: parseFloat(cobrarModal.deal.value) || null,
+            title: cobrarModal.deal.title,
+            contactId: cobrarModal.deal.contact.id
+          }}
+          contactName={cobrarModal.deal.contact.name}
+        />
+      )}
     </div>
   )
 }

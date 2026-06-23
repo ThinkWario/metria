@@ -20,6 +20,7 @@ export function InboxClient() {
     handoverToHuman,
     handbackToBot,
     markAsRead,
+    markAsUnread,
     changeStatus,
     assignConversation,
     statusFilter,
@@ -66,6 +67,7 @@ export function InboxClient() {
         onSearchChange={setSearch}
         assignedToMe={assignedToMe}
         onAssignedToMeChange={setAssignedToMe}
+        onMarkAsUnread={markAsUnread}
       />
       <ChatWindow
         conversation={selectedConv}

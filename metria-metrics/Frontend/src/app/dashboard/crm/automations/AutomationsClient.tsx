@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { Zap, Pencil, Trash2, Play, History, Search, Copy } from 'lucide-react'
+import { Zap, Pencil, Trash2, Play, History, Search, Copy, Download } from 'lucide-react'
 import { toast } from 'sonner'
 import { AutomationBuilder } from '@/components/crm/AutomationBuilder'
 import {
@@ -26,6 +26,14 @@ import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 const EMPTY_CATALOG: WorkflowCatalog = { triggers: [], actions: [] }
+
+interface WorkflowTemplate {
+  id: string
+  name: string
+  description: string
+  triggerType: string
+  nodes: unknown[]
+}
 
 export default function AutomationsClient() {
   const [mounted, setMounted] = useState(false)
@@ -40,6 +48,8 @@ export default function AutomationsClient() {
   const [runsLoading, setRunsLoading] = useState(false)
   const [runsError, setRunsError] = useState<string | null>(null)
   const [duplicating, setDuplicating] = useState<string | null>(null)
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
+  const [installingTemplate, setInstallingTemplate] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -62,13 +72,31 @@ export default function AutomationsClient() {
   async function loadData() {
     setLoading(true)
     try {
-      const [wfs, cat] = await Promise.all([listWorkflows(), getCatalog()])
+      const [wfs, cat, tmpl] = await Promise.all([
+        listWorkflows(),
+        getCatalog(),
+        fetchAPI('/crm/workflows/templates').catch(() => [])
+      ])
       setWorkflows(wfs)
       setCatalog(cat)
+      setTemplates(Array.isArray(tmpl) ? tmpl : [])
     } catch (err: any) {
       toast.error('Error al cargar automatizaciones')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleInstallTemplate(templateId: string) {
+    setInstallingTemplate(templateId)
+    try {
+      const wf = await fetchAPI(`/crm/workflows/templates/${templateId}/install`, { method: 'POST' })
+      setWorkflows(prev => [wf, ...prev])
+      toast.success('Plantilla instalada. Revísala y actívala cuando estés listo.')
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al instalar plantilla')
+    } finally {
+      setInstallingTemplate(null)
     }
   }
 
@@ -173,6 +201,49 @@ export default function AutomationsClient() {
           />
         </div>
       </div>
+
+      {/* Templates section */}
+      {templates.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Download className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-semibold">Plantillas con IA</p>
+            <span className="text-xs text-muted-foreground">— Instala una secuencia prediseñada en segundos</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {templates.map(template => (
+              <div
+                key={template.id}
+                className="rounded-xl border bg-card p-4 space-y-3 hover:border-primary/40 transition-colors"
+              >
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="secondary" className="text-[10px]">
+                      {template.triggerType.replace(/_/g, ' ')}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground ml-auto">
+                      {template.nodes.length} paso{template.nodes.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p className="font-semibold text-sm leading-snug">{template.name}</p>
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{template.description}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-1.5"
+                  disabled={installingTemplate === template.id}
+                  onClick={() => handleInstallTemplate(template.id)}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {installingTemplate === template.id ? 'Instalando...' : 'Instalar'}
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="border-t" />
+        </div>
+      )}
 
       {/* Empty state */}
       {workflows.length === 0 ? (

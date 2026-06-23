@@ -115,4 +115,65 @@ router.get('/crm/workflows/:id/runs', ...auth, async (req: AuthRequest, res: Res
   }
 })
 
+// ── Templates ─────────────────────────────────────────────────────────────────
+const WORKFLOW_TEMPLATES = [
+  {
+    id: 'reengagement-deal-lost',
+    name: 'Re-engagement: Deal Perdido',
+    description: 'Reactiva contactos cuyo deal se marcó como perdido. Envía 2 mensajes espaciados + cierra si no responde.',
+    triggerType: 'DEAL_LOST',
+    nodes: [
+      { type: 'wait', config: { hours: 24 }, label: 'Esperar 1 día' },
+      { type: 'send_message', config: { channel: 'WHATSAPP', content: 'Hola {{name}}, sé que aún no fue el momento para avanzar. ¿Hay algo que podamos hacer diferente para ayudarte?' }, label: 'Mensaje re-engagement 1' },
+      { type: 'wait_for_reply', config: { hours: 72 }, label: 'Esperar respuesta (3 días)' },
+      { type: 'branch', config: { field: '_reply_received', op: 'eq', value: 'false' }, label: 'Si no respondió' },
+      { type: 'send_message', config: { channel: 'WHATSAPP', content: 'Entendemos {{name}}. Cuando estés listo, aquí estaremos. ¡Éxitos!' }, label: 'Mensaje de cierre' }
+    ]
+  },
+  {
+    id: 'welcome-new-contact',
+    name: 'Bienvenida: Nuevo Contacto',
+    description: 'Secuencia de bienvenida cuando se crea un contacto. Envía presentación + agenda cita.',
+    triggerType: 'DEAL_CREATED',
+    nodes: [
+      { type: 'send_message', config: { channel: 'WHATSAPP', content: '¡Hola {{name}}! Gracias por tu interés. Soy de aquí y me encantaría ayudarte. ¿Tienes 15 minutos esta semana?' }, label: 'Mensaje de bienvenida' },
+      { type: 'wait', config: { hours: 48 }, label: 'Esperar 2 días' },
+      { type: 'send_message', config: { channel: 'WHATSAPP', content: '{{name}}, ¿pudiste revisar nuestra propuesta? Me gustaría agendar una llamada para responder tus dudas.' }, label: 'Follow-up bienvenida' }
+    ]
+  },
+  {
+    id: 'post-sale-followup',
+    name: 'Post-Venta: Seguimiento',
+    description: 'Después de ganar un deal, mantener al cliente satisfecho y pedir referidos.',
+    triggerType: 'DEAL_WON',
+    nodes: [
+      { type: 'wait', config: { hours: 72 }, label: 'Esperar 3 días post-venta' },
+      { type: 'send_message', config: { channel: 'WHATSAPP', content: '¡Hola {{name}}! ¿Cómo va todo desde que iniciamos? Queremos asegurarnos de que estés 100% satisfecho.' }, label: 'Check-in satisfacción' },
+      { type: 'wait_for_reply', config: { hours: 24 }, label: 'Esperar respuesta' },
+      { type: 'send_message', config: { channel: 'WHATSAPP', content: '{{name}}, si conoces alguien más que pueda beneficiarse de nuestros servicios, ¡te lo agradecemos enormemente!' }, label: 'Pedir referido' }
+    ]
+  }
+]
+
+router.get('/crm/workflows/templates', ...auth, (_req: AuthRequest, res: Response): void => {
+  res.json(WORKFLOW_TEMPLATES)
+})
+
+router.post('/crm/workflows/templates/:templateId/install', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const template = WORKFLOW_TEMPLATES.find(t => t.id === req.params.templateId)
+    if (!template) { res.status(404).json({ error: 'Template not found' }); return }
+    const wf = await ws.createWorkflow(req.user!.workspaceId!, {
+      name: template.name,
+      description: template.description,
+      triggerType: template.triggerType as any,
+      nodes: template.nodes,
+      isActive: false
+    })
+    res.status(201).json(wf)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 export default router

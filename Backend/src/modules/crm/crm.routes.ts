@@ -1,6 +1,9 @@
 import { Router } from 'express'
+import type { Response } from 'express'
 import { authenticate } from '../../middleware/auth'
 import { requirePlan } from '../../middleware/planGate'
+import type { AuthRequest } from '../../middleware/auth'
+import { prisma } from '../../lib/prisma'
 import {
   listContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
@@ -13,66 +16,9 @@ import {
   listTicketsHandler, createTicketHandler, updateTicketHandler, resolveTicketHandler,
   listTasksHandler, completeTaskHandler
 } from './crm.controller'
-import type { AuthRequest } from '../../middleware/auth'
-import { prisma } from '../../lib/prisma'
 
 const router = Router()
 const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
-
-// Revenue summary for contact profile (ROAS en contacto)
-router.get('/crm/contacts/:id/revenue-summary', ...auth, async (req: AuthRequest, res) => {
-  try {
-    const workspaceId = req.user!.workspaceId!
-    const contactId = req.params.id
-
-    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
-    if (!contact) return res.status(404).json({ error: 'Contact not found' })
-
-    const orders = contact.email
-      ? await prisma.order.findMany({ where: { workspaceId, customerEmail: contact.email } })
-      : []
-
-    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.totalPrice), 0)
-    const lastPurchaseDate = orders.length
-      ? orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0].createdAt
-      : null
-
-    const since = new Date(Date.now() - 30 * 86_400_000)
-    const metrics = await prisma.dailyMetric.aggregate({
-      where: { workspaceId, date: { gte: since } },
-      _sum: { totalRevenue: true, metaAdSpend: true, googleAdSpend: true, tiktokAdSpend: true, netProfit: true }
-    })
-
-    const rev30 = Number(metrics._sum.totalRevenue ?? 0)
-    const spend30 =
-      Number(metrics._sum.metaAdSpend ?? 0) +
-      Number(metrics._sum.googleAdSpend ?? 0) +
-      Number(metrics._sum.tiktokAdSpend ?? 0)
-
-    res.json({
-      contactRevenue: {
-        totalRevenue,
-        orderCount: orders.length,
-        lastPurchaseDate,
-        avgOrderValue: orders.length ? totalRevenue / orders.length : 0
-      },
-      workspaceContext: {
-        avgROAS: spend30 > 0 ? Number((rev30 / spend30).toFixed(2)) : null,
-        totalAdSpend30d: spend30,
-        totalRevenue30d: rev30,
-        netProfit30d: Number(metrics._sum.netProfit ?? 0)
-      },
-      contactAttribution: {
-        source: contact.source ?? null,
-        estimatedAdCost: null,
-        note: 'Atribución exacta no disponible — mostrando ROAS promedio del workspace'
-      }
-    })
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
 
 // Contacts
 router.get('/crm/contacts', ...auth, listContactsHandler)
@@ -90,6 +36,68 @@ router.post('/crm/contacts/:contactId/health-score', ...auth, calculateHealthSco
 router.get('/crm/pipelines', ...auth, listPipelinesHandler)
 router.post('/crm/pipelines', ...auth, createPipelineHandler)
 router.get('/crm/pipelines/:pipelineId/analytics', ...auth, pipelineAnalyticsHandler)
+
+// ROI summary — cross ad spend with deal/contact revenue
+router.get('/crm/pipelines/:pipelineId/roi-summary', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const { pipelineId } = req.params
+
+    // 1. Get all deals in the pipeline (with contact email)
+    const deals = await prisma.deal.findMany({
+      where: { pipelineId, workspaceId },
+      include: { contact: { select: { id: true, email: true } } }
+    })
+
+    // 2. Workspace ROAS last 30 days from DailyMetric
+    const since = new Date()
+    since.setDate(since.getDate() - 30)
+    const metrics = await prisma.dailyMetric.findMany({
+      where: { workspaceId, date: { gte: since } },
+      select: { totalRevenue: true, metaAdSpend: true, googleAdSpend: true }
+    })
+    const totalRevenue30d = metrics.reduce((s, m) => s + Number(m.totalRevenue), 0)
+    const totalAdSpend30d = metrics.reduce((s, m) => s + Number(m.metaAdSpend) + Number(m.googleAdSpend), 0)
+    const workspaceROAS = totalAdSpend30d > 0 ? totalRevenue30d / totalAdSpend30d : 0
+
+    // 3. For WON deals where contact has email: batch-fetch orders
+    const wonDeals = deals.filter(d => d.status === 'WON' && d.contact?.email)
+    const emails = wonDeals.map(d => d.contact?.email).filter(Boolean) as string[]
+
+    const contactRevenues: Record<string, number> = {}
+    if (emails.length > 0) {
+      const allOrders = await prisma.order.findMany({
+        where: { workspaceId, customerEmail: { in: emails } },
+        select: { customerEmail: true, totalPrice: true }
+      })
+      // Build email → total map
+      const revenueByEmail: Record<string, number> = {}
+      for (const order of allOrders) {
+        if (!order.customerEmail) continue
+        revenueByEmail[order.customerEmail] = (revenueByEmail[order.customerEmail] ?? 0) + Number(order.totalPrice)
+      }
+      // Map back to contactId
+      for (const deal of wonDeals) {
+        const email = deal.contact?.email
+        if (email && revenueByEmail[email]) {
+          contactRevenues[deal.contactId] = (contactRevenues[deal.contactId] ?? 0) + revenueByEmail[email]
+        }
+      }
+    }
+
+    // 4. Stage stats
+    const stageStats: Record<string, { dealCount: number; totalValue: number }> = {}
+    for (const deal of deals) {
+      if (!stageStats[deal.stageId]) stageStats[deal.stageId] = { dealCount: 0, totalValue: 0 }
+      stageStats[deal.stageId].dealCount++
+      stageStats[deal.stageId].totalValue += Number(deal.value)
+    }
+
+    res.json({ workspaceROAS, totalRevenue30d, totalAdSpend30d, contactRevenues, stageStats })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
 // Stage CRUD — reorder must come before /:stageId to avoid param collision
 router.post('/crm/pipelines/:pipelineId/stages/reorder', ...auth, reorderStagesHandler)
 router.post('/crm/pipelines/:pipelineId/stages', ...auth, createStageHandler)
