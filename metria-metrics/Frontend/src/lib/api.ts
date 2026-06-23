@@ -126,6 +126,21 @@ export const applyBotTemplate = (botId: string, template: string) => fetchAPI(`/
     body: JSON.stringify({ template })
 })
 
+// Branding API helpers
+export type BrandingData = {
+    name?: string
+    logoUrl?: string | null
+    primaryColor?: string | null
+    brandName?: string | null
+}
+
+export const getBranding = (): Promise<BrandingData> => fetchAPI('/settings/branding')
+export const updateBranding = (data: { primaryColor?: string; brandName?: string }) =>
+    fetchAPI('/settings/branding', {
+        method: 'PATCH',
+        body: JSON.stringify(data)
+    })
+
 // CRM Extended APIs
 export * from './crm-timeline-api'
 export * from './crm-segments-api'

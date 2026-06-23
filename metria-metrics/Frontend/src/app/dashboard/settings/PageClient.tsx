@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -9,12 +9,12 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Activity, Unplug, ShieldCheck, Database, Key, Trash2, UserPlus, CheckCircle2 } from "lucide-react"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Activity, Unplug, ShieldCheck, Trash2, UserPlus, Palette } from "lucide-react"
 import { toast } from "sonner"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getGlobalSettings, updateGlobalSettings, getIntegrations, updateIntegration, getSystemLogs, fetchAPI } from "@/lib/api"
+import { getGlobalSettings, updateGlobalSettings, getIntegrations, updateIntegration, getSystemLogs, fetchAPI, getBranding, updateBranding } from "@/lib/api"
 import { activatePayPalSubscription } from "@/app/onboarding/actions"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { useUserStore } from "@/store/useUserStore"
@@ -44,7 +44,11 @@ function SettingsContent() {
     const [timezone, setTimezone] = useState("santiago")
     const [currency, setCurrency] = useState("usd")
     const [strictAttribution, setStrictAttribution] = useState(false)
-    // isSaving derived from mutations below
+
+    // Branding form state
+    const [brandName, setBrandName] = useState("")
+    const [primaryColor, setPrimaryColor] = useState("#7c3aed")
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // API Token form state
     const [isApiDialogOpen, setIsApiDialogOpen] = useState(false)
@@ -66,6 +70,11 @@ function SettingsContent() {
         queryFn: getSystemLogs
     })
 
+    const { data: brandingData } = useQuery({
+        queryKey: ['settings', 'branding'],
+        queryFn: getBranding
+    })
+
     // Sync form state when data is available
     useEffect(() => {
         if (globalSettings) {
@@ -74,6 +83,13 @@ function SettingsContent() {
             setStrictAttribution(globalSettings.strictAttribution || false)
         }
     }, [globalSettings])
+
+    useEffect(() => {
+        if (brandingData) {
+            setBrandName(brandingData.brandName ?? "")
+            setPrimaryColor(brandingData.primaryColor ?? "#7c3aed")
+        }
+    }, [brandingData])
 
     // Handle OAuth Callback Messages
     useEffect(() => {
@@ -174,12 +190,21 @@ function SettingsContent() {
         onError: () => toast.error("Error al guardar configuraciones globales")
     })
 
+    const saveBrandingMutation = useMutation({
+        mutationFn: updateBranding,
+        onSuccess: () => {
+            toast.success("Marca Guardada")
+            queryClient.invalidateQueries({ queryKey: ['settings', 'branding'] })
+        },
+        onError: (err: any) => toast.error("Error al guardar marca", { description: err.message })
+    })
+
     const saveTokensMutation = useMutation({
         mutationFn: (payload: any) => updateIntegration(payload),
         onSuccess: (data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['settings', 'integrations'] })
             window.dispatchEvent(new Event('integrations-updated'))
-            
+
             const platformNames: Record<string, string> = {
                 shopify: "Shopify Store",
                 meta: "Meta Ads",
@@ -206,6 +231,20 @@ function SettingsContent() {
     const handleSaveSettings = () => {
         saveSettingsMutation.mutate({ timezone, currency, strictAttribution })
     }
+
+    const handleSaveBranding = () => {
+        saveBrandingMutation.mutate({ primaryColor, brandName })
+    }
+
+    // Debounced color change — inject CSS var immediately, then debounce the save
+    const handleColorChange = useCallback((value: string) => {
+        setPrimaryColor(value)
+        document.documentElement.style.setProperty('--color-primary-brand', value)
+        if (debounceRef.current) clearTimeout(debounceRef.current)
+        debounceRef.current = setTimeout(() => {
+            // just update the preview CSS var; explicit save on button click
+        }, 500)
+    }, [])
 
     const handleSaveTokens = async () => {
         const platformNames: Record<string, string> = {
@@ -336,6 +375,78 @@ function SettingsContent() {
                     {/* Subscription & Billing */}
                     <BillingSection />
                 </div>
+
+                {/* Branding Card */}
+                <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Palette className="h-5 w-5 text-muted-foreground" />
+                            Marca (White-label)
+                        </CardTitle>
+                        <CardDescription>Personaliza el nombre y color de tu workspace.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-5">
+                        {/* Brand Name */}
+                        <div className="space-y-2">
+                            <Label htmlFor="brandName">Nombre de marca</Label>
+                            <Input
+                                id="brandName"
+                                placeholder={brandingData?.name ?? "Nombre del workspace"}
+                                value={brandName}
+                                onChange={(e) => setBrandName(e.target.value)}
+                                maxLength={60}
+                                disabled={!canEdit}
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                                Se muestra en el sidebar y notificaciones. Vacío = usa el nombre del workspace.
+                            </p>
+                        </div>
+
+                        {/* Primary Color */}
+                        <div className="space-y-2">
+                            <Label htmlFor="primaryColor">Color primario</Label>
+                            <div className="flex items-center gap-3">
+                                <div
+                                    className="w-9 h-9 rounded-lg border border-border/60 shrink-0 shadow-inner"
+                                    style={{ backgroundColor: primaryColor }}
+                                />
+                                <input
+                                    type="color"
+                                    id="primaryColorPicker"
+                                    value={primaryColor}
+                                    onChange={(e) => handleColorChange(e.target.value)}
+                                    disabled={!canEdit}
+                                    className="w-9 h-9 rounded cursor-pointer border-0 bg-transparent p-0 disabled:cursor-not-allowed"
+                                    title="Seleccionar color"
+                                />
+                                <Input
+                                    id="primaryColor"
+                                    value={primaryColor}
+                                    onChange={(e) => {
+                                        const val = e.target.value
+                                        if (/^#[0-9a-fA-F]{0,6}$/.test(val)) handleColorChange(val)
+                                    }}
+                                    maxLength={7}
+                                    className="font-mono text-sm w-28"
+                                    disabled={!canEdit}
+                                    placeholder="#7c3aed"
+                                />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">Color de acentos en el dashboard.</p>
+                        </div>
+                    </CardContent>
+                    <CardFooter>
+                        {canEdit && (
+                            <Button
+                                className="w-full"
+                                onClick={handleSaveBranding}
+                                disabled={saveBrandingMutation.isPending}
+                            >
+                                {saveBrandingMutation.isPending ? "Guardando..." : "Guardar cambios"}
+                            </Button>
+                        )}
+                    </CardFooter>
+                </Card>
 
                 {/* Users Management */}
                 <Card className="bg-card/30 backdrop-blur-xl border border-border/50 md:col-span-2">
@@ -468,8 +579,8 @@ function SettingsContent() {
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <span className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded border ${
-                                                    log.status.startsWith('2') || log.status.toLowerCase().includes('ok') 
-                                                    ? "text-emerald-500 border-emerald-500/20 bg-emerald-500/5" 
+                                                    log.status.startsWith('2') || log.status.toLowerCase().includes('ok')
+                                                    ? "text-emerald-500 border-emerald-500/20 bg-emerald-500/5"
                                                     : "text-destructive border-destructive/20 bg-destructive/5"
                                                 }`}>
                                                     {log.status}
@@ -494,4 +605,3 @@ export default function SettingsPageClient() {
         </Suspense>
     )
 }
-

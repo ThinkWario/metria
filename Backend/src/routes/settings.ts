@@ -73,5 +73,54 @@ router.delete('/logo', requireRole(['SUPER_ADMIN', 'ADMIN']), async (req: AuthRe
     }
 })
 
+// --- Workspace Branding ---
+
+// GET /api/settings/branding — return primaryColor + brandName + logoUrl
+router.get('/branding', authenticate, async (req: AuthRequest, res: any) => {
+    try {
+        const workspaceId = req.user!.workspaceId!
+        const workspace = await prisma.workspace.findUnique({
+            where: { id: workspaceId },
+            select: { name: true, logoUrl: true, primaryColor: true, brandName: true }
+        })
+        res.json(workspace ?? {})
+    } catch (error) {
+        console.error('Get branding error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+// PATCH /api/settings/branding — update primaryColor and/or brandName
+router.patch('/branding', requireRole(['SUPER_ADMIN', 'ADMIN']), async (req: AuthRequest, res: any) => {
+    try {
+        const workspaceId = req.user!.workspaceId!
+        const { primaryColor, brandName } = req.body
+
+        const data: Record<string, unknown> = {}
+        if (primaryColor !== undefined) {
+            if (typeof primaryColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(primaryColor)) {
+                return res.status(400).json({ error: 'primaryColor must be a valid hex color (#RRGGBB)' })
+            }
+            data.primaryColor = primaryColor
+        }
+        if (brandName !== undefined) {
+            if (typeof brandName !== 'string' || brandName.length > 60) {
+                return res.status(400).json({ error: 'brandName must be a string under 60 chars' })
+            }
+            data.brandName = brandName.trim() || null
+        }
+
+        const updated = await prisma.workspace.update({
+            where: { id: workspaceId },
+            data,
+            select: { name: true, logoUrl: true, primaryColor: true, brandName: true }
+        })
+        res.json(updated)
+    } catch (error) {
+        console.error('Update branding error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
 export default router
 

@@ -14,26 +14,19 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { Zap, Pencil, Trash2, Play, History, Search, Copy, Download } from 'lucide-react'
+import { Zap, Pencil, Trash2, Play, History, Search, Copy } from 'lucide-react'
 import { toast } from 'sonner'
-import { AutomationBuilder } from '@/components/crm/AutomationBuilder'
+import { WorkflowCanvas } from '@/components/crm/WorkflowCanvas'
 import {
-  listWorkflows, getCatalog, deleteWorkflow, updateWorkflow, getWorkflowRuns,
-  type Workflow, type WorkflowCatalog, type WorkflowRun
+  listWorkflows, getCatalog, deleteWorkflow, updateWorkflow, createWorkflow,
+  getWorkflowRuns,
+  type Workflow, type WorkflowCatalog, type WorkflowRun, type WorkflowNode
 } from '@/lib/crm-automations-api'
 import { fetchAPI } from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 const EMPTY_CATALOG: WorkflowCatalog = { triggers: [], actions: [] }
-
-interface WorkflowTemplate {
-  id: string
-  name: string
-  description: string
-  triggerType: string
-  nodes: unknown[]
-}
 
 export default function AutomationsClient() {
   const [mounted, setMounted] = useState(false)
@@ -48,8 +41,10 @@ export default function AutomationsClient() {
   const [runsLoading, setRunsLoading] = useState(false)
   const [runsError, setRunsError] = useState<string | null>(null)
   const [duplicating, setDuplicating] = useState<string | null>(null)
-  const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
-  const [installingTemplate, setInstallingTemplate] = useState<string | null>(null)
+
+  // Canvas state
+  const [canvasOpen, setCanvasOpen] = useState(false)
+  const [canvasWorkflow, setCanvasWorkflow] = useState<Workflow | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -72,14 +67,9 @@ export default function AutomationsClient() {
   async function loadData() {
     setLoading(true)
     try {
-      const [wfs, cat, tmpl] = await Promise.all([
-        listWorkflows(),
-        getCatalog(),
-        fetchAPI('/crm/workflows/templates').catch(() => [])
-      ])
+      const [wfs, cat] = await Promise.all([listWorkflows(), getCatalog()])
       setWorkflows(wfs)
       setCatalog(cat)
-      setTemplates(Array.isArray(tmpl) ? tmpl : [])
     } catch (err: any) {
       toast.error('Error al cargar automatizaciones')
     } finally {
@@ -87,28 +77,53 @@ export default function AutomationsClient() {
     }
   }
 
-  async function handleInstallTemplate(templateId: string) {
-    setInstallingTemplate(templateId)
-    try {
-      const wf = await fetchAPI(`/crm/workflows/templates/${templateId}/install`, { method: 'POST' })
-      setWorkflows(prev => [wf, ...prev])
-      toast.success('Plantilla instalada. Revísala y actívala cuando estés listo.')
-    } catch (err: any) {
-      toast.error(err.message ?? 'Error al instalar plantilla')
-    } finally {
-      setInstallingTemplate(null)
-    }
-  }
-
   const triggerLabel = (type: string) =>
     catalog.triggers.find(t => t.value === type)?.label ?? type
 
-  function handleSaved(workflow: Workflow) {
-    setWorkflows(prev => {
-      const exists = prev.find(w => w.id === workflow.id)
-      if (exists) return prev.map(w => w.id === workflow.id ? workflow : w)
-      return [workflow, ...prev]
-    })
+  function openCanvasForNew() {
+    setCanvasWorkflow(null)
+    setCanvasOpen(true)
+  }
+
+  function openCanvasForEdit(wf: Workflow) {
+    setCanvasWorkflow(wf)
+    setCanvasOpen(true)
+  }
+
+  async function handleSaveFromCanvas(data: {
+    name: string
+    triggerType: string
+    nodes: WorkflowNode[]
+    isActive: boolean
+  }) {
+    try {
+      let saved: Workflow
+      if (canvasWorkflow) {
+        saved = await updateWorkflow(canvasWorkflow.id, {
+          name: data.name,
+          triggerType: data.triggerType,
+          nodes: data.nodes,
+        })
+        toast.success('Automatización actualizada')
+      } else {
+        saved = await createWorkflow({
+          name: data.name,
+          triggerType: data.triggerType,
+          nodes: data.nodes,
+          isActive: false,
+        })
+        toast.success('Automatización creada')
+      }
+      setWorkflows(prev => {
+        const exists = prev.find(w => w.id === saved.id)
+        if (exists) return prev.map(w => w.id === saved.id ? saved : w)
+        return [saved, ...prev]
+      })
+      setCanvasOpen(false)
+    } catch (err: any) {
+      toast.error(err.message ?? 'Error al guardar automatización')
+      throw err // keep canvas open on error
+    }
   }
 
   async function handleToggle(workflow: Workflow, next: boolean) {
@@ -189,61 +204,12 @@ export default function AutomationsClient() {
           />
         </div>
         <div className="ml-auto">
-          <AutomationBuilder
-            catalog={catalog}
-            trigger={
-              <Button>
-                <Zap className="h-4 w-4 mr-2" />
-                Nueva automatización
-              </Button>
-            }
-            onSave={handleSaved}
-          />
+          <Button onClick={openCanvasForNew}>
+            <Zap className="h-4 w-4 mr-2" />
+            Nueva automatización
+          </Button>
         </div>
       </div>
-
-      {/* Templates section */}
-      {templates.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Download className="h-4 w-4 text-muted-foreground" />
-            <p className="text-sm font-semibold">Plantillas con IA</p>
-            <span className="text-xs text-muted-foreground">— Instala una secuencia prediseñada en segundos</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {templates.map(template => (
-              <div
-                key={template.id}
-                className="rounded-xl border bg-card p-4 space-y-3 hover:border-primary/40 transition-colors"
-              >
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="secondary" className="text-[10px]">
-                      {template.triggerType.replace(/_/g, ' ')}
-                    </Badge>
-                    <span className="text-[10px] text-muted-foreground ml-auto">
-                      {template.nodes.length} paso{template.nodes.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <p className="font-semibold text-sm leading-snug">{template.name}</p>
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{template.description}</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full gap-1.5"
-                  disabled={installingTemplate === template.id}
-                  onClick={() => handleInstallTemplate(template.id)}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  {installingTemplate === template.id ? 'Instalando...' : 'Instalar'}
-                </Button>
-              </div>
-            ))}
-          </div>
-          <div className="border-t" />
-        </div>
-      )}
 
       {/* Empty state */}
       {workflows.length === 0 ? (
@@ -257,11 +223,9 @@ export default function AutomationsClient() {
               Crea tu primera automatización para disparar acciones cuando ocurra un evento.
             </p>
           </div>
-          <AutomationBuilder
-            catalog={catalog}
-            trigger={<Button variant="outline">Crear primera automatización</Button>}
-            onSave={handleSaved}
-          />
+          <Button variant="outline" onClick={openCanvasForNew}>
+            Crear primera automatización
+          </Button>
         </div>
       ) : filteredWorkflows.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 gap-3 text-center">
@@ -311,17 +275,15 @@ export default function AutomationsClient() {
                     >
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <AutomationBuilder
-                      key={workflow.id}
-                      catalog={catalog}
-                      trigger={
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      }
-                      initialData={workflow}
-                      onSave={handleSaved}
-                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Editar en canvas"
+                      onClick={() => openCanvasForEdit(workflow)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -372,6 +334,15 @@ export default function AutomationsClient() {
           ))}
         </div>
       )}
+
+      {/* Visual workflow canvas */}
+      <WorkflowCanvas
+        open={canvasOpen}
+        workflow={canvasWorkflow}
+        catalog={catalog}
+        onClose={() => setCanvasOpen(false)}
+        onSave={handleSaveFromCanvas}
+      />
 
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>

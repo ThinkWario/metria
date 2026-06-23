@@ -45,7 +45,7 @@ import { ModeToggle } from "@/components/mode-toggle"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { logout } from "@/app/login/actions"
-import { stopImpersonating } from "@/lib/api"
+import { stopImpersonating, getBranding } from "@/lib/api"
 import { toast } from "sonner"
 import { useUserStore } from "@/store/useUserStore"
 import { ProfileDialog } from "@/components/user/profile-dialog"
@@ -68,7 +68,6 @@ const menuItems: MenuItem[] = [
     { title: "Formularios", icon: FileText, url: "/dashboard/crm/forms", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Campañas", icon: Send, url: "/dashboard/crm/campaigns", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Pagos", icon: CreditCard, url: "/dashboard/crm/payments", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Productos", icon: Package, url: "/dashboard/products", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Tareas", icon: CheckSquare, url: "/dashboard/tasks", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Citas", icon: CalendarDays, url: "/dashboard/crm/appointments", roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Configuración IA", icon: Bot, url: "/dashboard/settings/ai-agent", roles: ["SUPER_ADMIN", "ADMIN"] },
@@ -91,10 +90,36 @@ export function AppSidebar() {
     const [preferencesOpen, setPreferencesOpen] = useState(false)
     const [mounted, setMounted] = useState(false)
 
+    // Branding
+    const [brandName, setBrandName] = useState<string | null>(null)
+    const [logoUrl, setLogoUrl] = useState<string | null>(null)
+    const [primaryColor, setPrimaryColor] = useState<string | null>(null)
+
     useEffect(() => {
         setMounted(true)
         fetchMe()
     }, [fetchMe])
+
+    // Fetch branding once mounted (client-side only, after auth token is available)
+    useEffect(() => {
+        if (!mounted) return
+        getBranding()
+            .then((data) => {
+                if (data.brandName) setBrandName(data.brandName)
+                if (data.logoUrl) setLogoUrl(data.logoUrl)
+                if (data.primaryColor) setPrimaryColor(data.primaryColor)
+            })
+            .catch(() => {
+                // Not critical — fall back to defaults silently
+            })
+    }, [mounted])
+
+    // Apply custom primary color as CSS var whenever it changes
+    useEffect(() => {
+        if (primaryColor) {
+            document.documentElement.style.setProperty('--color-primary-brand', primaryColor)
+        }
+    }, [primaryColor])
 
     const userName = getDisplayName()
     const userEmail = user?.email || ""
@@ -130,14 +155,35 @@ export function AppSidebar() {
                         "flex h-16 items-center font-bold text-xl tracking-tighter text-foreground transition-[padding,gap] duration-300 ease-in-out",
                         isCollapsed ? "justify-center px-0 gap-0" : "justify-between px-4 gap-2"
                     )}>
-                        <div className="flex items-center min-w-0 overflow-hidden">
+                        <div className="flex items-center min-w-0 overflow-hidden gap-2">
                             {isCollapsed ? (
-                                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary shrink-0 animate-in fade-in zoom-in duration-300">
-                                    M
-                                </div>
+                                logoUrl ? (
+                                    <img
+                                        src={logoUrl}
+                                        alt="logo"
+                                        className="w-8 h-8 rounded-lg object-contain shrink-0 animate-in fade-in zoom-in duration-300"
+                                    />
+                                ) : (
+                                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary shrink-0 animate-in fade-in zoom-in duration-300">
+                                        {brandName ? brandName.charAt(0).toUpperCase() : "M"}
+                                    </div>
+                                )
                             ) : (
-                                <div className="flex items-center animate-in fade-in slide-in-from-left-2 duration-300">
-                                    <span className="text-primary mr-1">Metria</span>Metrics
+                                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-300 min-w-0">
+                                    {logoUrl && (
+                                        <img
+                                            src={logoUrl}
+                                            alt="logo"
+                                            className="w-7 h-7 rounded-md object-contain shrink-0"
+                                        />
+                                    )}
+                                    <span className="truncate">
+                                        {brandName ? (
+                                            <span className="text-primary">{brandName}</span>
+                                        ) : (
+                                            <><span className="text-primary mr-1">Metria</span>Metrics</>
+                                        )}
+                                    </span>
                                 </div>
                             )}
                         </div>
