@@ -13,9 +13,66 @@ import {
   listTicketsHandler, createTicketHandler, updateTicketHandler, resolveTicketHandler,
   listTasksHandler, completeTaskHandler
 } from './crm.controller'
+import type { AuthRequest } from '../../middleware/auth'
+import { prisma } from '../../lib/prisma'
 
 const router = Router()
 const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
+
+// Revenue summary for contact profile (ROAS en contacto)
+router.get('/crm/contacts/:id/revenue-summary', ...auth, async (req: AuthRequest, res) => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const contactId = req.params.id
+
+    const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
+    if (!contact) return res.status(404).json({ error: 'Contact not found' })
+
+    const orders = contact.email
+      ? await prisma.order.findMany({ where: { workspaceId, customerEmail: contact.email } })
+      : []
+
+    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.totalPrice), 0)
+    const lastPurchaseDate = orders.length
+      ? orders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0].createdAt
+      : null
+
+    const since = new Date(Date.now() - 30 * 86_400_000)
+    const metrics = await prisma.dailyMetric.aggregate({
+      where: { workspaceId, date: { gte: since } },
+      _sum: { totalRevenue: true, metaAdSpend: true, googleAdSpend: true, tiktokAdSpend: true, netProfit: true }
+    })
+
+    const rev30 = Number(metrics._sum.totalRevenue ?? 0)
+    const spend30 =
+      Number(metrics._sum.metaAdSpend ?? 0) +
+      Number(metrics._sum.googleAdSpend ?? 0) +
+      Number(metrics._sum.tiktokAdSpend ?? 0)
+
+    res.json({
+      contactRevenue: {
+        totalRevenue,
+        orderCount: orders.length,
+        lastPurchaseDate,
+        avgOrderValue: orders.length ? totalRevenue / orders.length : 0
+      },
+      workspaceContext: {
+        avgROAS: spend30 > 0 ? Number((rev30 / spend30).toFixed(2)) : null,
+        totalAdSpend30d: spend30,
+        totalRevenue30d: rev30,
+        netProfit30d: Number(metrics._sum.netProfit ?? 0)
+      },
+      contactAttribution: {
+        source: contact.source ?? null,
+        estimatedAdCost: null,
+        note: 'Atribución exacta no disponible — mostrando ROAS promedio del workspace'
+      }
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 // Contacts
 router.get('/crm/contacts', ...auth, listContactsHandler)

@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { getSegmentContacts } from '../crm/segments.service'
 import { getDriver, dispatch, isLiveChannel, type Channel } from './drivers'
+import { generateUnsubscribeToken } from '../unsubscribe/unsubscribe.service'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,38 @@ function recipientAddress(
 /** The Suppression channel key for a campaign channel (WhatsApp suppresses by phone too). */
 function suppressionChannel(channel: CampaignChannel): string {
   return channel === 'EMAIL' ? 'EMAIL' : 'SMS'
+}
+
+/**
+ * Rewrite links through a click tracker and append a 1x1 open-tracking pixel so
+ * opens/clicks can be attributed to a specific recipient. EMAIL only.
+ */
+function injectTracking(html: string, recipientId: string): string {
+  const base = (process.env.API_BASE_URL ?? 'http://localhost:4000').replace(/\/$/, '')
+
+  let result = html.replace(
+    /href="(https?:\/\/[^"]{1,2048})"/gi,
+    (_match, url: string) => `href="${base}/t/c/${recipientId}?url=${encodeURIComponent(url)}"`
+  )
+
+  const pixel = `<img src="${base}/t/o/${recipientId}" width="1" height="1" style="display:none" alt="" />`
+
+  const token = generateUnsubscribeToken(recipientId)
+  const unsubUrl = `${process.env.BACKEND_URL ?? 'http://localhost:4000'}/unsubscribe/${token}`
+  const footer =
+    `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;font-size:12px;` +
+    `color:#888;text-align:center">` +
+    `Si no deseas recibir más correos, ` +
+    `<a href="${unsubUrl}" style="color:#888">haz clic aquí para desuscribirte</a>.` +
+    `</div>`
+
+  if (result.includes('</body>')) {
+    result = result.replace('</body>', `${pixel}${footer}</body>`)
+  } else {
+    result = result + pixel + footer
+  }
+
+  return result
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
@@ -299,9 +332,23 @@ export async function sendCampaign(workspaceId: string, campaignId: string) {
           continue
         }
 
-        // Render merge tags and dispatch.
-        const body = renderMergeTags(campaign.body, contact as any)
+        // Render merge tags.
+        const renderedBody = renderMergeTags(campaign.body, contact as any)
         const subject = campaign.subject ? renderMergeTags(campaign.subject, contact as any) : ''
+
+        // Create the recipient record up-front so EMAIL tracking links/pixel can
+        // reference its id; we update status after dispatch.
+        const recipient = await prisma.campaignRecipient.create({
+          data: {
+            campaignId,
+            workspaceId,
+            contactId: contact.id,
+            status: 'PENDING',
+          },
+        })
+
+        const body =
+          channel === 'EMAIL' ? injectTracking(renderedBody, recipient.id) : renderedBody
 
         let result_: { ok: boolean; error?: string }
         try {
@@ -313,25 +360,15 @@ export async function sendCampaign(workspaceId: string, campaignId: string) {
 
         if (result_.ok) {
           stats.sent++
-          await prisma.campaignRecipient.create({
-            data: {
-              campaignId,
-              workspaceId,
-              contactId: contact.id,
-              status: 'SENT',
-              sentAt: new Date(),
-            },
+          await prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: { status: 'SENT', sentAt: new Date() },
           })
         } else {
           stats.failed++
-          await prisma.campaignRecipient.create({
-            data: {
-              campaignId,
-              workspaceId,
-              contactId: contact.id,
-              status: 'FAILED',
-              error: result_.error ?? 'Error de envío',
-            },
+          await prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: { status: 'FAILED', error: result_.error ?? 'Error de envío' },
           })
         }
       }
@@ -351,6 +388,94 @@ export async function sendCampaign(workspaceId: string, campaignId: string) {
       data: { status: 'FAILED', stats: stats as any },
     })
     throw new Error(err?.message ?? 'Campaign send failed')
+  }
+}
+
+// ── Single-contact send (workflow drip sequences) ─────────────────────────────
+
+/**
+ * Send a campaign to a single contact — used by workflow drip sequences rather
+ * than the segment-wide blast. Records a recipient row and updates its status.
+ */
+export async function sendToSingleContact(params: {
+  campaignId: string
+  contactId: string
+  workspaceId: string
+}): Promise<void> {
+  const { campaignId, contactId, workspaceId } = params
+
+  const [campaign, contact] = await Promise.all([
+    prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } }),
+    prisma.contact.findFirst({ where: { id: contactId, workspaceId } }),
+  ])
+
+  if (!campaign || !contact) return
+
+  const channel = campaign.channel as CampaignChannel
+  const address = recipientAddress(channel, contact)
+  if (!address) return
+
+  const recipient = await prisma.campaignRecipient.create({
+    data: { campaignId, workspaceId, contactId, status: 'PENDING' },
+  })
+
+  const renderedBody = renderMergeTags(campaign.body, contact)
+  const subject = campaign.subject ? renderMergeTags(campaign.subject, contact) : ''
+  const body = channel === 'EMAIL' ? injectTracking(renderedBody, recipient.id) : renderedBody
+
+  const driver = getDriver(channel)
+  let result_: { ok: boolean; error?: string }
+  try {
+    result_ = await dispatch(driver, channel, address, subject, body)
+  } catch (err: any) {
+    result_ = { ok: false, error: err?.message ?? 'Error de envío' }
+  }
+
+  if (result_.ok) {
+    await prisma.campaignRecipient.update({
+      where: { id: recipient.id },
+      data: { status: 'SENT', sentAt: new Date() },
+    })
+  } else {
+    await prisma.campaignRecipient.update({
+      where: { id: recipient.id },
+      data: { status: 'FAILED', error: result_.error ?? 'Error de envío' },
+    })
+  }
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Aggregate per-status recipient counts into delivery + engagement rates.
+ * `sent` counts every recipient that left the system (SENT/OPENED/CLICKED).
+ */
+export async function getCampaignStats(workspaceId: string, campaignId: string) {
+  const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } })
+  if (!campaign) throw new Error('Campaign not found')
+
+  const grouped = await prisma.campaignRecipient.groupBy({
+    by: ['status'],
+    where: { campaignId, workspaceId },
+    _count: { _all: true },
+  })
+
+  const counts: Record<string, number> = {}
+  for (const g of grouped) counts[g.status] = g._count._all
+
+  const total = Object.values(counts).reduce((a, b) => a + b, 0)
+  const sent = (counts['SENT'] ?? 0) + (counts['OPENED'] ?? 0) + (counts['CLICKED'] ?? 0)
+  const opened = counts['OPENED'] ?? 0
+  const clicked = counts['CLICKED'] ?? 0
+
+  return {
+    total,
+    sent,
+    failed: counts['FAILED'] ?? 0,
+    opened,
+    clicked,
+    openRate: sent > 0 ? Number((opened / sent).toFixed(3)) : 0,
+    clickRate: sent > 0 ? Number((clicked / sent).toFixed(3)) : 0,
   }
 }
 

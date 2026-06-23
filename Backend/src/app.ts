@@ -41,7 +41,11 @@ import schedulingRoutes from './modules/scheduling/scheduling.routes'
 import publicBookingRoutes from './modules/scheduling/public-booking.routes'
 import composioRoutes from './routes/composio'
 import googleCalendarRoutes from './routes/integrations/google-calendar.routes'
-import trackingRoutes from './modules/tracking/tracking.routes'
+import productsRoutes from './modules/products/products.routes'
+import invoicesRoutes from './modules/payments/invoices.routes'
+import { emailWebhookRouter } from './modules/webhooks/email.webhook.routes'
+import { smsWebhookRouter } from './modules/webhooks/sms.webhook.routes'
+import { unsubscribeRouter } from './modules/unsubscribe/unsubscribe.routes'
 import { startFollowUpCron } from './modules/ai-agent/followup.cron'
 import { startAnalyticsCron } from './modules/analytics/analytics.cron'
 import { startWorkflowCron } from './modules/automation/automation.cron'
@@ -62,8 +66,12 @@ app.use('/api/webhooks/instagram', express.raw({ type: 'application/json' }))
 // Standard JSON body parser for everything else (15mb for base64 PDF ingestion)
 app.use(express.json({ limit: '15mb' }))
 
-// Public tracking routes (no auth — pixel is embedded in emails)
-app.use('/t', trackingRoutes)
+// Webhook routes (no auth — validated per-provider)
+app.use('/webhooks', emailWebhookRouter)
+app.use('/webhooks', smsWebhookRouter)
+
+// Unsubscribe route (no auth — HMAC-signed token)
+app.use('/unsubscribe', unsubscribeRouter)
 
 // Register API Routes
 app.use('/health', healthRoutes)
@@ -79,7 +87,7 @@ app.use('/api/ia', valentinaRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/users', usersRoutes)
 app.use('/api/admin', adminRoutes)
-// app.use('/api/products', productsRoutes)
+// app.use('/api/products', productsRoutes) // old stub
 app.use('/api/logs', logsRoutes)
 app.use('/api/onboarding', onboardingRoutes)
 app.use('/api/payments', paymentsRoutes)
@@ -103,6 +111,8 @@ app.use('/api/public', publicFormsRoutes)
 app.use('/api/public', paymentLinksWebhook)
 app.use('/api/composio', composioRoutes)
 app.use('/api/integrations/google-calendar', googleCalendarRoutes)
+app.use('/api', productsRoutes)
+app.use('/api', invoicesRoutes)
 
 // Start cron jobs
 startAnalyticsCron()

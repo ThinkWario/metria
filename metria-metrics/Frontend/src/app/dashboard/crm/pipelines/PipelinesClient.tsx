@@ -15,7 +15,7 @@ import {
   Plus, Trophy, X, GripVertical,
   Flame, Thermometer, Snowflake, Phone, Calendar, Clock,
   Check, KanbanSquare, Pencil, BarChart2, Trash2, User,
-  Settings, ChevronUp, ChevronDown
+  Settings, ChevronUp, ChevronDown, FileText
 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -28,6 +28,7 @@ import {
 } from 'recharts'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import InvoiceModal from '@/components/invoices/InvoiceModal'
 
 interface Stage { id: string; name: string; color: string; order: number; isWon: boolean; isLost: boolean }
 interface Pipeline { id: string; name: string; isDefault: boolean; stages: Stage[]; _count: { deals: number } }
@@ -565,6 +566,7 @@ function DealCard({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [invoiceOpen, setInvoiceOpen] = useState(false)
   const prob = deal.probability ?? null
   const probBar = prob != null ? (prob >= 70 ? 'bg-emerald-500' : prob >= 40 ? 'bg-amber-500' : 'bg-red-500') : null
   const days = daysAgo(deal.createdAt)
@@ -704,6 +706,15 @@ function DealCard({
         </div>
         {!overlay && (
           <div className="flex items-center gap-1">
+            {deal.status === 'WON' && (
+              <button
+                onClick={e => { e.stopPropagation(); setInvoiceOpen(true) }}
+                className="h-5 w-5 rounded flex items-center justify-center hover:bg-violet-100 text-muted-foreground hover:text-violet-600 transition-colors"
+                title="Generar factura"
+              >
+                <FileText className="h-3 w-3" />
+              </button>
+            )}
             {deal.status === 'OPEN' && (
               <>
                 <button
@@ -733,6 +744,16 @@ function DealCard({
         )}
       </div>
     </div>
+
+    {/* Invoice modal — rendered outside the draggable div */}
+    {invoiceOpen && (
+      <InvoiceModal
+        open={invoiceOpen}
+        onOpenChange={setInvoiceOpen}
+        contactId={deal.contact.id}
+        dealId={deal.id}
+      />
+    )}
 
     {/* Delete confirmation dialog — rendered outside the draggable div */}
     <AlertDialog open={deleteOpen} onOpenChange={v => { if (!deleting) setDeleteOpen(v) }}>

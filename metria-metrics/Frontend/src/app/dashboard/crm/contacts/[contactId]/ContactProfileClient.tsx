@@ -5,7 +5,7 @@ import { fetchAPI } from '@/lib/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import ContactTimeline from '@/components/crm/ContactTimeline'
 import ContactTasks from '@/components/crm/ContactTasks'
-import { Trophy, Wallet, ShoppingBag, GitBranch, Pencil } from 'lucide-react'
+import { Trophy, Wallet, ShoppingBag, GitBranch, Pencil, TrendingUp } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 
@@ -26,6 +26,26 @@ interface ContactValue {
   capturedValue: number
   ordersTotal?: number
   ordersCount?: number
+}
+
+interface RevenueSummary {
+  contactRevenue: {
+    totalRevenue: number
+    orderCount: number
+    lastPurchaseDate: string | null
+    avgOrderValue: number
+  }
+  workspaceContext: {
+    avgROAS: number | null
+    totalAdSpend30d: number
+    totalRevenue30d: number
+    netProfit30d: number
+  }
+  contactAttribution: {
+    source: string | null
+    estimatedAdCost: null
+    note: string
+  }
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -74,6 +94,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   const [value, setValue] = useState<ContactValue | null>(null)
   const [valueLoading, setValueLoading] = useState(true)
   const [valueError, setValueError] = useState(false)
+  const [revenue, setRevenue] = useState<RevenueSummary | null>(null)
+  const [revenueLoading, setRevenueLoading] = useState(true)
+  const [revenueError, setRevenueError] = useState(false)
   const router = useRouter()
   const [editOpen, setEditOpen] = useState(false)
   const [editName, setEditName] = useState('')
@@ -99,6 +122,16 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
       .then(setValue)
       .catch(() => setValueError(true))
       .finally(() => setValueLoading(false))
+  }, [mounted, contactId])
+
+  useEffect(() => {
+    if (!mounted) return
+    setRevenueLoading(true)
+    setRevenueError(false)
+    fetchAPI(`/crm/contacts/${contactId}/revenue-summary`)
+      .then(setRevenue)
+      .catch(() => setRevenueError(true))
+      .finally(() => setRevenueLoading(false))
   }, [mounted, contactId])
 
   async function handleStatusChange(newStatus: string) {
@@ -297,6 +330,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
         {tab === 'resumen' && (
           <div className="space-y-4">
             <CustomerValueCard value={value} loading={valueLoading} error={valueError} />
+            <EcommercePerformanceCard revenue={revenue} loading={revenueLoading} error={revenueError} hasEmail={!!contact.email} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-lg border p-4 space-y-3">
               <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Métricas</h3>
@@ -465,6 +499,110 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/* ── Performance e-commerce ─────────────────────────────────────────────────
+   ROAS del workspace (30d) + pedidos del contacto cruzados por email. */
+function EcommercePerformanceCard({
+  revenue, loading, error, hasEmail
+}: { revenue: RevenueSummary | null; loading: boolean; error: boolean; hasEmail: boolean }) {
+  if (loading) {
+    return (
+      <div className="rounded-xl border p-5 animate-pulse space-y-3">
+        <div className="h-3 w-40 bg-muted/50 rounded" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 bg-muted/40 rounded-lg" />)}
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border p-5 text-sm text-muted-foreground">
+        No se pudo cargar el rendimiento e-commerce.
+      </div>
+    )
+  }
+
+  if (!hasEmail) {
+    return (
+      <div className="rounded-xl border p-4 text-sm text-muted-foreground flex items-center gap-2">
+        <ShoppingBag className="h-4 w-4 shrink-0" />
+        Sin email — no se pueden cruzar pedidos de Shopify con este contacto.
+      </div>
+    )
+  }
+
+  const r = revenue!
+  const hasOrders = r.contactRevenue.orderCount > 0
+
+  return (
+    <div className="rounded-xl border bg-gradient-to-br from-violet-500/[0.05] to-transparent p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-violet-600/90 dark:text-violet-400/90">
+          Performance E-commerce
+        </p>
+        <TrendingUp className="h-4 w-4 text-violet-500" />
+      </div>
+
+      {/* Contact orders */}
+      {hasOrders ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="rounded-lg border bg-background/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Ingresos totales</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">{formatCLP(r.contactRevenue.totalRevenue)}</p>
+            <p className="text-[11px] text-muted-foreground">{r.contactRevenue.orderCount} pedido{r.contactRevenue.orderCount !== 1 ? 's' : ''}</p>
+          </div>
+          <div className="rounded-lg border bg-background/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Ticket promedio</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">{formatCLP(r.contactRevenue.avgOrderValue)}</p>
+          </div>
+          {r.contactRevenue.lastPurchaseDate && (
+            <div className="rounded-lg border bg-background/60 p-3">
+              <p className="text-[11px] text-muted-foreground">Último pedido</p>
+              <p className="mt-1 text-sm font-medium">{new Date(r.contactRevenue.lastPurchaseDate).toLocaleDateString('es-CL')}</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">Sin pedidos registrados en Shopify para este email.</p>
+      )}
+
+      {/* Workspace ROAS context */}
+      <div className="border-t pt-3 space-y-2">
+        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Contexto workspace (últimos 30 días)</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-lg border bg-background/60 p-3">
+            <p className="text-[11px] text-muted-foreground">ROAS promedio</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">
+              {r.workspaceContext.avgROAS !== null ? `${r.workspaceContext.avgROAS}x` : '—'}
+            </p>
+          </div>
+          <div className="rounded-lg border bg-background/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Inversión ads</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">{formatCLP(r.workspaceContext.totalAdSpend30d)}</p>
+          </div>
+          <div className="rounded-lg border bg-background/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Ingresos</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">{formatCLP(r.workspaceContext.totalRevenue30d)}</p>
+          </div>
+          <div className="rounded-lg border bg-background/60 p-3">
+            <p className="text-[11px] text-muted-foreground">Ganancia neta</p>
+            <p className={`mt-1 text-lg font-semibold tabular-nums ${r.workspaceContext.netProfit30d < 0 ? 'text-destructive' : 'text-emerald-600'}`}>
+              {formatCLP(r.workspaceContext.netProfit30d)}
+            </p>
+          </div>
+        </div>
+        {r.contactAttribution.source && (
+          <p className="text-[11px] text-muted-foreground">
+            Fuente: <span className="font-medium">{r.contactAttribution.source}</span>
+            {' · '}{r.contactAttribution.note}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
