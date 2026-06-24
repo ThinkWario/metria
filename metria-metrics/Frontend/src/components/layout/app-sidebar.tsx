@@ -100,9 +100,9 @@ export function AppSidebar() {
         fetchMe()
     }, [fetchMe])
 
-    // Fetch branding once mounted (client-side only, after auth token is available)
+    // Fetch branding once the user is loaded (auth token is ready by then).
     useEffect(() => {
-        if (!mounted) return
+        if (!mounted || !user) return
         getBranding()
             .then((data) => {
                 if (data.brandName) setBrandName(data.brandName)
@@ -112,7 +112,17 @@ export function AppSidebar() {
             .catch(() => {
                 // Not critical — fall back to defaults silently
             })
-    }, [mounted])
+    }, [mounted, user])
+
+    // Clear branding + CSS var on logout / workspace change (user becomes null).
+    useEffect(() => {
+        if (mounted && !user) {
+            document.documentElement.style.removeProperty('--color-primary-brand')
+            setBrandName(null)
+            setLogoUrl(null)
+            setPrimaryColor(null)
+        }
+    }, [mounted, user])
 
     // Apply custom primary color as CSS var whenever it changes
     useEffect(() => {
@@ -162,6 +172,7 @@ export function AppSidebar() {
                                         src={logoUrl}
                                         alt="logo"
                                         className="w-8 h-8 rounded-lg object-contain shrink-0 animate-in fade-in zoom-in duration-300"
+                                        onError={() => setLogoUrl(null)}
                                     />
                                 ) : (
                                     <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 text-primary shrink-0 animate-in fade-in zoom-in duration-300">
@@ -175,6 +186,7 @@ export function AppSidebar() {
                                             src={logoUrl}
                                             alt="logo"
                                             className="w-7 h-7 rounded-md object-contain shrink-0"
+                                            onError={() => setLogoUrl(null)}
                                         />
                                     )}
                                     <span className="truncate">

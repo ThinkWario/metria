@@ -1077,6 +1077,7 @@ export default function PipelinesClient() {
   const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([])
   const [contactRevenues, setContactRevenues] = useState<Record<string, number>>({})
   const [cobrarModal, setCobrarModal] = useState<{ open: boolean; deal: Deal | null }>({ open: false, deal: null })
+  const [confirmWonDealId, setConfirmWonDealId] = useState<string | null>(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -1102,30 +1103,36 @@ export default function PipelinesClient() {
 
   useEffect(() => {
     if (!mounted || !selectedPipelineId) return
+    let cancelled = false
     setLoadingDeals(true)
     fetchAPI(`/crm/deals?pipelineId=${selectedPipelineId}`)
-      .then(setDeals)
-      .catch(console.error)
-      .finally(() => setLoadingDeals(false))
+      .then(data => { if (!cancelled) setDeals(data) })
+      .catch(err => { if (!cancelled) console.error(err) })
+      .finally(() => { if (!cancelled) setLoadingDeals(false) })
+    return () => { cancelled = true }
   }, [mounted, selectedPipelineId])
 
   useEffect(() => {
     if (!mounted || !selectedPipelineId || !showAnalytics) return
+    let cancelled = false
     setAnalyticsLoading(true)
     setAnalyticsError(null)
     fetchAPI(`/crm/pipelines/${selectedPipelineId}/analytics`)
-      .then((data: AnalyticsData) => setAnalytics(data))
-      .catch((err: Error) => setAnalyticsError(err.message ?? 'Error al cargar analítica'))
-      .finally(() => setAnalyticsLoading(false))
+      .then((data: AnalyticsData) => { if (!cancelled) setAnalytics(data) })
+      .catch((err: Error) => { if (!cancelled) setAnalyticsError(err.message ?? 'Error al cargar analítica') })
+      .finally(() => { if (!cancelled) setAnalyticsLoading(false) })
+    return () => { cancelled = true }
   }, [mounted, selectedPipelineId, showAnalytics])
 
   useEffect(() => {
     if (!mounted || !selectedPipelineId) return
+    let cancelled = false
     fetchAPI(`/crm/pipelines/${selectedPipelineId}/roi-summary`)
       .then((data: { contactRevenues: Record<string, number> }) => {
-        setContactRevenues(data.contactRevenues ?? {})
+        if (!cancelled) setContactRevenues(data.contactRevenues ?? {})
       })
-      .catch(() => setContactRevenues({}))
+      .catch(() => { if (!cancelled) setContactRevenues({}) })
+    return () => { cancelled = true }
   }, [mounted, selectedPipelineId])
 
   const handleDragStart = useCallback((event: any) => {
@@ -1154,14 +1161,20 @@ export default function PipelinesClient() {
     }
   }, [deals, pipelines, selectedPipelineId])
 
-  const handleWon = useCallback(async (dealId: string) => {
-    if (!confirm('¿Marcar este deal como GANADO?')) return
+  const handleWon = useCallback((dealId: string) => {
+    setConfirmWonDealId(dealId)
+  }, [])
+
+  const handleWonConfirm = useCallback(async () => {
+    const dealId = confirmWonDealId
+    if (!dealId) return
+    setConfirmWonDealId(null)
     try {
       await fetchAPI(`/crm/deals/${dealId}/close`, { method: 'PATCH', body: JSON.stringify({ outcome: 'WON' }) })
       setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'WON' } : d))
       toast.success('🏆 ¡Deal ganado!')
     } catch (err: any) { toast.error(err.message) }
-  }, [])
+  }, [confirmWonDealId])
 
   const handleLostConfirm = useCallback(async (reason: string) => {
     const dealId = lostDialog.dealId
@@ -1204,6 +1217,7 @@ export default function PipelinesClient() {
 
   const handleAssign = useCallback(async (dealId: string, userId: string | null) => {
     const userName = userId ? (workspaceUsers.find(u => u.id === userId)?.name ?? workspaceUsers.find(u => u.id === userId)?.email ?? '') : null
+    const prevDeals = deals
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, assignedToUserId: userId } : d))
     try {
       await fetchAPI(`/crm/deals/${dealId}`, {
@@ -1212,10 +1226,10 @@ export default function PipelinesClient() {
       })
       toast.success(userName ? `Deal asignado a ${userName}` : 'Asignación removida')
     } catch (err: any) {
-      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, assignedToUserId: d.assignedToUserId } : d))
+      setDeals(prevDeals)
       toast.error(err.message ?? 'Error al asignar el deal')
     }
-  }, [workspaceUsers])
+  }, [workspaceUsers, deals])
 
   const handleCobrar = useCallback((deal: Deal) => {
     setCobrarModal({ open: true, deal })
@@ -1394,6 +1408,27 @@ export default function PipelinesClient() {
         onClose={() => setLostDialog({ open: false, dealId: '' })}
         onConfirm={handleLostConfirm}
       />
+
+      {/* Won confirmation dialog */}
+      <AlertDialog open={confirmWonDealId != null} onOpenChange={v => { if (!v) setConfirmWonDealId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Marcar este deal como ganado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El deal se cerrará como ganado y se contabilizará en las métricas del pipeline.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleWonConfirm}
+              className="bg-emerald-600 text-white hover:bg-emerald-700"
+            >
+              Marcar como Ganado
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Payment Link Modal */}
       {cobrarModal.deal && (

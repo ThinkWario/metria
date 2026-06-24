@@ -49,6 +49,7 @@ function SettingsContent() {
     const [brandName, setBrandName] = useState("")
     const [primaryColor, setPrimaryColor] = useState("#7c3aed")
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const localBrandNameRef = useRef("")
 
     // API Token form state
     const [isApiDialogOpen, setIsApiDialogOpen] = useState(false)
@@ -86,7 +87,9 @@ function SettingsContent() {
 
     useEffect(() => {
         if (brandingData) {
-            setBrandName(brandingData.brandName ?? "")
+            const name = brandingData.brandName ?? ""
+            setBrandName(name)
+            localBrandNameRef.current = name
             setPrimaryColor(brandingData.primaryColor ?? "#7c3aed")
         }
     }, [brandingData])
@@ -236,15 +239,21 @@ function SettingsContent() {
         saveBrandingMutation.mutate({ primaryColor, brandName })
     }
 
-    // Debounced color change — inject CSS var immediately, then debounce the save
+    // Debounced color change — inject CSS var immediately, then auto-save after 800ms
     const handleColorChange = useCallback((value: string) => {
         setPrimaryColor(value)
         document.documentElement.style.setProperty('--color-primary-brand', value)
         if (debounceRef.current) clearTimeout(debounceRef.current)
-        debounceRef.current = setTimeout(() => {
-            // just update the preview CSS var; explicit save on button click
-        }, 500)
-    }, [])
+        debounceRef.current = setTimeout(async () => {
+            try {
+                await updateBranding({ primaryColor: value, brandName: localBrandNameRef.current })
+                queryClient.invalidateQueries({ queryKey: ['settings', 'branding'] })
+                toast.success('Color guardado')
+            } catch {
+                toast.error('Error guardando color')
+            }
+        }, 800)
+    }, [queryClient])
 
     const handleSaveTokens = async () => {
         const platformNames: Record<string, string> = {
@@ -391,9 +400,12 @@ function SettingsContent() {
                             <Label htmlFor="brandName">Nombre de marca</Label>
                             <Input
                                 id="brandName"
-                                placeholder={brandingData?.name ?? "Nombre del workspace"}
+                                placeholder={brandingData?.brandName ?? "Nombre del workspace"}
                                 value={brandName}
-                                onChange={(e) => setBrandName(e.target.value)}
+                                onChange={(e) => {
+                                    setBrandName(e.target.value)
+                                    localBrandNameRef.current = e.target.value
+                                }}
                                 maxLength={60}
                                 disabled={!canEdit}
                             />

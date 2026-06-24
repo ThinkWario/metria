@@ -37,6 +37,7 @@ export default function AutomationsClient() {
   const [deleting, setDeleting] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null)
+  const [runHistoryRefresh, setRunHistoryRefresh] = useState(0)
   const [runs, setRuns] = useState<WorkflowRun[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
   const [runsError, setRunsError] = useState<string | null>(null)
@@ -62,7 +63,7 @@ export default function AutomationsClient() {
       .then(data => setRuns(data))
       .catch((err: any) => setRunsError(err?.message ?? 'Error al cargar ejecuciones'))
       .finally(() => setRunsLoading(false))
-  }, [selectedWorkflowId])
+  }, [selectedWorkflowId, runHistoryRefresh])
 
   async function loadData() {
     setLoading(true)
@@ -398,7 +399,7 @@ export default function AutomationsClient() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => selectedWorkflowId && setSelectedWorkflowId(selectedWorkflowId)}
+                  onClick={() => setRunHistoryRefresh(prev => prev + 1)}
                 >
                   Reintentar
                 </Button>

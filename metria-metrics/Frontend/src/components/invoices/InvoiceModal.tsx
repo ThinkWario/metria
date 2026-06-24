@@ -37,15 +37,19 @@ export default function InvoiceModal({ open, onOpenChange, contactId, dealId }: 
   const [lineItems, setLineItems] = useState<LineItem[]>([{ productId: '', qty: 1, unitPrice: 0 }])
   const [taxRate, setTaxRate] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [loadingProducts, setLoadingProducts] = useState(false)
   const [generatedInvoice, setGeneratedInvoice] = useState<any>(null)
   const invoiceRef = useRef<HTMLDivElement>(null)
 
   const loadProducts = useCallback(async () => {
+    setLoadingProducts(true)
     try {
       const data = await fetchAPI('/products')
       setProducts(data)
     } catch {
-      // silently ignore — user sees empty dropdown
+      toast.error('Error cargando productos')
+    } finally {
+      setLoadingProducts(false)
     }
   }, [])
 
@@ -99,36 +103,55 @@ export default function InvoiceModal({ open, onOpenChange, contactId, dealId }: 
         })
       })
       setGeneratedInvoice(invoice)
-
-      // Generate PDF after rendering the invoice template
-      // The hidden div with ref will be populated in the next render cycle
-      setTimeout(async () => {
-        if (!invoiceRef.current) return
-        try {
-          const html2canvas = (await import('html2canvas')).default
-          const jsPDF = (await import('jspdf')).default
-
-          const canvas = await html2canvas(invoiceRef.current, { scale: 2, useCORS: true })
-          const imgData = canvas.toDataURL('image/png')
-          const pdf = new jsPDF('p', 'mm', 'a4')
-          const pdfW = pdf.internal.pageSize.getWidth()
-          const pdfH = (canvas.height * pdfW) / canvas.width
-          pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH)
-          pdf.save(`${invoice.number}.pdf`)
-          toast.success(`Factura ${invoice.number} generada`)
-          onOpenChange(false)
-        } catch (pdfErr) {
-          console.error(pdfErr)
-          toast.error('Error al generar el PDF')
-        }
-      }, 300)
+      // PDF generation runs in a useEffect once the template ref is mounted.
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al crear factura'
       toast.error(msg)
-    } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!generatedInvoice || !invoiceRef.current) return
+
+    const generatePdf = async () => {
+      const nextFrame = () =>
+        new Promise<void>(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+
+      await nextFrame()
+
+      if (!invoiceRef.current) {
+        toast.error('No se pudo generar el PDF. Intenta de nuevo.')
+        setLoading(false)
+        return
+      }
+
+      try {
+        const html2canvas = (await import('html2canvas')).default
+        const jsPDF = (await import('jspdf')).default
+
+        const canvas = await html2canvas(invoiceRef.current, { scale: 2, useCORS: true, logging: false })
+        const imgData = canvas.toDataURL('image/png')
+        const pdf = new jsPDF('p', 'mm', 'a4')
+        const pdfW = pdf.internal.pageSize.getWidth()
+        const pdfH = (canvas.height * pdfW) / canvas.width
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH)
+        pdf.save(`${generatedInvoice.number ?? 'borrador'}.pdf`)
+        toast.success(`Factura ${generatedInvoice.number} generada`)
+        onOpenChange(false)
+      } catch (pdfErr) {
+        console.error(pdfErr)
+        toast.error('Error al generar el PDF')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    generatePdf()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generatedInvoice])
 
   return (
     <>
@@ -154,10 +177,17 @@ export default function InvoiceModal({ open, onOpenChange, contactId, dealId }: 
                     <select
                       value={line.productId}
                       onChange={e => updateLine(idx, 'productId', e.target.value)}
-                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                      disabled={loadingProducts}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <option value="">Seleccionar producto</option>
-                      {products.map(p => (
+                      {loadingProducts ? (
+                        <option value="" disabled>Cargando productos...</option>
+                      ) : products.length === 0 ? (
+                        <option value="" disabled>Sin productos — crea uno en Catálogo</option>
+                      ) : (
+                        <option value="">Seleccionar producto</option>
+                      )}
+                      {!loadingProducts && products.map(p => (
                         <option key={p.id} value={p.id}>
                           {p.name}{p.sku ? ` (${p.sku})` : ''}
                         </option>

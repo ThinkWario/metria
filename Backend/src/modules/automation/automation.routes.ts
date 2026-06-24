@@ -65,57 +65,9 @@ router.post('/crm/workflows', ...auth, async (req: AuthRequest, res: Response): 
   }
 })
 
-// ── Get one (+ últimos runs) ──────────────────────────────────────────────────
-router.get('/crm/workflows/:id', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    res.json(await ws.getWorkflow(req.user!.workspaceId!, req.params.id))
-  } catch (err: any) {
-    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
-    res.status(status).json({ error: err.message })
-  }
-})
-
-// ── Update ───────────────────────────────────────────────────────────────────
-router.patch('/crm/workflows/:id', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    res.json(await ws.updateWorkflow(req.user!.workspaceId!, req.params.id, req.body))
-  } catch (err: any) {
-    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
-    res.status(status).json({ error: err.message })
-  }
-})
-
-// ── Delete ───────────────────────────────────────────────────────────────────
-router.delete('/crm/workflows/:id', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    await ws.deleteWorkflow(req.user!.workspaceId!, req.params.id)
-    res.status(204).send()
-  } catch (err: any) {
-    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
-    res.status(status).json({ error: err.message })
-  }
-})
-
-// ── Duplicate ─────────────────────────────────────────────────────────────────
-router.post('/crm/workflows/:id/duplicate', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    res.status(201).json(await ws.duplicateWorkflow(req.user!.workspaceId!, req.params.id))
-  } catch (err: any) {
-    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
-    res.status(status).json({ error: err.message })
-  }
-})
-
-// ── Runs ─────────────────────────────────────────────────────────────────────
-router.get('/crm/workflows/:id/runs', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    res.json(await ws.listRuns(req.user!.workspaceId!, req.params.id))
-  } catch (err: any) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
 // ── Templates ─────────────────────────────────────────────────────────────────
+// Debe registrarse ANTES de '/crm/workflows/:id', de lo contrario Express matchea
+// "templates" como :id y la ruta queda inalcanzable (404).
 const WORKFLOW_TEMPLATES = [
   {
     id: 'reengagement-deal-lost',
@@ -171,6 +123,56 @@ router.post('/crm/workflows/templates/:templateId/install', ...auth, async (req:
       isActive: false
     })
     res.status(201).json(wf)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Get one (+ últimos runs) ──────────────────────────────────────────────────
+router.get('/crm/workflows/:id', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    res.json(await ws.getWorkflow(req.user!.workspaceId!, req.params.id))
+  } catch (err: any) {
+    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+})
+
+// ── Update ───────────────────────────────────────────────────────────────────
+router.patch('/crm/workflows/:id', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    res.json(await ws.updateWorkflow(req.user!.workspaceId!, req.params.id, req.body))
+  } catch (err: any) {
+    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+})
+
+// ── Delete ───────────────────────────────────────────────────────────────────
+router.delete('/crm/workflows/:id', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await ws.deleteWorkflow(req.user!.workspaceId!, req.params.id)
+    res.status(204).send()
+  } catch (err: any) {
+    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+})
+
+// ── Duplicate ─────────────────────────────────────────────────────────────────
+router.post('/crm/workflows/:id/duplicate', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    res.status(201).json(await ws.duplicateWorkflow(req.user!.workspaceId!, req.params.id))
+  } catch (err: any) {
+    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+})
+
+// ── Runs ─────────────────────────────────────────────────────────────────────
+router.get('/crm/workflows/:id/runs', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    res.json(await ws.listRuns(req.user!.workspaceId!, req.params.id))
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }

@@ -31,8 +31,11 @@ function verifyUnsubscribeToken(token: string): string {
     .update(recipientId)
     .digest('hex')
 
-  // Constant-time comparison to prevent timing attacks
-  if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) {
+  // Constant-time comparison to prevent timing attacks.
+  // timingSafeEqual throws if buffers differ in length, so guard first.
+  const sigBuf = Buffer.from(sig, 'hex')
+  const expectedBuf = Buffer.from(expected, 'hex')
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
     throw new Error('Invalid token signature')
   }
 
@@ -53,7 +56,7 @@ export async function processUnsubscribe(token: string): Promise<void> {
   const recipient = await prisma.campaignRecipient.findUniqueOrThrow({
     where: { id: recipientId },
     include: {
-      contact: { select: { email: true, workspaceId: true } },
+      contact: { select: { email: true } },
     },
   })
 
@@ -64,7 +67,9 @@ export async function processUnsubscribe(token: string): Promise<void> {
   })
 
   const email = recipient.contact?.email
-  const workspaceId = recipient.contact?.workspaceId ?? recipient.workspaceId
+  // Always use the recipient's own workspaceId as the authoritative tenant to
+  // avoid writing a Suppression into the wrong workspace if contact data drifts.
+  const workspaceId = recipient.workspaceId
 
   if (email) {
     await prisma.suppression.upsert({

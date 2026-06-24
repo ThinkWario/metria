@@ -536,7 +536,15 @@ function EcommercePerformanceCard({
     )
   }
 
-  const r = revenue!
+  if (!revenue) {
+    return (
+      <div className="rounded-xl border p-5 text-sm text-muted-foreground">
+        Sin datos de ingresos disponibles.
+      </div>
+    )
+  }
+
+  const r = revenue
   const hasOrders = r.contactRevenue.orderCount > 0
 
   return (

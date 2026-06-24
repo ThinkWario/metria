@@ -9,6 +9,8 @@ export interface InboundMessageData {
   externalMessageId: string
   /** Sender's platform identifier (Telegram user ID, WhatsApp phone, Instagram user ID) */
   senderExternalId: string
+  /** Pre-resolved contact id. When set, the contact upsert is skipped (used by email inbound, which keys contacts by email, not phone). */
+  contactId?: string
   senderName?: string
   content: string
   mediaUrl?: string

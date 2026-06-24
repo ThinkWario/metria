@@ -17,13 +17,16 @@ smsWebhookRouter.post(
     const twilioSignature = (req.headers['x-twilio-signature'] as string) ?? ''
     const params = req.body as TwilioInboundPayload
 
-    const result = await handleInboundSms(workspaceId, params, twilioSignature)
+    // The exact URL Twilio signed over (protocol + host + original path/query).
+    const requestUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
+
+    const result = await handleInboundSms(workspaceId, params, twilioSignature, requestUrl)
 
     if (result === 'invalid_signature') {
       return res.status(403).type('text/xml').send('<Response></Response>')
     }
 
-    // 'no_channel' and 'ok' both return 200 TwiML so Twilio doesn't retry
+    // 'no_channel', 'error', and 'ok' all return 200 TwiML so Twilio doesn't retry
     return res.status(200).type('text/xml').send('<Response></Response>')
   }
 )

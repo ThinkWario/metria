@@ -10,6 +10,7 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   type Node,
   type Edge,
   type Connection,
@@ -494,27 +495,30 @@ function serializeNodes(
   const triggerNode = rfNodes.find(n => (n.data as CanvasNodeData).isTrigger)
   if (!triggerNode) return []
 
-  // Build adjacency map: nodeId → [targetNodeId, ...]
-  const adjacency: Record<string, string[]> = {}
-  for (const edge of rfEdges) {
-    if (!adjacency[edge.source]) adjacency[edge.source] = []
-    // Only follow the "yes" handle for branch nodes (or single handle)
-    if (!edge.sourceHandle || edge.sourceHandle === 'yes') {
-      adjacency[edge.source].push(edge.target)
-    }
+  // The backend stores nodes as a flat, ordered WorkflowNode[] and the executor
+  // runs them sequentially (a `branch` node acts as a guard that halts the run
+  // when its condition is false — there is no divergent "No" path in the data
+  // model). So serialization is a single ordered walk from the trigger, following
+  // the primary outgoing edge of each node. For branch nodes we follow the "yes"
+  // handle since that is the path that continues execution.
+  const nodeById = new Map(rfNodes.map(n => [n.id, n]))
+
+  function nextEdge(nodeId: string): Edge | undefined {
+    const outgoing = rfEdges.filter(e => e.source === nodeId)
+    if (outgoing.length === 0) return undefined
+    // Prefer the "yes" handle; otherwise take the single/first outgoing edge.
+    return outgoing.find(e => e.sourceHandle === 'yes') ?? outgoing[0]
   }
 
   const result: WorkflowNode[] = []
   const visited = new Set<string>()
-  const queue: string[] = [triggerNode.id]
+  let currentId: string | undefined = triggerNode.id
 
-  while (queue.length > 0) {
-    const currentId = queue.shift()!
-    if (visited.has(currentId)) continue
+  while (currentId && !visited.has(currentId)) {
     visited.add(currentId)
 
-    const node = rfNodes.find(n => n.id === currentId)
-    if (!node) continue
+    const node = nodeById.get(currentId)
+    if (!node) break
 
     const nodeData = node.data as CanvasNodeData
     if (!nodeData.isTrigger) {
@@ -524,8 +528,7 @@ function serializeNodes(
       })
     }
 
-    const children = adjacency[currentId] ?? []
-    queue.push(...children)
+    currentId = nextEdge(currentId)?.target
   }
 
   return result
@@ -604,6 +607,7 @@ function WorkflowCanvasInner({
   onNodesReady,
 }: WorkflowCanvasInnerProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
+  const { screenToFlowPosition } = useReactFlow()
 
   const { nodes: initNodes, edges: initEdges } = deserializeWorkflow(workflow, triggerType)
 
@@ -617,7 +621,7 @@ function WorkflowCanvasInner({
       () => nodes as Node[],
       () => edges as Edge[]
     )
-  })
+  }, [nodes, edges, onNodesReady])
 
   // Attach onDelete to each node's data
   const handleDeleteNode = useCallback((id: string) => {
@@ -665,18 +669,17 @@ function WorkflowCanvasInner({
     (e: React.DragEvent) => {
       e.preventDefault()
       const type = e.dataTransfer.getData('application/reactflow-type')
-      if (!type || !reactFlowWrapper.current) return
+      if (!type) return
 
-      const bounds = reactFlowWrapper.current.getBoundingClientRect()
-      // Approximate drop position (we can't use project() without the hook)
-      const x = e.clientX - bounds.left - 100
-      const y = e.clientY - bounds.top - 30
+      // Convert screen coords to flow coords so the node lands under the cursor
+      // regardless of the current zoom/pan of the viewport.
+      const position = screenToFlowPosition({ x: e.clientX, y: e.clientY })
 
       const id = nextId()
       const newNode: Node = {
         id,
         type: 'workflowNode',
-        position: { x, y },
+        position,
         data: {
           nodeType: type,
           config: {},
@@ -686,7 +689,7 @@ function WorkflowCanvasInner({
       setNodes(nds => [...nds, newNode])
       setSelectedNodeId(id)
     },
-    [setNodes]
+    [screenToFlowPosition, setNodes]
   )
 
   const onDragOver = useCallback((e: React.DragEvent) => {
@@ -834,6 +837,17 @@ export function WorkflowCanvas({
     }
   }
 
+  function handleClose() {
+    const currentNodes = getNodesRef.current?.() ?? []
+    const currentEdges = getEdgesRef.current?.() ?? []
+    // More than just the trigger node, or any wiring, means unsaved work exists.
+    const hasUnsavedChanges = currentNodes.length > 1 || currentEdges.length > 0
+    if (hasUnsavedChanges && !window.confirm('¿Salir sin guardar? Los cambios se perderán.')) {
+      return
+    }
+    onClose()
+  }
+
   if (!open) return null
 
   return (
@@ -867,7 +881,7 @@ export function WorkflowCanvas({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
+          <Button variant="outline" size="sm" onClick={handleClose} disabled={saving}>
             Cancelar
           </Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>

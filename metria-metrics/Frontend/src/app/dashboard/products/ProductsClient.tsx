@@ -5,6 +5,10 @@ import { toast } from 'sonner'
 import { Plus, Pencil, PowerOff, Package } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import ProductSheet from '@/components/products/ProductSheet'
 
 interface Product {
@@ -32,6 +36,7 @@ export default function ProductsClient() {
   const [loading, setLoading] = useState(true)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
+  const [deactivateTarget, setDeactivateTarget] = useState<Product | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -158,7 +163,7 @@ export default function ProductsClient() {
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
-                        onClick={() => handleDeactivate(product)}
+                        onClick={() => setDeactivateTarget(product)}
                         className="p-1.5 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
                         aria-label="Desactivar"
                       >
@@ -179,6 +184,29 @@ export default function ProductsClient() {
         product={editProduct}
         onSaved={handleSaved}
       />
+
+      <AlertDialog open={!!deactivateTarget} onOpenChange={open => !open && setDeactivateTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Desactivar producto?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{deactivateTarget?.name}</strong> no aparecerá en nuevas facturas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deactivateTarget) handleDeactivate(deactivateTarget)
+                setDeactivateTarget(null)
+              }}
+            >
+              Desactivar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

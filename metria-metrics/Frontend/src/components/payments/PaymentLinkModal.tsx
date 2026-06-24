@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,11 @@ export function PaymentLinkModal({ open, onClose, deal, contactName }: PaymentLi
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [sendingWa, setSendingWa] = useState(false)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+  }, [])
 
   function handleClose() {
     setPaymentUrl(null)
@@ -55,8 +60,9 @@ export function PaymentLinkModal({ open, onClose, deal, contactName }: PaymentLi
       }
       setPaymentUrl(result.url ?? null)
       toast.success('Link de pago creado')
-    } catch (err: any) {
-      toast.error(err.message ?? 'Error al crear link de pago')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al crear link de pago'
+      toast.error(msg)
     } finally {
       setCreating(false)
     }
@@ -68,7 +74,8 @@ export function PaymentLinkModal({ open, onClose, deal, contactName }: PaymentLi
       await navigator.clipboard.writeText(paymentUrl)
       setCopied(true)
       toast.success('Link copiado al portapapeles')
-      setTimeout(() => setCopied(false), 2000)
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000)
     } catch {
       toast.error('No se pudo copiar')
     }
@@ -77,37 +84,25 @@ export function PaymentLinkModal({ open, onClose, deal, contactName }: PaymentLi
   async function handleSendWhatsApp() {
     if (!paymentUrl) return
     setSendingWa(true)
+    const text = `Hola${contactName ? ` ${contactName}` : ''}, te comparto el link de pago: ${paymentUrl}`
     try {
-      // Find conversation by contactId or send via direct WhatsApp link
-      const waNumber = undefined // we don't have phone here; use web.whatsapp.com as fallback
-      if (waNumber) {
-        const text = encodeURIComponent(`Hola${contactName ? ` ${contactName}` : ''}, te comparto el link de pago: ${paymentUrl}`)
-        window.open(`https://wa.me/${waNumber}?text=${text}`, '_blank')
+      // Look up the contact's conversation and send through the messaging API.
+      const convs = await fetchAPI(`/messaging/conversations?contactId=${deal.contactId}&limit=1`)
+      const conv = Array.isArray(convs) ? convs[0] : convs?.conversations?.[0]
+      if (conv?.id) {
+        await fetchAPI(`/messaging/conversations/${conv.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ content: text, type: 'TEXT' })
+        })
+        toast.success('Link enviado por WhatsApp')
       } else {
-        // Try sending via messaging API to find the contact's conversation
-        const text = `Hola${contactName ? ` ${contactName}` : ''}, te comparto el link de pago: ${paymentUrl}`
-        try {
-          // Look up conversations for this contact and send to the first active one
-          const convs = await fetchAPI(`/messaging/conversations?contactId=${deal.contactId}&limit=1`)
-          const conv = Array.isArray(convs) ? convs[0] : convs?.conversations?.[0]
-          if (conv?.id) {
-            await fetchAPI(`/messaging/conversations/${conv.id}/messages`, {
-              method: 'POST',
-              body: JSON.stringify({ content: text, type: 'TEXT' })
-            })
-            toast.success('Link enviado por WhatsApp')
-          } else {
-            // Fallback: open WhatsApp Web
-            const encoded = encodeURIComponent(text)
-            window.open(`https://web.whatsapp.com/send?text=${encoded}`, '_blank')
-            toast.info('No se encontró conversación activa. Abre WhatsApp Web para enviar manualmente.')
-          }
-        } catch {
-          const encoded = encodeURIComponent(text)
-          window.open(`https://web.whatsapp.com/send?text=${encoded}`, '_blank')
-          toast.info('Redirigiendo a WhatsApp Web')
-        }
+        // No active conversation: open WhatsApp share with the message prefilled.
+        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank')
+        toast.info('No se encontró conversación activa. Selecciona el contacto en WhatsApp para enviar.')
       }
+    } catch {
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank')
+      toast.info('Redirigiendo a WhatsApp')
     } finally {
       setSendingWa(false)
     }

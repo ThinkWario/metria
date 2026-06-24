@@ -87,20 +87,25 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
   if (!channel) throw new Error(`Channel not found: ${channelId}`)
   const source = PLATFORM_TO_SOURCE[channel.platform] ?? 'MANUAL'
 
-  const contact = await prisma.contact.upsert({
-    where: { workspaceId_phone: { workspaceId, phone: senderExternalId } },
-    create: {
-      workspaceId,
-      name: senderName ?? senderExternalId,
-      phone: senderExternalId,
-      source,
-      sourceCampaignId: data.metadata?.campaign_id || null,
-      status: 'LEAD'
-    },
-    update: {
-      sourceCampaignId: data.metadata?.campaign_id || undefined
-    }
-  })
+  const contact = data.contactId
+    ? await prisma.contact.update({
+        where: { id: data.contactId },
+        data: { sourceCampaignId: data.metadata?.campaign_id || undefined }
+      })
+    : await prisma.contact.upsert({
+        where: { workspaceId_phone: { workspaceId, phone: senderExternalId } },
+        create: {
+          workspaceId,
+          name: senderName ?? senderExternalId,
+          phone: senderExternalId,
+          source,
+          sourceCampaignId: data.metadata?.campaign_id || null,
+          status: 'LEAD'
+        },
+        update: {
+          sourceCampaignId: data.metadata?.campaign_id || undefined
+        }
+      })
 
   let isNewConversation = false
   let conversation = await prisma.conversation.findUnique({

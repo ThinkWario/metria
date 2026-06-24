@@ -14,8 +14,12 @@ unsubscribeRouter.get('/:token', async (req: Request, res: Response) => {
     await processUnsubscribe(token)
     return res.status(200).send(renderUnsubscribePage(true))
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : undefined
-    if (msg && (msg.includes('Invalid token') || msg.includes('No record found'))) {
+    // Invalid/tampered token → 400 (matched by explicit messages, not substrings)
+    if (err instanceof Error && (err.message === 'Invalid token format' || err.message === 'Invalid token signature')) {
+      return res.status(400).send(renderUnsubscribePage(false))
+    }
+    // Prisma "record not found" (e.g. findUniqueOrThrow) → 400, link no longer valid
+    if ((err as { code?: string })?.code === 'P2025') {
       return res.status(400).send(renderUnsubscribePage(false))
     }
     console.error('[unsubscribe] Unexpected error:', err)

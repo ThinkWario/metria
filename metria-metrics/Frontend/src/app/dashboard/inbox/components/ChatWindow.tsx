@@ -266,10 +266,10 @@ export function ChatWindow({
                     Devolver a IA
                 </Button>
             )}
-            <Button aria-label="Llamar" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Phone className="w-4 h-4" /></Button>
-            <Button aria-label="Videollamada" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Video className="w-4 h-4" /></Button>
-            <Button aria-label="Buscar en conversación" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Search className="w-4 h-4" /></Button>
-            <Button aria-label="Más opciones" variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><MoreVertical className="w-4 h-4" /></Button>
+            <Button aria-label="Llamar" title="Próximamente" disabled variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Phone className="w-4 h-4" /></Button>
+            <Button aria-label="Videollamada" title="Próximamente" disabled variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Video className="w-4 h-4" /></Button>
+            <Button aria-label="Buscar en conversación" title="Próximamente" disabled variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Search className="w-4 h-4" /></Button>
+            <Button aria-label="Más opciones" title="Próximamente" disabled variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><MoreVertical className="w-4 h-4" /></Button>
         </div>
       </header>
 
@@ -437,7 +437,7 @@ export function ChatWindow({
         <p className="text-[9px] text-center text-muted-foreground mt-3 uppercase tracking-tighter font-medium opacity-50">
             {noteMode
                 ? 'Las notas internas solo las ve tu equipo · Nunca se envían al cliente'
-                : 'Shift + Enter para nueva línea · Escribe / para respuestas rápidas · Mensajes encriptados de extremo a extremo'}
+                : 'Shift + Enter para nueva línea · Escribe / para respuestas rápidas'}
         </p>
       </div>
     </div>
