@@ -37,6 +37,7 @@ interface WorkspaceState {
     isLoading: boolean
     hasFetched: boolean
     fetchIntegrations: (force?: boolean) => Promise<void>
+    reset: () => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -57,7 +58,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         } finally {
             set({ isLoading: false })
         }
-    }
+    },
+    reset: () => set({ integrations: DEFAULT_MAP, isLoading: false, hasFetched: false }),
 }))
 
 // Global listener: force-refresh integrations map whenever tokens are saved

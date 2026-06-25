@@ -59,6 +59,7 @@ export interface Message {
 
 export function useInbox() {
   const currentUserId = useUserStore(s => s.user?.id ?? null)
+  const workspaceId = useUserStore(s => s.user?.workspaceId ?? null)
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -77,7 +78,13 @@ export function useInbox() {
 
   // Keep a live ref to selectedId so socket handlers don't need to re-subscribe on every select.
   const selectedIdRef = useRef<string | null>(null)
-  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+
+  // Update the ref synchronously so socket handlers firing between click and
+  // re-render read the correct active conversation (avoids unread-count race).
+  const setSelectedIdSync = useCallback((id: string | null) => {
+    selectedIdRef.current = id
+    setSelectedId(id)
+  }, [])
 
   // Load workspace members once (used by the assignment dropdown).
   useEffect(() => {
@@ -108,11 +115,13 @@ export function useInbox() {
   // Load messages when selectedId changes
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
+    let cancelled = false
     setLoadingMsgs(true)
     fetchAPI(`/messaging/conversations/${selectedId}/messages`)
-      .then((data: Message[]) => setMessages(data))
-      .catch(console.error)
-      .finally(() => setLoadingMsgs(false))
+      .then((data: Message[]) => { if (!cancelled) setMessages(data) })
+      .catch(err => { if (!cancelled) console.error(err) })
+      .finally(() => { if (!cancelled) setLoadingMsgs(false) })
+    return () => { cancelled = true }
   }, [selectedId])
 
   // WebSocket live updates
@@ -160,16 +169,24 @@ export function useInbox() {
       })
     }
 
+    // Join the workspace room so backend `io.to(workspaceId).emit(...)` reaches us.
+    const onConnect = () => {
+      if (workspaceId) sock.emit('join', { workspaceId })
+    }
+    if (sock.connected) onConnect()
+    sock.on('connect', onConnect) // re-join on reconnect
+
     sock.on('conversation:new', onConvNew)
     sock.on('message:new', onMsgNew)
     sock.on('conversation:updated', onConvUpdated)
 
     return () => {
+      sock.off('connect', onConnect)
       sock.off('conversation:new', onConvNew)
       sock.off('message:new', onMsgNew)
       sock.off('conversation:updated', onConvUpdated)
     }
-  }, [statusFilter])
+  }, [statusFilter, workspaceId])
 
   const sendMessage = useCallback(async (content: string, isInternal = false) => {
     if (!selectedId || !content.trim()) return
@@ -296,7 +313,7 @@ export function useInbox() {
   return {
     conversations: visibleConversations,
     selectedId,
-    setSelectedId,
+    setSelectedId: setSelectedIdSync,
     messages,
     loadingConvs,
     loadingMsgs,

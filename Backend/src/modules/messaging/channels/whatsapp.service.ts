@@ -60,7 +60,7 @@ export async function sendWhatsAppMessage(
  * Returns false if verification fails or signature format is invalid.
  */
 export function verifyWhatsAppSignature(
-  rawBody: string,
+  rawBody: string | Buffer,
   signatureHeader: string,
   appSecret: string
 ): boolean {

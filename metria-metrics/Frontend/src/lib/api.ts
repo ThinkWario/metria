@@ -45,6 +45,15 @@ export const fetchAPI = async (endpoint: string, options: RequestInit = {}) => {
             // httpOnly session cookie is also cleared (prevents the login→dashboard redirect loop)
             if (response.status === 401 && typeof window !== 'undefined') {
                 localStorage.removeItem('metria_token')
+                // Reset all Zustand stores so stale workspace data doesn't leak across sessions
+                try {
+                    const { useUserStore } = await import('@/store/useUserStore')
+                    const { useWorkspaceStore } = await import('@/store/useWorkspaceStore')
+                    const { useCampaignStore } = await import('@/store/useCampaignStore')
+                    useUserStore.getState().reset()
+                    useWorkspaceStore.getState().reset()
+                    useCampaignStore.getState().reset()
+                } catch { /* stores may not be loaded yet */ }
                 window.location.href = '/api/auth/logout'
             }
 

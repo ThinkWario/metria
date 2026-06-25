@@ -32,20 +32,29 @@ export async function metaWebhook(req: Request, res: Response): Promise<void> {
   if (!handler) { res.status(404).send('Platform not supported'); return }
 
   try {
-    const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body)
+    const rawBody: Buffer | undefined = (req as any).rawBody
+    if (!rawBody) {
+      console.error(`[webhook.gateway] Missing raw body for platform ${p}, workspaceId ${workspaceId}`)
+      res.status(400).json({ error: 'Missing raw body' }); return
+    }
+
     const signature = (req.headers['x-hub-signature-256'] as string) ?? ''
-    const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: p } })
-    
+    const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: p, status: 'CONNECTED' } })
+
     if (!channel) { res.status(404).json({ error: 'Channel not found' }); return }
     const config = channel.config as Record<string, string>
-    
+
+    if (!config.appSecret) {
+      console.error(`[webhook.gateway] Missing appSecret for platform ${p}, workspaceId ${workspaceId}`)
+      res.status(400).json({ error: 'Webhook not configured' }); return
+    }
+
     if (!handler.verify(rawBody, signature, config.appSecret)) {
       res.status(401).json({ error: 'Invalid signature' }); return
     }
-    
+
     res.status(200).json({ ok: true })
-    const body = req.body instanceof Buffer ? JSON.parse(rawBody) : req.body
-    handler.parse(workspaceId, channel.id, body).catch((err: any) => console.error(`[${p} webhook error]`, err))
+    handler.parse(workspaceId, channel.id, req.body).catch((err: any) => console.error(`[${p} webhook error]`, err))
   } catch (err) {
     console.error(`[Meta webhook error for ${p}]`, err)
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' })

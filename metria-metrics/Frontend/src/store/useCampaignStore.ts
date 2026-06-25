@@ -6,6 +6,7 @@ interface CampaignState {
     toggleCampaign: (id: string) => void
     setDisabledCampaignIds: (ids: string[]) => void
     clearFilters: () => void
+    reset: () => void
 }
 
 export const useCampaignStore = create<CampaignState>()(
@@ -19,8 +20,12 @@ export const useCampaignStore = create<CampaignState>()(
             })),
             setDisabledCampaignIds: (ids) => set({ disabledCampaignIds: ids }),
             clearFilters: () => set({ disabledCampaignIds: [] }),
+            reset: () => set({ disabledCampaignIds: [] }),
         }),
         {
+            // TODO(tech-debt): persist key is workspace-agnostic, so disabled-campaign
+            // filters leak across workspaces. Scope the key to the active workspaceId
+            // (e.g. `campaign-filters:${workspaceId}`) once it's reachable here.
             name: 'campaign-filters',
         }
     )

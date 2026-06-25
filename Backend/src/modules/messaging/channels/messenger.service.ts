@@ -50,7 +50,7 @@ export async function sendMessengerMessage(
 }
 
 export function verifyMessengerSignature(
-  rawBody: string,
+  rawBody: string | Buffer,
   signatureHeader: string,
   appSecret: string
 ): boolean {

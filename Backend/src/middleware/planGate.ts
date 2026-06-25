@@ -7,22 +7,23 @@ interface PlanGateRequest extends AuthRequest {
   }
 }
 
+// Demo/admin accounts exempt from plan gating. Configure via env (comma-separated).
+// These are non-billing internal accounts, NOT a way to bypass paid plans.
+const PLAN_GATE_ALLOWLIST = (process.env.PLAN_GATE_ALLOWLIST ?? 'cmoralesv.fb@gmail.com,admin@metria.com,superadmin@metria.ai')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean)
+
 export function requirePlan(...plans: string[]) {
   return (req: PlanGateRequest, res: Response, next: NextFunction): void => {
     const workspace = req.workspace
     const userEmail = (req as any).user?.email
-    
-    console.log(`[PlanGate] User: ${userEmail}, Role: ${req.user?.role}, Workspace Plan: ${workspace?.plan}, Required: ${plans.join(',')}`)
 
     if (
-        userEmail === 'cmoralesv.fb@gmail.com' || 
-        userEmail === 'admin@metria.com' || 
-        userEmail === 'superadmin@metria.ai' ||
+        (userEmail && PLAN_GATE_ALLOWLIST.includes(String(userEmail).toLowerCase())) ||
         req.user?.role === 'SUPER_ADMIN' ||
-        req.user?.role === 'ADMIN' ||
-        workspace?.plan === 'STARTER' // TEMPORAL: Permitir acceso total al plan Starter
+        req.user?.role === 'ADMIN'
     ) {
-      console.log(`[PlanGate] Bypass granted for user: ${userEmail} (Plan: ${workspace?.plan}, Role: ${req.user?.role})`)
       return next()
     }
 

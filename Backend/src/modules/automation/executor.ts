@@ -20,6 +20,31 @@ type Node = {
 
 const httpFetch: typeof fetch | undefined = (globalThis as any).fetch
 
+function isSafeUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr)
+    if (url.protocol !== 'https:') return false
+    const hostname = url.hostname.toLowerCase()
+    const blocked = [
+      /^localhost$/,
+      /^127\./,
+      /^10\./,
+      /^172\.(1[6-9]|2\d|3[01])\./,
+      /^192\.168\./,
+      /^169\.254\./,
+      /^::1$/,
+      /^fc00:/,
+      /^fe80:/,
+      /^0\./,
+      /^metadata\.google\.internal$/,
+      /^169\.254\.169\.254$/,
+    ]
+    return !blocked.some(r => r.test(hostname))
+  } catch {
+    return false
+  }
+}
+
 export async function startRun(runId: string): Promise<void> {
   return resumeRun(runId)
 }
@@ -158,11 +183,21 @@ async function executeNode(
 
     case 'webhook':
       if (cfg.url && httpFetch) {
-        await httpFetch(cfg.url, {
+        if (!isSafeUrl(cfg.url)) {
+          console.warn(`[executor] Blocked unsafe webhook URL (SSRF guard): ${cfg.url} (workspace ${workspaceId})`)
+          throw new Error('Webhook URL blocked: not a safe public HTTPS endpoint')
+        }
+        const res = await httpFetch(cfg.url, {
           method: cfg.method ?? 'POST',
           headers: { 'Content-Type': 'application/json', ...(cfg.headers ?? {}) },
-          body: JSON.stringify({ workspaceId, contactId, context })
+          body: JSON.stringify({ workspaceId, contactId, context }),
+          signal: AbortSignal.timeout(10000)
         })
+        const len = Number(res.headers.get('content-length') ?? 0)
+        if (len > 1_000_000) {
+          // Response too large — discard without buffering it into memory.
+          await res.body?.cancel()
+        }
       }
       return
 

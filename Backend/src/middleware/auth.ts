@@ -3,7 +3,10 @@ import jwt from 'jsonwebtoken'
 import 'dotenv/config'
 import { prisma } from '../lib/prisma'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
+const JWT_SECRET = process.env.JWT_SECRET
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required')
+}
 
 export interface AuthRequest extends Request {
     user?: {
@@ -31,7 +34,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
             return res.status(401).json({ error: 'Unauthorized: No token provided' })
         }
 
-        const decoded = jwt.verify(token, JWT_SECRET) as AuthRequest['user']
+        const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as AuthRequest['user']
 
         req.user = decoded
         // Ensure workspaceId is at least null if missing

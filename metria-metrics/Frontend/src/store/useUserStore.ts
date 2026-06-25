@@ -62,6 +62,7 @@ interface UserState {
     deleteLogo: () => Promise<void>
     getInitials: () => string
     getDisplayName: () => string
+    reset: () => void
 }
 
 export const useUserStore = create<UserState>((set, get) => ({
@@ -159,4 +160,11 @@ export const useUserStore = create<UserState>((set, get) => ({
         if (!user) return 'Usuario'
         return user.name || user.email?.split('@')[0] || 'Usuario'
     },
+
+    reset: () => set({
+        user: null,
+        preferences: DEFAULT_PREFERENCES,
+        isLoading: false,
+        hasFetched: false,
+    }),
 }))

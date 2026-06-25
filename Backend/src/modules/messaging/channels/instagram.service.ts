@@ -54,7 +54,7 @@ export async function sendInstagramMessage(
 }
 
 export function verifyInstagramSignature(
-  rawBody: string,
+  rawBody: string | Buffer,
   signatureHeader: string,
   appSecret: string
 ): boolean {

@@ -55,13 +55,44 @@ const app = express()
 
 // Security & Optimization Middleware
 app.use(helmet())
-app.use(cors())
+
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',').map(o => o.trim())
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  },
+  credentials: true,
+}))
+
 app.use(compression())
 
 // Raw body parser exclusively for Shopify webhooks (needed for HMAC sig)
 app.use('/webhooks/shopify', express.raw({ type: 'application/json' }))
 app.use('/api/webhooks/whatsapp', express.raw({ type: 'application/json' }))
 app.use('/api/webhooks/instagram', express.raw({ type: 'application/json' }))
+
+// Raw body for Meta webhooks (HMAC must be computed over the exact bytes received).
+// Capture rawBody, then parse to an object so downstream code keeps working.
+app.use(
+  '/api/webhooks/meta',
+  express.raw({ type: 'application/json' }),
+  (req, _res, next) => {
+    if (Buffer.isBuffer(req.body)) {
+      ;(req as any).rawBody = req.body
+      try {
+        req.body = JSON.parse(req.body.toString())
+      } catch {
+        req.body = {}
+      }
+    }
+    next()
+  }
+)
 
 // Standard JSON body parser for everything else (15mb for base64 PDF ingestion)
 app.use(express.json({ limit: '15mb' }))
