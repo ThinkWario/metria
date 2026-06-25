@@ -142,6 +142,13 @@ export async function getCampaign(workspaceId: string, campaignId: string) {
     recipientCount += g._count._all
   }
 
+  // Engagement counts by timestamp, not status: a recipient who clicked also
+  // opened, so counting current status alone would undercount opens.
+  const [openedCount, clickedCount] = await Promise.all([
+    prisma.campaignRecipient.count({ where: { campaignId, workspaceId, openedAt: { not: null } } }),
+    prisma.campaignRecipient.count({ where: { campaignId, workspaceId, clickedAt: { not: null } } }),
+  ])
+
   let segment: { id: string; name: string } | null = null
   if (campaign.segmentId) {
     const s = await prisma.segment.findFirst({
@@ -151,7 +158,7 @@ export async function getCampaign(workspaceId: string, campaignId: string) {
     segment = s ?? null
   }
 
-  return { ...campaign, recipientStats, recipientCount, segment }
+  return { ...campaign, recipientStats, recipientCount, openedCount, clickedCount, segment }
 }
 
 export async function createCampaign(workspaceId: string, input: CreateCampaignInput) {

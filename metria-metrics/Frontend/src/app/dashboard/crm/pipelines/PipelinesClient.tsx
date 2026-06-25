@@ -60,6 +60,14 @@ interface AnalyticsData {
   lostReasons: Array<{ reason: string; count: number }>
 }
 
+interface RoiSummary {
+  workspaceROAS: number
+  totalRevenue30d: number
+  totalAdSpend30d: number
+  contactRevenues: Record<string, number>
+  stageStats: Record<string, { dealCount: number; totalValue: number }>
+}
+
 const PIE_COLORS = ['#6366f1', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#a78bfa']
 
 function formatCLPFull(v: number): string {
@@ -1056,6 +1064,70 @@ function CreateDealModal({
   )
 }
 
+// ── Stage ROI Panel ────────────────────────────────────────────────────────────
+function StageRoiPanel({ roi, loading, stages }: {
+  roi: RoiSummary | null
+  loading: boolean
+  stages: Stage[]
+}) {
+  if (loading) {
+    return (
+      <div className="mt-4 border rounded-lg p-4">
+        <h3 className="text-sm font-semibold mb-3">ROI por etapa</h3>
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
+        </div>
+      </div>
+    )
+  }
+
+  // Degrade gracefully: if the roi-summary failed, don't render the panel.
+  if (!roi) return null
+
+  const rows = stages
+    .map(stage => ({ stage, stat: roi.stageStats?.[stage.id] }))
+    .filter((r): r is { stage: Stage; stat: { dealCount: number; totalValue: number } } =>
+      r.stat != null && r.stat.dealCount > 0)
+
+  if (rows.length === 0) return null
+
+  const hasAdSpend = roi.totalAdSpend30d > 0
+
+  return (
+    <div className="mt-4 border rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold">ROI por etapa</h3>
+        {hasAdSpend ? (
+          <span
+            className={`text-xs font-semibold ${roi.workspaceROAS > 1 ? 'text-green-500' : 'text-red-500'}`}
+            title="ROAS del workspace (ingresos ÷ ad spend, últimos 30 días)"
+          >
+            ROAS {roi.workspaceROAS.toFixed(2)}x
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            Sin datos de ad spend para calcular ROAS
+          </span>
+        )}
+      </div>
+      <div className="space-y-2">
+        {rows.map(({ stage, stat }) => (
+          <div key={stage.id} className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-2 text-muted-foreground min-w-0">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
+              <span className="truncate">{stage.name}</span>
+            </span>
+            <div className="flex gap-4 shrink-0">
+              <span>{stat.dealCount} deal{stat.dealCount !== 1 ? 's' : ''}</span>
+              <span className="tabular-nums">{formatCLPFull(stat.totalValue)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function PipelinesClient() {
   const [mounted, setMounted] = useState(false)
@@ -1075,7 +1147,9 @@ export default function PipelinesClient() {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [workspaceUsers, setWorkspaceUsers] = useState<WorkspaceUser[]>([])
-  const [contactRevenues, setContactRevenues] = useState<Record<string, number>>({})
+  const [roiSummary, setRoiSummary] = useState<RoiSummary | null>(null)
+  const [roiLoading, setRoiLoading] = useState(false)
+  const contactRevenues = roiSummary?.contactRevenues ?? {}
   const [cobrarModal, setCobrarModal] = useState<{ open: boolean; deal: Deal | null }>({ open: false, deal: null })
   const [confirmWonDealId, setConfirmWonDealId] = useState<string | null>(null)
 
@@ -1127,11 +1201,13 @@ export default function PipelinesClient() {
   useEffect(() => {
     if (!mounted || !selectedPipelineId) return
     let cancelled = false
+    setRoiLoading(true)
     fetchAPI(`/crm/pipelines/${selectedPipelineId}/roi-summary`)
-      .then((data: { contactRevenues: Record<string, number> }) => {
-        if (!cancelled) setContactRevenues(data.contactRevenues ?? {})
+      .then((data: RoiSummary) => {
+        if (!cancelled) setRoiSummary(data)
       })
-      .catch(() => { if (!cancelled) setContactRevenues({}) })
+      .catch(() => { if (!cancelled) setRoiSummary(null) })
+      .finally(() => { if (!cancelled) setRoiLoading(false) })
     return () => { cancelled = true }
   }, [mounted, selectedPipelineId])
 
@@ -1375,6 +1451,9 @@ export default function PipelinesClient() {
           {activeDeal && <DealCard deal={activeDeal} onWon={() => {}} onLost={() => {}} onEdit={() => {}} onDelete={() => Promise.resolve()} onAssign={() => {}} onCobrar={() => {}} workspaceUsers={[]} overlay />}
         </DragOverlay>
       </DndContext>
+
+      {/* ROI por etapa */}
+      <StageRoiPanel roi={roiSummary} loading={roiLoading} stages={stages} />
 
       {/* Create Deal Modal */}
       {selectedPipelineId && stages.length > 0 && (

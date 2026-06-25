@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import {
   Megaphone, Plus, Pencil, Trash2, Users, CheckCircle2, XCircle,
-  Search, Copy, Calendar, CalendarOff, Send
+  Search, Copy, Calendar, CalendarOff, Send, Eye, MousePointerClick
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignComposer } from '@/components/crm/CampaignComposer'
@@ -515,9 +515,21 @@ function CampaignStatsView({ detail }: { detail: CampaignDetail }) {
   const status = STATUS_META[detail.status]
   const ChannelIcon = channel.Icon
   const total = detail.stats?.total ?? detail.recipientCount
-  const sent = detail.stats?.sent ?? detail.recipientStats['SENT'] ?? 0
+  // Everyone who left the system: a recipient who opened/clicked also "sent".
+  const deliveredFunnel =
+    (detail.recipientStats['SENT'] ?? 0) +
+    (detail.recipientStats['OPENED'] ?? 0) +
+    (detail.recipientStats['CLICKED'] ?? 0)
+  const sent = deliveredFunnel || (detail.stats?.sent ?? 0)
   const failed = detail.stats?.failed ?? (detail.recipientStats['FAILED'] ?? 0)
   const rate = total > 0 ? Math.round((sent / total) * 100) : 0
+
+  // Engagement: open/click rates only make sense once something was delivered.
+  const opened = detail.openedCount ?? 0
+  const clicked = detail.clickedCount ?? 0
+  const isEmail = detail.channel === 'EMAIL'
+  const openRate = sent > 0 ? `${((opened / sent) * 100).toFixed(1)}%` : '—'
+  const clickRate = sent > 0 ? `${((clicked / sent) * 100).toFixed(1)}%` : '—'
 
   return (
     <>
@@ -556,6 +568,24 @@ function CampaignStatsView({ detail }: { detail: CampaignDetail }) {
           <StatTile label="Fallidos" value={failed} icon={<XCircle className="h-3.5 w-3.5 text-destructive" />} />
         </div>
 
+        {/* Engagement — open/click tracking is EMAIL-only */}
+        {isEmail && (
+          <div className="grid grid-cols-2 gap-3">
+            <RateTile
+              label="Tasa de apertura"
+              rate={openRate}
+              count={opened}
+              icon={<Eye className="h-3.5 w-3.5 text-sky-500" />}
+            />
+            <RateTile
+              label="Tasa de clics"
+              rate={clickRate}
+              count={clicked}
+              icon={<MousePointerClick className="h-3.5 w-3.5 text-violet-500" />}
+            />
+          </div>
+        )}
+
         {detail.sentAt && (
           <p className="text-xs text-muted-foreground text-center">
             Enviada {formatDistanceToNow(new Date(detail.sentAt), { addSuffix: true, locale: es })}
@@ -574,6 +604,23 @@ function StatTile({ label, value, icon }: { label: string; value: number; icon?:
         {value}
       </div>
       <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+    </div>
+  )
+}
+
+function RateTile({
+  label, rate, count, icon,
+}: { label: string; rate: string; count: number; icon: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border bg-card px-3 py-3 text-center">
+      <div className="flex items-center justify-center gap-1.5 text-2xl font-semibold tabular-nums">
+        {icon}
+        {rate}
+      </div>
+      <p className="text-xs text-muted-foreground mt-0.5">
+        {label}
+        {rate !== '—' && <span className="ml-1">({count})</span>}
+      </p>
     </div>
   )
 }

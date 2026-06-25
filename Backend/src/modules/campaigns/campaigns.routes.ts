@@ -149,4 +149,16 @@ router.post('/crm/campaigns/:id/test', ...auth, async (req: AuthRequest, res: Re
   }
 })
 
+// ── Stats (delivery + engagement rates) ────────────────────────────────────────
+
+router.get('/crm/campaigns/:id/stats', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    res.json(await cs.getCampaignStats(workspaceId, req.params.id))
+  } catch (err: any) {
+    const status = err.message.toLowerCase().includes('not found') ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+})
+
 export default router

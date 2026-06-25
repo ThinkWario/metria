@@ -37,6 +37,8 @@ export interface CampaignListItem extends Campaign {
 export interface CampaignDetail extends Campaign {
   recipientStats: Record<string, number>
   recipientCount: number
+  openedCount: number
+  clickedCount: number
   segment: { id: string; name: string } | null
 }
 
