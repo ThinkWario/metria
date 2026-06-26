@@ -50,12 +50,13 @@ import { toast } from "sonner"
 import { useUserStore } from "@/store/useUserStore"
 import { ProfileDialog } from "@/components/user/profile-dialog"
 import { PreferencesDialog } from "@/components/user/preferences-dialog"
+import type { LucideIcon } from "lucide-react"
 
 type MenuItem = {
     title: string
-    icon: any
+    icon: LucideIcon
     url: string
-    roles?: string[] // If not specified, available to all
+    roles?: string[]
 }
 
 const menuItems: MenuItem[] = [

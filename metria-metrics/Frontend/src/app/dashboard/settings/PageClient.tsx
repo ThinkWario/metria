@@ -39,6 +39,8 @@ function SettingsContent() {
     const queryClient = useQueryClient()
     const [users, setUsers] = useState(initialUsers)
     const canEdit = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN"
+    const [authToken, setAuthToken] = useState('')
+    useEffect(() => { setAuthToken(localStorage.getItem('metria_token') || '') }, [])
 
     // Form state (local for edits, synced with query data)
     const [timezone, setTimezone] = useState("santiago")
@@ -318,7 +320,7 @@ function SettingsContent() {
                             <CardDescription>Conecta tus fuentes de datos con un solo clic de forma segura.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <IntegrationHub integrations={integrationsData} token={localStorage.getItem('metria_token') || ''} />
+                            <IntegrationHub integrations={integrationsData} token={authToken} />
                             <GoogleCalendarCard />
                         </CardContent>
                     </Card>

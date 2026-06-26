@@ -26,7 +26,6 @@ export function WhatsAppQRDialog({ open, onOpenChange }: WhatsAppQRDialogProps) 
         const socket = getSocket()
         if (!socket) return
 
-        console.log("[WhatsApp] Listening for QR events...")
 
         socket.on("whatsapp:qr", (data: { qr: string }) => {
             setQr(data.qr)

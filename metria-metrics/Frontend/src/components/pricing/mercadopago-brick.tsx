@@ -54,17 +54,12 @@ export function MercadoPagoBrick({ planType }: MercadoPagoBrickProps) {
     }
 
     const onSubmit = async (param: any, additionalData?: any) => {
-        console.log("MP onSubmit raw param:", param)
-        console.log("MP onSubmit additionalData:", additionalData)
         const formData = param.formData || param
 
         if (!formData || !formData.token) {
-            console.error("No token found in MP formData", formData)
             toast.error("Error: Mercado Pago no generó un token válido.")
             return
         }
-
-        console.log("Processing token:", formData.token)
 
         try {
             const body = {
@@ -73,7 +68,6 @@ export function MercadoPagoBrick({ planType }: MercadoPagoBrickProps) {
                 email: formData.payer?.email || user?.email || 'test@example.com',
                 cardholderName: additionalData?.cardholderName || formData.cardholderName || formData.payer?.firstName || ''
             }
-            console.log("Sending to backend:", body)
 
             const result = await fetchAPI('/payments/process-mercadopago-subscription', {
                 method: 'POST',
@@ -134,7 +128,7 @@ export function MercadoPagoBrick({ planType }: MercadoPagoBrickProps) {
             <Payment
                 key={preferenceId}
                 initialization={initialization}
-                onReady={() => console.log('Payment Brick ready')}
+                onReady={() => {}}
                 onSubmit={onSubmit}
                 customization={{
                     paymentMethods: {
