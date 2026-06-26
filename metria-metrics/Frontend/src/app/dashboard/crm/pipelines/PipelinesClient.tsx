@@ -798,8 +798,7 @@ function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit, onDelete, onA
   contactRevenues: Record<string, number>
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
-  const openDeals = deals.filter(d => d.status === 'OPEN')
-  const total = openDeals.reduce((s, d) => s + parseFloat(d.value || '0'), 0)
+  const total = deals.reduce((s, d) => s + parseFloat(d.value || '0'), 0)
 
   return (
     <div className="w-64 shrink-0 flex flex-col rounded-xl border bg-background/50 overflow-hidden">
@@ -809,7 +808,7 @@ function StageColumn({ stage, deals, onAdd, onWon, onLost, onEdit, onDelete, onA
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
             <span className="text-sm font-semibold truncate">{stage.name}</span>
-            <span className="text-[10px] font-bold bg-muted text-muted-foreground rounded-full px-1.5 shrink-0">{openDeals.length}</span>
+            <span className="text-[10px] font-bold bg-muted text-muted-foreground rounded-full px-1.5 shrink-0">{deals.length}</span>
           </div>
           <button
             onClick={() => onAdd(stage.id)}
