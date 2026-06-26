@@ -2,6 +2,17 @@ import { Request, Response, NextFunction } from 'express'
 
 const windows = new Map<string, number[]>()
 
+// Evict stale entries every 10 minutes to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, hits] of windows) {
+    // Keep key only if it has recent hits (within last hour)
+    if (hits.length === 0 || now - hits[hits.length - 1] > 3_600_000) {
+      windows.delete(key)
+    }
+  }
+}, 600_000).unref()
+
 export function simpleRateLimit(windowMs: number, max: number, message?: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown'

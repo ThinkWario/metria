@@ -193,10 +193,22 @@ async function executeNode(
           body: JSON.stringify({ workspaceId, contactId, context }),
           signal: AbortSignal.timeout(10000)
         })
-        const len = Number(res.headers.get('content-length') ?? 0)
-        if (len > 1_000_000) {
-          // Response too large — discard without buffering it into memory.
+        const declaredLen = Number(res.headers.get('content-length') ?? -1)
+        if (declaredLen > 1_000_000) {
           await res.body?.cancel()
+        } else {
+          // Stream and cap at 1 MB even when content-length is absent
+          const MAX = 1_000_000
+          let consumed = 0
+          const reader = res.body?.getReader()
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              consumed += value?.byteLength ?? 0
+              if (consumed > MAX) { await reader.cancel(); break }
+            }
+          }
         }
       }
       return

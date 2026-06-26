@@ -80,4 +80,4 @@ COPY scripts ./scripts
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && ([ \"$SEED_ON_START\" = \"true\" ] && node dist/seed.js || true) && node scripts/cleanup-phone-suffixes.js && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma db push && ([ \"$SEED_ON_START\" = \"true\" ] && node dist/seed.js || true) && node scripts/cleanup-phone-suffixes.js && node dist/index.js"]
