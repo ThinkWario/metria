@@ -21,10 +21,11 @@ import { metaWebhookVerify as gatewayVerify, metaWebhook as gatewayWebhook } fro
 
 const router = Router()
 
-// Public webhooks — no JWT, identified by workspaceId and platform in URL
+// Public webhooks — no JWT
+// Meta: single URL per app (no workspaceId), workspace identified by pageId in payload
 router.post('/webhooks/telegram/:workspaceId', telegramWebhook)
-router.get('/webhooks/meta/:platform/:workspaceId', gatewayVerify)
-router.post('/webhooks/meta/:platform/:workspaceId', gatewayWebhook)
+router.get('/webhooks/meta/:platform', gatewayVerify)
+router.post('/webhooks/meta/:platform', gatewayWebhook)
 
 // Authenticated inbox routes — PRO and SCALE plans only
 router.get('/messaging/channels', authenticate, requirePlan('PRO', 'SCALE'), getChannelsHandler)

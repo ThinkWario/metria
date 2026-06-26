@@ -163,6 +163,7 @@ router.get('/:platform/callback', async (req, res) => {
                     config: {
                         pageAccessToken: metaPageToken,
                         pageId: metaPageId,
+                        verifyToken: process.env.META_INSTAGRAM_VERIFY_TOKEN ?? 'metria-instagram-verify',
                         ...(metaInstagramId ? { instagramAccountId: metaInstagramId } : {}),
                     }
                 })
@@ -172,6 +173,7 @@ router.get('/:platform/callback', async (req, res) => {
                     config: {
                         pageAccessToken: metaPageToken,
                         pageId: metaPageId,
+                        verifyToken: process.env.META_MESSENGER_VERIFY_TOKEN ?? 'metria-messenger-verify',
                     }
                 })
             } catch (err) {

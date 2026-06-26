@@ -10,53 +10,67 @@ const PLATFORM_MAP: Record<string, { verify: any, parse: any }> = {
   MESSENGER: { verify: verifyMessengerSignature, parse: parseMessengerUpdate }
 }
 
+const VERIFY_TOKEN_MAP: Record<string, string | undefined> = {
+  INSTAGRAM: process.env.META_INSTAGRAM_VERIFY_TOKEN,
+  MESSENGER: process.env.META_MESSENGER_VERIFY_TOKEN,
+}
+
+// GET /api/webhooks/meta/:platform — no workspaceId (Facebook sends to one URL per app)
 export async function metaWebhookVerify(req: Request, res: Response): Promise<void> {
   const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query as Record<string, string>
-  const { workspaceId, platform } = req.params
-  const p = platform.toUpperCase()
-  
+  const p = (req.params.platform ?? '').toUpperCase()
+
   if (mode !== 'subscribe' || !PLATFORM_MAP[p]) { res.status(400).send('Bad request'); return }
-  
-  const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: p, status: 'CONNECTED' } })
-  const config = channel?.config as Record<string, string> | undefined
-  
-  if (!channel || token !== config?.verifyToken) { res.status(403).send('Forbidden'); return }
+
+  const expected = VERIFY_TOKEN_MAP[p]
+  if (!expected || token !== expected) { res.status(403).send('Forbidden'); return }
+
   res.status(200).send(challenge)
 }
 
+// POST /api/webhooks/meta/:platform — route by pageId from payload
 export async function metaWebhook(req: Request, res: Response): Promise<void> {
-  const { workspaceId, platform } = req.params
-  const p = platform.toUpperCase()
+  const p = (req.params.platform ?? '').toUpperCase()
   const handler = PLATFORM_MAP[p]
 
   if (!handler) { res.status(404).send('Platform not supported'); return }
 
+  // Respond immediately — Facebook requires 200 within 20s
+  res.status(200).json({ ok: true })
+
   try {
     const rawBody: Buffer | undefined = (req as any).rawBody
-    if (!rawBody) {
-      console.error(`[webhook.gateway] Missing raw body for platform ${p}, workspaceId ${workspaceId}`)
-      res.status(400).json({ error: 'Missing raw body' }); return
-    }
+    if (!rawBody) return
 
     const signature = (req.headers['x-hub-signature-256'] as string) ?? ''
-    const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: p, status: 'CONNECTED' } })
 
-    if (!channel) { res.status(404).json({ error: 'Channel not found' }); return }
+    // Find the page ID from the payload to identify which workspace owns this channel
+    const entries: Array<{ id?: string }> = req.body?.entry ?? []
+    const pageId = entries[0]?.id
+    if (!pageId) return
+
+    // Find all connected channels for this platform + pageId
+    const channels = await prisma.channel.findMany({
+      where: { platform: p, status: 'CONNECTED' }
+    })
+
+    const channel = channels.find(ch => {
+      const cfg = ch.config as Record<string, string> | null
+      return cfg?.pageId === pageId || cfg?.instagramAccountId === pageId
+    })
+
+    if (!channel) return
+
     const config = channel.config as Record<string, string>
+    const appSecret = config.appSecret ?? process.env.META_APP_SECRET
+    if (!appSecret) return
 
-    if (!config.appSecret) {
-      console.error(`[webhook.gateway] Missing appSecret for platform ${p}, workspaceId ${workspaceId}`)
-      res.status(400).json({ error: 'Webhook not configured' }); return
-    }
+    if (!handler.verify(rawBody, signature, appSecret)) return
 
-    if (!handler.verify(rawBody, signature, config.appSecret)) {
-      res.status(401).json({ error: 'Invalid signature' }); return
-    }
-
-    res.status(200).json({ ok: true })
-    handler.parse(workspaceId, channel.id, req.body).catch((err: any) => console.error(`[${p} webhook error]`, err))
+    handler.parse(channel.workspaceId, channel.id, req.body).catch(
+      (err: any) => console.error(`[${p} webhook error]`, err)
+    )
   } catch (err) {
     console.error(`[Meta webhook error for ${p}]`, err)
-    if (!res.headersSent) res.status(500).json({ error: 'Internal error' })
   }
 }
