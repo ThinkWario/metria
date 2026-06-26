@@ -28,6 +28,7 @@ export async function createContact(workspaceId: string, data: { name: string; e
 
 export async function listContacts(workspaceId: string, opts: ListContactsOpts = {}) {
   const { search, status, leadTemperature, leadType, limit = 50, cursor } = opts
+  const safeLimit = Math.min(limit, 200)
   return prisma.contact.findMany({
     where: {
       workspaceId,
@@ -48,7 +49,7 @@ export async function listContacts(workspaceId: string, opts: ListContactsOpts =
       _count: { select: { conversations: true, deals: true, tickets: true } }
     },
     orderBy: { createdAt: 'desc' },
-    take: limit
+    take: safeLimit
   })
 }
 

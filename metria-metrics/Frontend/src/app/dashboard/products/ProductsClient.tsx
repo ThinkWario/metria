@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchAPI } from '@/lib/api'
 import { toast } from 'sonner'
-import { Plus, Pencil, PowerOff, Package } from 'lucide-react'
+import { Plus, Pencil, PowerOff, Package, Power } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -43,7 +43,7 @@ export default function ProductsClient() {
   const loadProducts = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await fetchAPI('/products')
+      const data = await fetchAPI('/products?includeInactive=true')
       setProducts(data)
     } catch {
       toast.error('Error al cargar productos')
@@ -70,10 +70,20 @@ export default function ProductsClient() {
   async function handleDeactivate(product: Product) {
     try {
       await fetchAPI(`/products/${product.id}`, { method: 'DELETE' })
-      setProducts(prev => prev.filter(p => p.id !== product.id))
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, isActive: false } : p))
       toast.success(`"${product.name}" desactivado`)
     } catch {
       toast.error('Error al desactivar producto')
+    }
+  }
+
+  async function handleActivate(product: Product) {
+    try {
+      const updated = await fetchAPI(`/products/${product.id}/activate`, { method: 'PATCH' })
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, ...updated } : p))
+      toast.success(`"${product.name}" reactivado`)
+    } catch {
+      toast.error('Error al reactivar producto')
     }
   }
 
@@ -135,7 +145,7 @@ export default function ProductsClient() {
             </thead>
             <tbody className="divide-y">
               {products.map(product => (
-                <tr key={product.id} className="hover:bg-muted/30 transition-colors">
+                <tr key={product.id} className={`hover:bg-muted/30 transition-colors ${!product.isActive ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-3">
                     <div className="font-medium">{product.name}</div>
                     {product.description && (
@@ -162,13 +172,23 @@ export default function ProductsClient() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        onClick={() => setDeactivateTarget(product)}
-                        className="p-1.5 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-                        aria-label="Desactivar"
-                      >
-                        <PowerOff className="h-3.5 w-3.5" />
-                      </button>
+                      {product.isActive ? (
+                        <button
+                          onClick={() => setDeactivateTarget(product)}
+                          className="p-1.5 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                          aria-label="Desactivar"
+                        >
+                          <PowerOff className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleActivate(product)}
+                          className="p-1.5 rounded hover:bg-green-500/10 transition-colors text-muted-foreground hover:text-green-600"
+                          aria-label="Reactivar"
+                        >
+                          <Power className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -1,10 +1,16 @@
 import { prisma } from '../../lib/prisma'
 
-export async function listProducts(workspaceId: string) {
+export async function listProducts(workspaceId: string, includeInactive = false) {
   return prisma.product.findMany({
-    where: { workspaceId, isActive: true },
-    orderBy: { createdAt: 'desc' }
+    where: { workspaceId, ...(!includeInactive && { isActive: true }) },
+    orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }]
   })
+}
+
+export async function activateProduct(workspaceId: string, id: string) {
+  const existing = await prisma.product.findFirst({ where: { id, workspaceId } })
+  if (!existing) throw new Error('Producto no encontrado')
+  return prisma.product.update({ where: { id }, data: { isActive: true } })
 }
 
 export async function createProduct(

@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { simpleRateLimit } from '../../lib/rateLimit'
 import * as fs from './forms.service'
 
 /**
@@ -35,7 +36,8 @@ router.get('/forms/:slug', async (req, res) => {
 })
 
 // POST /forms/:slug/submit → validate, find-or-create contact, emit FORM_SUBMITTED
-router.post('/forms/:slug/submit', async (req, res) => {
+// 5 submissions per IP per 5 minutes
+router.post('/forms/:slug/submit', simpleRateLimit(5 * 60 * 1000, 5), async (req, res) => {
   try {
     const result = await fs.submitForm(req.params.slug, req.body?.data ?? req.body)
     res.status(201).json(result)

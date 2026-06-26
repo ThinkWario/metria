@@ -25,9 +25,6 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
 
         if (authHeader && authHeader.startsWith('Bearer ')) {
             token = authHeader.split(' ')[1]
-        } else if (req.query.token) {
-            // Support token in query params for browser redirects (OAuth flow)
-            token = req.query.token as string
         }
 
         if (!token) {

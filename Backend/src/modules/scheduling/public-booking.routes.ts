@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '../../lib/prisma'
+import { simpleRateLimit } from '../../lib/rateLimit'
 import { scheduleAppointment } from './scheduling.service'
 import {
   PUBLIC_BOOKING_TYPE,
@@ -73,7 +74,8 @@ router.get('/booking/:slug/slots', async (req, res) => {
 })
 
 // POST /booking/:slug/book → find-or-create contact + create appointment
-router.post('/booking/:slug/book', async (req, res) => {
+// 10 bookings per IP per 10 minutes
+router.post('/booking/:slug/book', simpleRateLimit(10 * 60 * 1000, 10), async (req, res) => {
   let appt: Awaited<ReturnType<typeof scheduleAppointment>> | undefined
   let contact: { id: string } | null = null
   let ws: Awaited<ReturnType<typeof findWorkspaceBySlug>> | null = null
