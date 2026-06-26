@@ -170,8 +170,8 @@ export async function updatePaymentLinkStatus(
       ...(status === 'PAID' ? { paidAt: new Date() } : {})
     }
   })
-  const [withName] = await attachContactNames(workspaceId, [updated])
-  return withName
+  const [hydrated] = await hydrateLinks(workspaceId, [updated])
+  return hydrated
 }
 
 /**
