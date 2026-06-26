@@ -15,7 +15,7 @@ RUN npx prisma generate
 
 COPY tsconfig.json ./
 COPY src ./src
-RUN npx tsup src/index.ts prisma/seed.ts --format cjs
+RUN npx tsup --entry.index src/index.ts --entry.seed prisma/seed.ts --format cjs
 
 # ---- runner ----
 FROM node:20-slim AS runner
