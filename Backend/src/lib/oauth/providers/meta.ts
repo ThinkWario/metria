@@ -28,8 +28,16 @@ export class MetaAdsProvider implements IOAuthProvider {
       'instagram_manage_messages',
     ].join(',');
 
-    // Note: redirect_uri is handled by the route that calls this
-    return `https://www.facebook.com/${this.apiVersion}/dialog/oauth?client_id=${this.clientId}&state=${state}&scope=${scopes}&response_type=code`;
+    const redirectUri = `${process.env.BACKEND_URL}/api/oauth/meta/callback`;
+
+    return `https://www.facebook.com/${this.apiVersion}/dialog/oauth?` +
+      new URLSearchParams({
+        client_id: this.clientId ?? '',
+        redirect_uri: redirectUri,
+        state,
+        scope: scopes,
+        response_type: 'code',
+      }).toString();
   }
 
   /**
