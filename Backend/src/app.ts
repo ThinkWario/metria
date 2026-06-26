@@ -56,7 +56,10 @@ const app = express()
 // Security & Optimization Middleware
 app.use(helmet())
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',').map(o => o.trim())
+const allowedOrigins = [
+  ...(process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',').map(o => o.trim()),
+  ...(process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : []),
+].filter(Boolean)
 
 app.use(cors({
   origin: (origin, callback) => {
