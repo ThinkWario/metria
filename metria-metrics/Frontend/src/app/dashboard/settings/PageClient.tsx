@@ -20,6 +20,7 @@ import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { useUserStore } from "@/store/useUserStore"
 import { BillingSection } from "@/components/settings/billing-section"
 import { IntegrationHub } from "@/components/settings/integration-hub"
+import { MetaIntegrationCard } from "@/components/settings/MetaIntegrationCard"
 import { GoogleCalendarCard } from "./components/GoogleCalendarCard"
 
 // Table structure for system event logs
@@ -172,9 +173,13 @@ function SettingsContent() {
         handlePaymentConfirmation()
     }, [searchParams])
 
+    const needsAdAccount = searchParams.get('needsAdAccount') === 'true'
+    const metaIntegration = Array.isArray(integrationsData)
+        ? (integrationsData.find((d: any) => d.platform === 'meta') ?? null)
+        : null
+
     const basePlatforms = [
         { id: "shopify", platform: "shopify", name: "Shopify Store", status: "Disconnected", type: "Webhook", lastSync: null },
-        { id: "meta", platform: "meta", name: "Meta Ads API", status: "Disconnected", type: "REST API", lastSync: null },
         { id: "dropi", platform: "dropi", name: "Dropi Logistics", status: "Disconnected", type: "REST API", lastSync: null },
         { id: "google", platform: "google", name: "Google Ads API", status: "Disconnected", type: "REST API", lastSync: null },
         { id: "tiktok", platform: "tiktok", name: "TikTok Ads API", status: "Disconnected", type: "REST API", lastSync: null },
@@ -225,8 +230,7 @@ function SettingsContent() {
             setIsApiDialogOpen(false)
 
             // Auto-sync trigger
-            if (variables.platform === 'meta') fetchAPI('/meta/sync', { method: 'POST' })
-            else if (variables.platform === 'shopify') fetchAPI('/shopify/sync', { method: 'POST' })
+            if (variables.platform === 'shopify') fetchAPI('/shopify/sync', { method: 'POST' })
             else if (variables.platform === 'tiktok') fetchAPI('/tiktok/sync', { method: 'POST' })
             else if (variables.platform === 'google') fetchAPI('/google/sync', { method: 'POST' })
         },
@@ -309,6 +313,15 @@ function SettingsContent() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
+                {/* Meta / Facebook Integration */}
+                <div className="md:col-span-2">
+                    <MetaIntegrationCard
+                        integration={metaIntegration}
+                        token={authToken}
+                        needsAdAccount={needsAdAccount}
+                    />
+                </div>
+
                 {/* Omni-OAuth Integration Hub */}
                 <div className="md:col-span-2">
                     <Card className="bg-card/30 backdrop-blur-xl border border-border/50">

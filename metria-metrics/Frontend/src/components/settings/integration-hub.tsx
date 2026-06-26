@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { CheckCircle2, AlertCircle, Unplug, ArrowRight, ExternalLink, Activity, Smartphone } from "lucide-react"
+import { CheckCircle2, AlertCircle, ArrowRight, ExternalLink, Smartphone } from "lucide-react"
 import { BASE_BACKEND_URL, API_BASE_URL } from "@/lib/constants"
 import { toast } from "sonner"
 import { WhatsAppQRDialog } from "../messaging/WhatsAppQRDialog"
@@ -118,16 +118,7 @@ export function IntegrationHub({ integrations, token }: { integrations: any[], t
             colorClass: "bg-emerald-500 text-emerald-500",
             type: "QR Scan"
         },
-        { 
-            id: "meta", 
-            platform: "meta", 
-            name: "Meta Ads", 
-            description: "Facebook & Instagram Advertising", 
-            icon: <Activity className="h-5 w-5" />, 
-            colorClass: "bg-blue-500 text-blue-500",
-            type: "OAuth 2.0"
-        },
-        { 
+        {
             id: "google", 
             platform: "google", 
             name: "Google Ads", 

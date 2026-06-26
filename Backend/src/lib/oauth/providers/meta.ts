@@ -21,7 +21,11 @@ export class MetaAdsProvider implements IOAuthProvider {
       'ads_management',
       'business_management',
       'pages_read_engagement',
-      'pages_show_list'
+      'pages_show_list',
+      'pages_manage_metadata',
+      'pages_messaging',
+      'instagram_basic',
+      'instagram_manage_messages',
     ].join(',');
 
     // Note: redirect_uri is handled by the route that calls this

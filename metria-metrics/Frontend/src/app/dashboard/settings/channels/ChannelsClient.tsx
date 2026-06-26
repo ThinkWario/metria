@@ -1,46 +1,32 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
 import { ChannelCard } from './ChannelCard'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { AlertCircle, CheckCircle2 } from 'lucide-react'
-import { toast } from 'sonner'
+import { AlertCircle } from 'lucide-react'
 
 interface ChannelStatus {
-    platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger' | 'metaads'
+    platform: 'whatsapp' | 'instagram' | 'telegram' | 'messenger'
     status: 'connected' | 'disconnected'
     config?: any
 }
 
 export const ChannelsClient = () => {
     const [channels, setChannels] = useState<ChannelStatus[]>([])
-    const [composioStatus, setComposioStatus] = useState<Record<string, any>>({})
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [mounted, setMounted] = useState(false)
-    const searchParams = useSearchParams()
 
-    const PLATFORMS: ChannelStatus['platform'][] = ['whatsapp', 'instagram', 'messenger', 'telegram', 'metaads']
-
-    const TOOLKIT_NAMES: Record<string, string> = {
-        INSTAGRAM: 'Instagram',
-        METAADS: 'Meta Ads',
-        FACEBOOK: 'Facebook',
-        MESSENGER: 'Messenger'
-    }
+    const PLATFORMS: ChannelStatus['platform'][] = ['whatsapp', 'instagram', 'messenger', 'telegram']
 
     const fetchAll = async () => {
         setLoading(true)
         setError(null)
         try {
-            const [data, composio] = await Promise.all([
-                fetchAPI('/messaging/channels') as Promise<Array<{ platform: string; status: string; config?: any }>>,
-                fetchAPI('/composio/status').catch(() => ({}))
-            ])
+            const data = await fetchAPI('/messaging/channels') as Array<{ platform: string; status: string; config?: any }>
             const channelMap = new Map(data.map(ch => [ch.platform.toLowerCase(), ch]))
             setChannels(
                 PLATFORMS.map(p => ({
@@ -51,7 +37,6 @@ export const ChannelsClient = () => {
                     config: channelMap.get(p)?.config,
                 }))
             )
-            setComposioStatus(composio ?? {})
         } catch (err: any) {
             setError(err.message || 'No se pudo cargar el estado de los canales')
         } finally {
@@ -65,16 +50,6 @@ export const ChannelsClient = () => {
         if (!mounted) return
         fetchAll()
 
-        // Handle Composio OAuth callback results
-        const success = searchParams.get('composio_success')
-        const errMsg = searchParams.get('composio_error')
-        if (success) {
-            toast.success(`${TOOLKIT_NAMES[success] ?? success} conectado correctamente.`)
-            window.history.replaceState({}, '', '/dashboard/settings/channels')
-        } else if (errMsg) {
-            toast.error(`Error al conectar: ${errMsg}`)
-            window.history.replaceState({}, '', '/dashboard/settings/channels')
-        }
     }, [mounted])
 
     if (!mounted) return null
@@ -112,7 +87,6 @@ export const ChannelsClient = () => {
                     platform={channel.platform}
                     status={channel.status}
                     config={channel.config}
-                    composioStatus={composioStatus}
                     onRefresh={fetchAll}
                 />
             ))}
