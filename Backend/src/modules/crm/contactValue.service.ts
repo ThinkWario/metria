@@ -94,3 +94,78 @@ export async function getContactValue(workspaceId: string, contactId: string): P
     ...(ordersCount !== undefined && { ordersCount, ordersTotal })
   }
 }
+
+export interface RevenueSummary {
+  contactRevenue: {
+    totalRevenue: number
+    orderCount: number
+    avgOrderValue: number
+    lastPurchaseDate: string | null
+  }
+  workspaceContext: {
+    avgROAS: number | null
+    totalAdSpend30d: number
+    totalRevenue30d: number
+    netProfit30d: number
+  }
+}
+
+export async function getRevenueSummary(workspaceId: string, contactId: string): Promise<RevenueSummary> {
+  const contact = await prisma.contact.findFirst({
+    where: { id: contactId, workspaceId },
+    select: { email: true }
+  })
+  if (!contact) throw new Error('Contact not found')
+
+  let totalRevenue = 0
+  let orderCount = 0
+  let avgOrderValue = 0
+  let lastPurchaseDate: string | null = null
+
+  if (contact.email) {
+    const agg = await prisma.order.aggregate({
+      where: {
+        workspaceId,
+        customerEmail: { equals: contact.email, mode: 'insensitive' },
+        financialStatus: 'paid'
+      },
+      _sum: { totalPrice: true },
+      _count: { _all: true },
+      _max: { createdAt: true }
+    })
+    orderCount = agg._count._all
+    totalRevenue = Number(agg._sum.totalPrice ?? 0)
+    avgOrderValue = orderCount > 0 ? Math.round((totalRevenue / orderCount) * 100) / 100 : 0
+    lastPurchaseDate = agg._max.createdAt ? agg._max.createdAt.toISOString() : null
+  }
+
+  const since30d = new Date()
+  since30d.setDate(since30d.getDate() - 30)
+
+  const wsAgg = await prisma.dailyMetric.aggregate({
+    where: { workspaceId, date: { gte: since30d } },
+    _sum: {
+      totalRevenue: true,
+      netProfit: true,
+      metaAdSpend: true,
+      googleAdSpend: true,
+      tiktokAdSpend: true
+    }
+  })
+
+  const totalRevenue30d = Number(wsAgg._sum.totalRevenue ?? 0)
+  const netProfit30d = Number(wsAgg._sum.netProfit ?? 0)
+  const totalAdSpend30d =
+    Number(wsAgg._sum.metaAdSpend ?? 0) +
+    Number(wsAgg._sum.googleAdSpend ?? 0) +
+    Number(wsAgg._sum.tiktokAdSpend ?? 0)
+  const avgROAS =
+    totalAdSpend30d > 0
+      ? Math.round((totalRevenue30d / totalAdSpend30d) * 100) / 100
+      : null
+
+  return {
+    contactRevenue: { totalRevenue, orderCount, avgOrderValue, lastPurchaseDate },
+    workspaceContext: { avgROAS, totalAdSpend30d, totalRevenue30d, netProfit30d }
+  }
+}

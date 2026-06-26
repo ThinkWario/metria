@@ -4,6 +4,7 @@ import { authenticate } from '../../middleware/auth'
 import { requirePlan } from '../../middleware/planGate'
 import type { AuthRequest } from '../../middleware/auth'
 import * as fs from './forms.service'
+import { prisma } from '../../lib/prisma'
 
 /**
  * Authenticated Form Builder CRUD.
@@ -101,6 +102,24 @@ router.post('/crm/forms/:id/duplicate', ...auth, async (req: AuthRequest, res: R
     res.status(201).json(duplicate)
   } catch (err: any) {
     res.status(statusFor(err)).json({ error: err.message })
+  }
+})
+
+// ── Submissions ───────────────────────────────────────────────────────────────
+
+router.get('/crm/forms/:id/submissions', ...auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const form = await prisma.form.findFirst({ where: { id: req.params.id, workspaceId }, select: { id: true } })
+    if (!form) { res.status(404).json({ error: 'Formulario no encontrado' }); return }
+    const submissions = await prisma.formSubmission.findMany({
+      where: { formId: req.params.id, workspaceId },
+      orderBy: { createdAt: 'desc' },
+      take: 200
+    })
+    res.json(submissions)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
   }
 })
 

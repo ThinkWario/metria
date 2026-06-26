@@ -425,7 +425,7 @@ router.get('/sku-performance', authenticate, cacheMiddleware(CACHE_TTL.HOUR_1), 
         const products = await prisma.product.findMany({
             where: { workspaceId }
         })
-        const productMap = products.reduce((acc, p) => ({ ...acc, [p.sku]: p }), {} as Record<string, any>)
+        const productMap = products.reduce((acc, p) => p.sku ? { ...acc, [p.sku]: p } : acc, {} as Record<string, any>)
 
         let totalSalesRevenue = 0
         Object.values(skuMap).forEach(s => totalSalesRevenue += s.revenue)
