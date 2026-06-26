@@ -15,7 +15,7 @@ RUN npx prisma generate
 
 COPY tsconfig.json ./
 COPY src ./src
-RUN npx tsup src/index.ts --format cjs
+RUN npx tsup src/index.ts prisma/seed.ts --format cjs
 
 # ---- runner ----
 FROM node:20-slim AS runner
@@ -80,4 +80,4 @@ COPY scripts ./scripts
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node scripts/cleanup-phone-suffixes.js && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && ([ \"$SEED_ON_START\" = \"true\" ] && node dist/seed.js || true) && node scripts/cleanup-phone-suffixes.js && node dist/index.js"]
