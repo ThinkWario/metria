@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  CreditCard, Plus, Copy, Check, ExternalLink, User, AlertCircle, RefreshCw
+  CreditCard, Plus, Copy, Check, ExternalLink, User, AlertCircle, RefreshCw, KanbanSquare
 } from 'lucide-react'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { PaymentLinkDialog } from '@/components/crm/PaymentLinkDialog'
 import {
@@ -74,6 +75,15 @@ function PaymentLinkRow({ link }: { link: PaymentLink }) {
                 <User className="h-3.5 w-3.5 shrink-0" />
                 {link.contactName}
               </span>
+            )}
+            {link.dealTitle && (
+              <Link
+                href="/dashboard/crm/pipelines"
+                className="flex items-center gap-1 text-primary/70 hover:text-primary transition-colors truncate"
+              >
+                <KanbanSquare className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{link.dealTitle}</span>
+              </Link>
             )}
             {link.description && (
               <span className="truncate">{link.description}</span>

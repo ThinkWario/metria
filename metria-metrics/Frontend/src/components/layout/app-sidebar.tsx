@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { usePathname } from "next/navigation"
 import {
     Sidebar,
     SidebarContent,
@@ -12,8 +13,12 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     useSidebar,
 } from "@/components/ui/sidebar"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
     BarChart3,
     Wallet,
@@ -22,6 +27,7 @@ import {
     Package,
     Settings,
     ChevronUp,
+    ChevronRight,
     User2,
     LogOut,
     MousePointerClick,
@@ -37,7 +43,7 @@ import {
     FileText,
     Send,
     CreditCard,
-    CheckSquare
+    CheckSquare,
 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import Link from "next/link"
@@ -59,32 +65,52 @@ type MenuItem = {
     roles?: string[]
 }
 
-const menuItems: MenuItem[] = [
-    { title: "Centro de Control", icon: BarChart3, url: "/dashboard" },
-    { title: "Inbox (Chats)", icon: MessageSquare, url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "CRM", icon: Users, url: "/dashboard/crm", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Pipelines", icon: KanbanSquare, url: "/dashboard/crm/pipelines", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Automatizaciones", icon: Zap, url: "/dashboard/crm/automations", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Segmentos", icon: Filter, url: "/dashboard/crm/segments", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Formularios", icon: FileText, url: "/dashboard/crm/forms", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Campañas", icon: Send, url: "/dashboard/crm/campaigns", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Pagos", icon: CreditCard, url: "/dashboard/crm/payments", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Tareas", icon: CheckSquare, url: "/dashboard/tasks", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Citas", icon: CalendarDays, url: "/dashboard/crm/appointments", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Configuración IA", icon: Bot, url: "/dashboard/settings/ai-agent", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Canales de Mensajería", icon: MessageSquare, url: "/dashboard/settings/channels", roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Finanzas E-commerce", icon: Wallet, url: "/dashboard/finances", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Canales de Venta", icon: ShoppingBag, url: "/dashboard/sales", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Marketing & Ads", icon: Megaphone, url: "/dashboard/marketing", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Google Ads (Beta)", icon: MousePointerClick, url: "/dashboard/google-ads", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "TikTok Ads", icon: Smartphone, url: "/dashboard/tiktok-ads", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Logística & Operaciones", icon: Package, url: "/dashboard/logistics" },
-    { title: "Configuración Técnica", icon: Settings, url: "/dashboard/settings", roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+// ── CRM subcategories ──────────────────────────────────────────────────────────
+const CRM_SUB_ITEMS: MenuItem[] = [
+    { title: "Contactos",      icon: Users,        url: "/dashboard/crm" },
+    { title: "Pipelines",      icon: KanbanSquare, url: "/dashboard/crm/pipelines" },
+    { title: "Cobros",         icon: CreditCard,   url: "/dashboard/crm/payments" },
+    { title: "Segmentos",      icon: Filter,       url: "/dashboard/crm/segments" },
+    { title: "Formularios",    icon: FileText,     url: "/dashboard/crm/forms" },
+    { title: "Campañas",       icon: Send,         url: "/dashboard/crm/campaigns" },
+    { title: "Automatizaciones", icon: Zap,        url: "/dashboard/crm/automations" },
+    { title: "Citas",          icon: CalendarDays, url: "/dashboard/crm/appointments" },
+    { title: "Tareas",         icon: CheckSquare,  url: "/dashboard/tasks" },
 ]
+
+const CRM_ROLES = ["SUPER_ADMIN", "ADMIN"]
+
+// ── Non-CRM top items ──────────────────────────────────────────────────────────
+const TOP_ITEMS: MenuItem[] = [
+    { title: "Centro de Control",      icon: BarChart3,      url: "/dashboard" },
+    { title: "Inbox (Chats)",          icon: MessageSquare,  url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
+]
+
+// ── Non-CRM bottom items ───────────────────────────────────────────────────────
+const BOTTOM_ITEMS: MenuItem[] = [
+    { title: "Configuración IA",       icon: Bot,            url: "/dashboard/settings/ai-agent",  roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Canales de Mensajería",  icon: MessageSquare,  url: "/dashboard/settings/channels",  roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Finanzas E-commerce",    icon: Wallet,         url: "/dashboard/finances",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "Canales de Venta",       icon: ShoppingBag,    url: "/dashboard/sales",               roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "Marketing & Ads",        icon: Megaphone,      url: "/dashboard/marketing",           roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "Google Ads (Beta)",      icon: MousePointerClick, url: "/dashboard/google-ads",       roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "TikTok Ads",             icon: Smartphone,     url: "/dashboard/tiktok-ads",          roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { title: "Logística & Operaciones",icon: Package,        url: "/dashboard/logistics" },
+    { title: "Configuración Técnica",  icon: Settings,       url: "/dashboard/settings",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+]
+
+function filterByRole(items: MenuItem[], role: string | null) {
+    return items.filter(item => {
+        if (!item.roles) return true
+        if (!role) return true
+        return item.roles.includes(role)
+    })
+}
 
 export function AppSidebar() {
     const { state } = useSidebar()
     const isCollapsed = state === "collapsed"
+    const pathname = usePathname()
     const { fetchMe, getDisplayName, getInitials, user, isLoading: userLoading } = useUserStore()
 
     const [profileOpen, setProfileOpen] = useState(false)
@@ -96,12 +122,19 @@ export function AppSidebar() {
     const [logoUrl, setLogoUrl] = useState<string | null>(null)
     const [primaryColor, setPrimaryColor] = useState<string | null>(null)
 
+    // CRM collapsible — auto-open when on any CRM route
+    const isCrmRoute = pathname.startsWith("/dashboard/crm") || pathname === "/dashboard/tasks"
+    const [crmOpen, setCrmOpen] = useState(isCrmRoute)
+
+    useEffect(() => {
+        if (isCrmRoute) setCrmOpen(true)
+    }, [isCrmRoute])
+
     useEffect(() => {
         setMounted(true)
         fetchMe()
     }, [fetchMe])
 
-    // Fetch branding once the user is loaded (auth token is ready by then).
     useEffect(() => {
         if (!mounted || !user) return
         getBranding()
@@ -110,25 +143,21 @@ export function AppSidebar() {
                 if (data.logoUrl) setLogoUrl(data.logoUrl)
                 if (data.primaryColor) setPrimaryColor(data.primaryColor)
             })
-            .catch(() => {
-                // Not critical — fall back to defaults silently
-            })
+            .catch(() => {})
     }, [mounted, user])
 
-    // Clear branding + CSS var on logout / workspace change (user becomes null).
     useEffect(() => {
         if (mounted && !user) {
-            document.documentElement.style.removeProperty('--color-primary-brand')
+            document.documentElement.style.removeProperty("--color-primary-brand")
             setBrandName(null)
             setLogoUrl(null)
             setPrimaryColor(null)
         }
     }, [mounted, user])
 
-    // Apply custom primary color as CSS var whenever it changes
     useEffect(() => {
         if (primaryColor) {
-            document.documentElement.style.setProperty('--color-primary-brand', primaryColor)
+            document.documentElement.style.setProperty("--color-primary-brand", primaryColor)
         }
     }, [primaryColor])
 
@@ -137,25 +166,24 @@ export function AppSidebar() {
     const userInitials = getInitials()
     const userRole = user?.role || null
 
-    // Show all items while user profile is loading (user === null).
-    // Only filter by role once we know the actual role.
-    const filteredMenuItems = menuItems.filter(item => {
-        if (!item.roles) return true;
-        if (!userRole) return true;
-        return item.roles.includes(userRole);
-    });
+    const showCrm = !userRole || CRM_ROLES.includes(userRole)
+    const filteredTop = filterByRole(TOP_ITEMS, userRole)
+    const filteredBottom = filterByRole(BOTTOM_ITEMS, userRole)
 
     const handleStopImpersonating = async () => {
         try {
             const res = await stopImpersonating()
-            localStorage.setItem('metria_token', res.token)
+            localStorage.setItem("metria_token", res.token)
             toast.success("Volviendo a Centro de Control...")
-            setTimeout(() => {
-                window.location.href = '/admin/workspaces'
-            }, 800)
-        } catch (error) {
+            setTimeout(() => { window.location.href = "/admin/workspaces" }, 800)
+        } catch {
             toast.error("Error saliendo de impersonación")
         }
+    }
+
+    function isSubActive(item: MenuItem) {
+        if (item.url === "/dashboard/crm") return pathname === "/dashboard/crm"
+        return pathname === item.url || pathname.startsWith(item.url + "/")
     }
 
     return (
@@ -213,12 +241,77 @@ export function AppSidebar() {
                         </div>
                     )}
                 </SidebarHeader>
+
                 <SidebarContent>
                     <SidebarGroup>
                         <SidebarGroupLabel className="text-muted-foreground">Módulos</SidebarGroupLabel>
                         <SidebarGroupContent>
                             <SidebarMenu>
-                                {filteredMenuItems.map((item) => (
+                                {/* Top items */}
+                                {filteredTop.map((item) => (
+                                    <SidebarMenuItem key={item.title}>
+                                        <SidebarMenuButton asChild tooltip={item.title} className="hover:bg-primary/10 transition-colors">
+                                            <Link href={item.url} className="flex items-center gap-3">
+                                                <item.icon className="w-4 h-4 shrink-0" />
+                                                <span>{item.title}</span>
+                                            </Link>
+                                        </SidebarMenuButton>
+                                    </SidebarMenuItem>
+                                ))}
+
+                                {/* CRM collapsible group */}
+                                {showCrm && (
+                                    <SidebarMenuItem>
+                                        {isCollapsed ? (
+                                            /* Collapsed: simple link to CRM root */
+                                            <SidebarMenuButton asChild tooltip="CRM" className="hover:bg-primary/10 transition-colors">
+                                                <Link href="/dashboard/crm" className="flex items-center gap-3">
+                                                    <Users className="w-4 h-4 shrink-0" />
+                                                    <span>CRM</span>
+                                                </Link>
+                                            </SidebarMenuButton>
+                                        ) : (
+                                            <Collapsible open={crmOpen} onOpenChange={setCrmOpen}>
+                                                <CollapsibleTrigger asChild>
+                                                    <SidebarMenuButton
+                                                        tooltip="CRM"
+                                                        className={cn(
+                                                            "hover:bg-primary/10 transition-colors w-full",
+                                                            isCrmRoute && "bg-primary/5 text-primary font-medium"
+                                                        )}
+                                                    >
+                                                        <Users className="w-4 h-4 shrink-0" />
+                                                        <span>CRM</span>
+                                                        <ChevronRight className={cn(
+                                                            "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+                                                            crmOpen && "rotate-90"
+                                                        )} />
+                                                    </SidebarMenuButton>
+                                                </CollapsibleTrigger>
+                                                <CollapsibleContent>
+                                                    <SidebarMenuSub>
+                                                        {CRM_SUB_ITEMS.map((item) => (
+                                                            <SidebarMenuSubItem key={item.title}>
+                                                                <SidebarMenuSubButton
+                                                                    asChild
+                                                                    isActive={isSubActive(item)}
+                                                                >
+                                                                    <Link href={item.url} className="flex items-center gap-2">
+                                                                        <item.icon className="w-3.5 h-3.5 shrink-0" />
+                                                                        <span>{item.title}</span>
+                                                                    </Link>
+                                                                </SidebarMenuSubButton>
+                                                            </SidebarMenuSubItem>
+                                                        ))}
+                                                    </SidebarMenuSub>
+                                                </CollapsibleContent>
+                                            </Collapsible>
+                                        )}
+                                    </SidebarMenuItem>
+                                )}
+
+                                {/* Bottom items */}
+                                {filteredBottom.map((item) => (
                                     <SidebarMenuItem key={item.title}>
                                         <SidebarMenuButton asChild tooltip={item.title} className="hover:bg-primary/10 transition-colors">
                                             <Link href={item.url} className="flex items-center gap-3">
@@ -232,6 +325,7 @@ export function AppSidebar() {
                         </SidebarGroupContent>
                     </SidebarGroup>
                 </SidebarContent>
+
                 <SidebarFooter>
                     <SidebarMenu>
                         <SidebarMenuItem>
@@ -293,12 +387,9 @@ export function AppSidebar() {
                                         <DropdownMenuItem
                                             className="gap-2 cursor-pointer focus:bg-destructive/20 text-destructive focus:text-destructive transition-colors mt-2"
                                             onClick={async () => {
-                                                // Clear all session/local data
                                                 Object.keys(localStorage).forEach(key => {
-                                                    if (key.startsWith('metria_')) {
-                                                        localStorage.removeItem(key);
-                                                    }
-                                                });
+                                                    if (key.startsWith("metria_")) localStorage.removeItem(key)
+                                                })
                                                 toast.success("Sesión cerrada", { duration: 1500 })
                                                 await logout()
                                             }}
@@ -314,7 +405,6 @@ export function AppSidebar() {
                 </SidebarFooter>
             </Sidebar>
 
-            {/* Dialogs rendered outside sidebar to avoid z-index issues */}
             <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
             <PreferencesDialog open={preferencesOpen} onOpenChange={setPreferencesOpen} />
         </>

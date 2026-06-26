@@ -20,25 +20,36 @@ export interface CreatePaymentLinkInput {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Hydrate a payment link with the related contact's name (if any).
- * PaymentLink stores contactId as a plain string (no Prisma relation),
- * so we resolve it manually, scoped to the workspace.
+ * Hydrate payment links with contact names and deal titles.
+ * Both relations are stored as plain IDs (no Prisma relation), so we resolve
+ * them manually in parallel, scoped to the workspace.
  */
-async function attachContactNames(workspaceId: string, links: any[]) {
+async function hydrateLinks(workspaceId: string, links: any[]) {
   const contactIds = [...new Set(links.map((l) => l.contactId).filter(Boolean))] as string[]
-  if (contactIds.length === 0) {
-    return links.map((l) => ({ ...l, contactName: null }))
-  }
+  const dealIds = [...new Set(links.map((l) => l.dealId).filter(Boolean))] as string[]
 
-  const contacts = await prisma.contact.findMany({
-    where: { workspaceId, id: { in: contactIds } },
-    select: { id: true, name: true }
-  })
+  const [contacts, deals] = await Promise.all([
+    contactIds.length > 0
+      ? prisma.contact.findMany({
+          where: { workspaceId, id: { in: contactIds } },
+          select: { id: true, name: true }
+        })
+      : [],
+    dealIds.length > 0
+      ? prisma.deal.findMany({
+          where: { workspaceId, id: { in: dealIds } },
+          select: { id: true, title: true }
+        })
+      : []
+  ])
+
   const nameById = new Map(contacts.map((c) => [c.id, c.name]))
+  const titleById = new Map(deals.map((d) => [d.id, d.title]))
 
   return links.map((l) => ({
     ...l,
-    contactName: l.contactId ? nameById.get(l.contactId) ?? null : null
+    contactName: l.contactId ? nameById.get(l.contactId) ?? null : null,
+    dealTitle: l.dealId ? titleById.get(l.dealId) ?? null : null
   }))
 }
 
@@ -117,8 +128,8 @@ export async function createPaymentLink(workspaceId: string, input: CreatePaymen
     }
   })
 
-  const [withName] = await attachContactNames(workspaceId, [link])
-  return { ...withName, needsConfig }
+  const [hydrated] = await hydrateLinks(workspaceId, [link])
+  return { ...hydrated, needsConfig }
 }
 
 export async function listPaymentLinks(workspaceId: string) {
@@ -126,7 +137,7 @@ export async function listPaymentLinks(workspaceId: string) {
     where: { workspaceId },
     orderBy: { createdAt: 'desc' }
   })
-  return attachContactNames(workspaceId, links)
+  return hydrateLinks(workspaceId, links)
 }
 
 export async function getPaymentLink(workspaceId: string, id: string) {
@@ -134,8 +145,8 @@ export async function getPaymentLink(workspaceId: string, id: string) {
     where: { id, workspaceId }
   })
   if (!link) throw new Error('Payment link not found')
-  const [withName] = await attachContactNames(workspaceId, [link])
-  return withName
+  const [hydrated] = await hydrateLinks(workspaceId, [link])
+  return hydrated
 }
 
 const VALID_STATUSES: PaymentLinkStatus[] = ['PENDING', 'PAID', 'EXPIRED', 'CANCELLED']

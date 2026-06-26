@@ -19,6 +19,7 @@ export interface PaymentLink {
   createdAt: string
   paidAt: string | null
   contactName?: string | null
+  dealTitle?: string | null
 }
 
 // createPaymentLink returns the link plus a needsConfig flag when MercadoPago
