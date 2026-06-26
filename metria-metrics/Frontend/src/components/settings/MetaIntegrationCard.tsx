@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, ChevronDown, ChevronUp } from "lucide-react"
+import { CheckCircle2, ChevronDown, ChevronUp, Unplug } from "lucide-react"
 import { toast } from "sonner"
 import { fetchAPI, updateIntegration } from "@/lib/api"
 import { useQueryClient } from "@tanstack/react-query"
@@ -46,6 +46,21 @@ export function MetaIntegrationCard({ integration, token, needsAdAccount: initia
     const [manualAdAccountId, setManualAdAccountId] = useState('')
     const [savingAdAccount, setSavingAdAccount] = useState(false)
     const [savingManual, setSavingManual] = useState(false)
+    const [disconnecting, setDisconnecting] = useState(false)
+
+    const handleDisconnect = async () => {
+        if (!confirm('¿Desconectar Meta? Esto eliminará la integración y los canales de Instagram y Messenger.')) return
+        setDisconnecting(true)
+        try {
+            await fetchAPI('/settings/integrations/meta', { method: 'DELETE' })
+            queryClient.invalidateQueries({ queryKey: ['settings', 'integrations'] })
+            toast.success('Meta desconectado correctamente')
+        } catch (err: any) {
+            toast.error(err.message ?? 'Error al desconectar')
+        } finally {
+            setDisconnecting(false)
+        }
+    }
 
     const adAccountsList: Array<{ id: string; name: string }> = (() => {
         try { return JSON.parse(integration?.config?.adAccountsList ?? '[]') }
@@ -228,12 +243,24 @@ export function MetaIntegrationCard({ integration, token, needsAdAccount: initia
                     </div>
                 )}
 
-                {/* Reconnect button when already connected */}
+                {/* Reconnect + Disconnect when already connected */}
                 {isConnected && (
-                    <Button variant="outline" size="sm" onClick={handleOAuth} className="w-full text-xs">
-                        <FacebookIcon />
-                        <span className="ml-1.5">Reconectar con Facebook</span>
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={handleOAuth} className="flex-1 text-xs">
+                            <FacebookIcon />
+                            <span className="ml-1.5">Reconectar</span>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDisconnect}
+                            disabled={disconnecting}
+                            className="flex-1 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                        >
+                            <Unplug className="h-3.5 w-3.5 mr-1.5" />
+                            {disconnecting ? 'Desconectando...' : 'Desconectar'}
+                        </Button>
+                    </div>
                 )}
             </CardContent>
         </Card>

@@ -16,6 +16,28 @@ router.post('/global', requireRole(['SUPER_ADMIN', 'ADMIN']), updateGlobalSettin
 router.get('/integrations', requireRole(['SUPER_ADMIN', 'ADMIN', 'VIEWER']), getIntegrations)
 router.post('/integrations', requireRole(['SUPER_ADMIN', 'ADMIN']), updateIntegration)
 
+// DELETE /api/settings/integrations/:platform — disconnect an integration + its channels
+router.delete('/integrations/:platform', requireRole(['SUPER_ADMIN', 'ADMIN']), async (req: AuthRequest, res: any) => {
+    try {
+        const workspaceId = req.user!.workspaceId!
+        const platform = req.params.platform.toLowerCase()
+
+        await prisma.integration.deleteMany({ where: { workspaceId, platform } })
+
+        // For Meta: also remove Instagram and Messenger channels
+        if (platform === 'meta') {
+            await prisma.channel.deleteMany({
+                where: { workspaceId, platform: { in: ['INSTAGRAM', 'MESSENGER'] } }
+            })
+        }
+
+        res.json({ ok: true })
+    } catch (error) {
+        console.error('Delete integration error:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
 // --- Workspace Logo ---
 
 // GET /api/settings/logo — Get workspace logo
