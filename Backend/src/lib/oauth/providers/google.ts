@@ -15,14 +15,16 @@ export class GoogleAdsProvider implements IOAuthProvider {
    */
   getAuthUrl(state: string): string {
     const scopes = ['https://www.googleapis.com/auth/adwords'].join(' ');
-    
+    const redirectUri = `${process.env.BACKEND_URL}/api/oauth/google/callback`;
+
     const params = new URLSearchParams({
       client_id: this.clientId!,
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: scopes,
       state: state,
       access_type: 'offline',
-      prompt: 'consent' // Forces a fresh refresh token
+      prompt: 'consent',
     });
 
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
