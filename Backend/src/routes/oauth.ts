@@ -189,13 +189,15 @@ router.get('/:platform/callback', async (req, res) => {
             message: `Account connected successfully via OAuth.`
         })
 
+        const frontendUrl = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',')[0].trim()
         const redirectParams = new URLSearchParams({ tab: 'integrations', success: 'true', platform })
         if (needsAdAccount) redirectParams.set('needsAdAccount', 'true')
 
-        res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings?${redirectParams.toString()}`)
+        res.redirect(`${frontendUrl}/dashboard/settings?${redirectParams.toString()}`)
     } catch (error: any) {
         console.error(`OAuth Callback Error (${req.params.platform}):`, error)
-        res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings?tab=integrations&error=${encodeURIComponent(error.message)}`)
+        const frontendUrl = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',')[0].trim()
+        res.redirect(`${frontendUrl}/dashboard/settings?tab=integrations&error=${encodeURIComponent(error.message)}`)
     }
 })
 

@@ -8,7 +8,7 @@ const router = Router()
 const provider = new GoogleCalendarProvider()
 const REDIRECT_URI = () =>
   `${process.env.BACKEND_URL ?? 'http://localhost:4000'}/api/integrations/google-calendar/callback`
-const FRONTEND_URL = () => process.env.FRONTEND_URL ?? 'http://localhost:3000'
+const FRONTEND_URL = () => (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',')[0].trim()
 
 // GET /api/integrations/google-calendar/auth
 // Returns the Google OAuth consent URL for the logged-in workspace.

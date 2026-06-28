@@ -5,6 +5,7 @@ import { MercadoPagoConfig, Preference, PreApproval } from 'mercadopago'
 import 'dotenv/config'
 
 const router = Router()
+const FRONTEND_URL = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',')[0].trim()
 
 // Initialize Mercado Pago
 const mpConfig = process.env.MERCADOPAGO_ACCESS_TOKEN 
@@ -111,7 +112,7 @@ router.post('/process-mercadopago-subscription', authenticate, async (req: AuthR
             const preApproval = new PreApproval(mpConfig);
             const subscription = await preApproval.create({
                 body: {
-                    back_url: `${process.env.FRONTEND_URL}/dashboard/settings?status=success`,
+                    back_url: `${FRONTEND_URL}/dashboard/settings?status=success`,
                     reason: `Suscripción Metria - Plan ${planType}`,
                     auto_recurring: {
                         frequency: 1,
@@ -301,9 +302,9 @@ router.post('/create-mp-preference', authenticate, async (req: AuthRequest, res)
                 currency_id: 'CLP'
             }],
             back_urls: {
-                success: `${process.env.FRONTEND_URL}/dashboard/settings?status=success`,
-                failure: `${process.env.FRONTEND_URL}/onboarding/plans?status=failure`,
-                pending: `${process.env.FRONTEND_URL}/dashboard/settings?status=pending`,
+                success: `${FRONTEND_URL}/dashboard/settings?status=success`,
+                failure: `${FRONTEND_URL}/onboarding/plans?status=failure`,
+                pending: `${FRONTEND_URL}/dashboard/settings?status=pending`,
             },
             external_reference: workspaceId,
             metadata: {
@@ -468,7 +469,7 @@ router.post('/create-subscription', authenticate, async (req: AuthRequest, res) 
             if (isMPMock || !mpConfig) {
                 console.log(`[Payments] Simulated MercadoPago (Chile) Checkout for workspace ${workspaceId}`)
                 return res.json({
-                    url: `${process.env.FRONTEND_URL}/dashboard/settings?status=success&demo=true&plan=${planType}`,
+                    url: `${FRONTEND_URL}/dashboard/settings?status=success&demo=true&plan=${planType}`,
                     message: "Modo Demo: Redirigiendo a éxito simulado (Chile CLP)"
                 })
             }
@@ -484,9 +485,9 @@ router.post('/create-subscription', authenticate, async (req: AuthRequest, res) 
                     currency_id: 'CLP'
                 }],
                 back_urls: {
-                    success: `${process.env.FRONTEND_URL}/dashboard/settings?status=success`,
-                    failure: `${process.env.FRONTEND_URL}/onboarding/plans?status=failure`,
-                    pending: `${process.env.FRONTEND_URL}/dashboard/settings?status=pending`,
+                    success: `${FRONTEND_URL}/dashboard/settings?status=success`,
+                    failure: `${FRONTEND_URL}/onboarding/plans?status=failure`,
+                    pending: `${FRONTEND_URL}/dashboard/settings?status=pending`,
                 },
                 external_reference: workspaceId,
                 metadata: {
@@ -510,7 +511,7 @@ router.post('/create-subscription', authenticate, async (req: AuthRequest, res) 
             if (isPayPalMock) {
                 console.log(`[Payments] Simulated PayPal Checkout for workspace ${workspaceId}`)
                 return res.json({
-                    url: `${process.env.FRONTEND_URL}/dashboard/settings?status=success&demo=true&plan=${planType}`,
+                    url: `${FRONTEND_URL}/dashboard/settings?status=success&demo=true&plan=${planType}`,
                     message: "Modo Demo: Redirigiendo a éxito simulado"
                 })
             }
@@ -539,8 +540,8 @@ router.post('/create-subscription', authenticate, async (req: AuthRequest, res) 
                             locale: 'es-CL',
                             shipping_preference: 'NO_SHIPPING',
                             user_action: 'SUBSCRIBE_NOW',
-                            return_url: `${process.env.FRONTEND_URL}/dashboard/settings?paypal_return=true&plan=${planType}`,
-                            cancel_url: `${process.env.FRONTEND_URL}/onboarding/plans?status=cancelled`
+                            return_url: `${FRONTEND_URL}/dashboard/settings?paypal_return=true&plan=${planType}`,
+                            cancel_url: `${FRONTEND_URL}/onboarding/plans?status=cancelled`
                         }
                     })
                 })
