@@ -107,6 +107,41 @@ router.post('/workspaces', async (req, res) => {
     }
 })
 
+// Change workspace plan and subscription status
+router.patch('/workspaces/:id/plan', async (req, res) => {
+    try {
+        const { id } = req.params
+        const { plan, subscriptionStatus } = req.body
+
+        const validPlans = ['STARTER', 'PRO', 'SCALE']
+        const validStatuses = ['ACTIVE', 'TRIALING', 'INCOMPLETE', 'PAST_DUE', 'CANCELED']
+
+        if (plan && !validPlans.includes(plan)) {
+            return res.status(400).json({ error: `Plan inválido. Válidos: ${validPlans.join(', ')}` })
+        }
+        if (subscriptionStatus && !validStatuses.includes(subscriptionStatus)) {
+            return res.status(400).json({ error: `Estado inválido. Válidos: ${validStatuses.join(', ')}` })
+        }
+
+        const workspace = await prisma.workspace.findUnique({ where: { id } })
+        if (!workspace) return res.status(404).json({ error: 'Workspace not found' })
+
+        const updated = await prisma.workspace.update({
+            where: { id },
+            data: {
+                ...(plan && { plan }),
+                ...(subscriptionStatus && { subscriptionStatus }),
+            },
+            select: { id: true, name: true, plan: true, subscriptionStatus: true }
+        })
+
+        res.status(200).json(updated)
+    } catch (error) {
+        console.error('Error changing plan:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
 // Toggle Workspace Status (Active / Suspended)
 router.post('/workspaces/:id/toggle', async (req, res) => {
     try {

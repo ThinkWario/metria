@@ -90,6 +90,8 @@ export const createWorkspace = (name: string, adminEmail: string) => fetchAPI('/
     body: JSON.stringify({ name, adminEmail })
 })
 export const toggleWorkspaceStatus = (id: string) => fetchAPI(`/admin/workspaces/${id}/toggle`, { method: 'POST' })
+export const changeWorkspacePlan = (id: string, plan: string, subscriptionStatus: string) =>
+    fetchAPI(`/admin/workspaces/${id}/plan`, { method: 'PATCH', body: JSON.stringify({ plan, subscriptionStatus }) })
 export const impersonateWorkspace = (targetWorkspaceId: string) => fetchAPI('/admin/workspaces/impersonate', {
     method: 'POST',
     body: JSON.stringify({ targetWorkspaceId })

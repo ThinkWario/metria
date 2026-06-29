@@ -48,6 +48,7 @@ model Workspace {
   dailyMetrics             DailyMetric[]
   deals                    Deal[]
   fixedCosts               FixedCost[]
+  sheetIntegrations        SheetIntegration[]
   settings                 GlobalSetting?
   integrations             Integration[]
   messages                 Message[]
@@ -424,33 +425,62 @@ model ContactHealthScore {
 }
 
 model Pipeline {
-  id          String          @id @default(uuid())
-  workspaceId String          @map("workspace_id")
-  name        String
-  isDefault   Boolean         @default(false) @map("is_default")
-  createdAt   DateTime        @default(now()) @map("created_at")
-  deals       Deal[]
-  stages      PipelineStage[]
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                String             @id @default(uuid())
+  workspaceId       String             @map("workspace_id")
+  name              String
+  isDefault         Boolean            @default(false) @map("is_default")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  deals             Deal[]
+  stages            PipelineStage[]
+  sheetIntegrations SheetIntegration[]
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, name])
   @@map("pipelines")
 }
 
 model PipelineStage {
-  id         String   @id @default(uuid())
-  pipelineId String   @map("pipeline_id")
-  name       String
-  color      String   @default("#6366f1")
-  order      Int
-  isWon      Boolean  @default(false) @map("is_won")
-  isLost     Boolean  @default(false) @map("is_lost")
-  deals      Deal[]
-  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  id                String             @id @default(uuid())
+  pipelineId        String             @map("pipeline_id")
+  name              String
+  color             String             @default("#6366f1")
+  order             Int
+  isWon             Boolean            @default(false) @map("is_won")
+  isLost            Boolean            @default(false) @map("is_lost")
+  deals             Deal[]
+  sheetIntegrations SheetIntegration[]
+  pipeline          Pipeline           @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
 
   @@unique([pipelineId, name])
   @@unique([pipelineId, order])
   @@map("pipeline_stages")
+}
+
+model SheetIntegration {
+  id                   String        @id @default(uuid())
+  workspaceId          String        @map("workspace_id")
+  sheetUrl             String        @map("sheet_url")
+  sheetId              String        @map("sheet_id")
+  sheetName            String        @map("sheet_name")
+  campaignLabel        String?       @map("campaign_label")
+  fieldMappings        Json          @map("field_mappings")
+  qualificationFields  Json?         @map("qualification_fields")
+  qualificationRules   String?       @map("qualification_rules")
+  importFilter         String        @default("ALL") @map("import_filter")
+  importedSessionIds   String[]      @default([]) @map("imported_session_ids")
+  targetPipelineId     String        @map("target_pipeline_id")
+  targetStageId        String        @map("target_stage_id")
+  isActive             Boolean       @default(true) @map("is_active")
+  lastSyncedAt         DateTime?     @map("last_synced_at")
+  lastSyncError        String?       @map("last_sync_error")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+  workspace            Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pipeline             Pipeline      @relation(fields: [targetPipelineId], references: [id])
+  stage                PipelineStage @relation(fields: [targetStageId], references: [id])
+
+  @@index([workspaceId, isActive])
+  @@map("sheet_integrations")
 }
 
 model Deal {

@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { getAdminWorkspaces, toggleWorkspaceStatus, getAdminUsers, resetUserPassword, impersonateWorkspace, createWorkspace } from "@/lib/api"
+import { getAdminWorkspaces, toggleWorkspaceStatus, getAdminUsers, resetUserPassword, impersonateWorkspace, createWorkspace, changeWorkspacePlan } from "@/lib/api"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
-import { Building2, Power, PowerOff, KeyRound, UserCheck, ShieldAlert, Loader2, Plus, X, Search, Activity, DollarSign, TrendingUp, CheckCircle2, AlertCircle } from "lucide-react"
+import { Building2, Power, PowerOff, KeyRound, UserCheck, ShieldAlert, Loader2, Plus, X, Search, Activity, DollarSign, TrendingUp, CheckCircle2, AlertCircle, Crown } from "lucide-react"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { Badge } from "@/components/ui/badge"
 
@@ -20,6 +20,33 @@ export default function AdminWorkspacesPage() {
     const [newWorkspaceName, setNewWorkspaceName] = useState("")
     const [newAdminEmail, setNewAdminEmail] = useState("")
     const [isCreating, setIsCreating] = useState(false)
+
+    // Plan change modal
+    const [planModal, setPlanModal] = useState<{ id: string; name: string; plan: string; subscriptionStatus: string } | null>(null)
+    const [planValue, setPlanValue] = useState("PRO")
+    const [planStatusValue, setPlanStatusValue] = useState("ACTIVE")
+    const [isSavingPlan, setIsSavingPlan] = useState(false)
+
+    const handleOpenPlanModal = (ws: any) => {
+        setPlanModal({ id: ws.id, name: ws.name, plan: ws.plan, subscriptionStatus: ws.subscriptionStatus })
+        setPlanValue(ws.plan ?? "PRO")
+        setPlanStatusValue(ws.subscriptionStatus ?? "ACTIVE")
+    }
+
+    const handleSavePlan = async () => {
+        if (!planModal) return
+        setIsSavingPlan(true)
+        try {
+            await changeWorkspacePlan(planModal.id, planValue, planStatusValue)
+            toast.success(`Plan actualizado: ${planValue} / ${planStatusValue}`)
+            setPlanModal(null)
+            loadData()
+        } catch {
+            toast.error("Error actualizando plan")
+        } finally {
+            setIsSavingPlan(false)
+        }
+    }
 
     const loadData = async () => {
         try {
@@ -299,6 +326,14 @@ export default function AdminWorkspacesPage() {
                                     <ShieldAlert className="w-4 h-4" />
                                     Impersonar
                                 </button>
+
+                                <button
+                                    onClick={() => handleOpenPlanModal(ws)}
+                                    className="flex-1 lg:flex-none px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500 hover:text-white hover:border-transparent transition-all flex items-center justify-center gap-2"
+                                >
+                                    <Crown className="w-4 h-4" />
+                                    Cambiar Plan
+                                </button>
                             </div>
                         </div>
 
@@ -417,6 +452,78 @@ export default function AdminWorkspacesPage() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Plan Change Modal */}
+            {planModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90 backdrop-blur-md animate-in fade-in duration-300">
+                    <div className="bg-card w-full max-w-md p-8 rounded-[2rem] shadow-[0_0_80px_rgba(0,0,0,0.2)] border border-border animate-in zoom-in-95 duration-300">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 className="text-lg font-black">Cambiar Plan</h3>
+                                <p className="text-xs text-muted-foreground mt-0.5">{planModal.name}</p>
+                            </div>
+                            <button onClick={() => setPlanModal(null)} className="p-2 rounded-xl hover:bg-muted transition-all">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground block mb-2">Plan</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {['STARTER', 'PRO', 'SCALE'].map(p => (
+                                        <button
+                                            key={p}
+                                            onClick={() => setPlanValue(p)}
+                                            className={`py-3 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${planValue === p
+                                                ? 'bg-violet-500 text-white border-violet-500'
+                                                : 'border-border hover:border-violet-500/50 text-muted-foreground'
+                                            }`}
+                                        >
+                                            {p}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground block mb-2">Estado de suscripción</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {['ACTIVE', 'TRIALING', 'PAST_DUE', 'CANCELED'].map(s => (
+                                        <button
+                                            key={s}
+                                            onClick={() => setPlanStatusValue(s)}
+                                            className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${planStatusValue === s
+                                                ? 'bg-foreground text-background border-foreground'
+                                                : 'border-border hover:border-foreground/30 text-muted-foreground'
+                                            }`}
+                                        >
+                                            {s}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={() => setPlanModal(null)}
+                                    className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-muted-foreground hover:bg-muted border border-border transition-all"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={handleSavePlan}
+                                    disabled={isSavingPlan}
+                                    className="flex-[2] py-3 bg-violet-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-violet-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSavingPlan ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crown className="w-4 h-4" />}
+                                    Confirmar
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
