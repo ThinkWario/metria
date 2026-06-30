@@ -17,7 +17,7 @@ export class GoogleCalendarProvider implements IOAuthProvider {
   }
 
   private get redirectUri() {
-    return `${process.env.BACKEND_URL ?? 'http://localhost:4000'}/api/oauth/google_calendar/callback`
+    return `${process.env.BACKEND_URL ?? 'http://localhost:4000'}/api/integrations/google-calendar/callback`
   }
 
   getAuthUrl(state: string): string {
