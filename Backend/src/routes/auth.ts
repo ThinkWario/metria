@@ -5,6 +5,7 @@ import 'dotenv/config'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import bcrypt from 'bcrypt'
 import { OAuth2Client } from 'google-auth-library'
+import { sendWelcomeEmail } from '../lib/mailer'
 
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
@@ -138,6 +139,7 @@ router.post('/google', async (req, res) => {
                 include: { workspace: true }
             })
             onboardingRequired = true
+            sendWelcomeEmail(email, name ?? email).catch(() => {})
             console.log(`[GoogleAuth] New user created with workspace ${workspace.id}. onboardingRequired=${onboardingRequired}`)
         } else if (!user.googleId) {
             console.log(`[GoogleAuth] Linking Google account to existing user ${email}`)
@@ -285,6 +287,8 @@ router.post('/register', async (req, res) => {
         const user = await prisma.user.create({
             data: { email, name, passwordHash, role: 'ADMIN', workspaceId: workspace.id }
         })
+
+        sendWelcomeEmail(email, name).catch(() => {})
 
         const token = jwt.sign(
             { 
