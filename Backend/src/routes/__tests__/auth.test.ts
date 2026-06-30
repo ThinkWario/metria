@@ -23,6 +23,16 @@ vi.mock('../../lib/prisma', () => ({
 import authRouter from '../auth'
 import { prisma } from '../../lib/prisma'
 
+vi.mock('google-auth-library', () => ({
+  OAuth2Client: vi.fn().mockImplementation(function () {
+    return {
+      verifyIdToken: vi.fn().mockRejectedValue(
+        new Error('Wrong recipient, payload audience != requiredAudience')
+      )
+    }
+  })
+}))
+
 beforeEach(() => vi.clearAllMocks())
 
 function buildApp() {
@@ -42,5 +52,22 @@ describe('POST /api/auth/register', () => {
       .expect(201)
 
     expect(mockSendWelcomeEmail).toHaveBeenCalledWith('new@example.com', 'New User')
+  })
+})
+
+describe('POST /api/auth/google — audience mismatch', () => {
+  it('logs a clear client-id-mismatch diagnostic and returns a distinct error code', async () => {
+    const app = buildApp()
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await request(app)
+      .post('/api/auth/google')
+      .send({ credential: 'fake-token' })
+      .expect(401)
+
+    expect(res.body.error).toBe('google_client_id_mismatch')
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('NEXT_PUBLIC_GOOGLE_CLIENT_ID')
+    )
   })
 })

@@ -203,8 +203,17 @@ router.post('/google', async (req, res) => {
             workspace: user.workspace ? { status: user.workspace.status } : undefined
         })
     } catch (error: any) {
-        console.error('Google login error detail:', error.message || error)
-        res.status(500).json({ error: 'Failed to authenticate with Google', details: error.message })
+        const message: string = error?.message || String(error)
+
+        if (message.includes('Wrong recipient') || message.includes('audience')) {
+            console.error(
+                `[GoogleAuth] Client ID mismatch — frontend NEXT_PUBLIC_GOOGLE_CLIENT_ID and backend GOOGLE_ADS_CLIENT_ID must be the same Google Cloud OAuth client. Verify both env values. Detail: ${message}`
+            )
+            return res.status(401).json({ error: 'google_client_id_mismatch' })
+        }
+
+        console.error('Google login error detail:', message)
+        res.status(500).json({ error: 'Failed to authenticate with Google', details: message })
     }
 })
 
