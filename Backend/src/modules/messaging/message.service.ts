@@ -173,6 +173,32 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     include: { channel: { select: { platform: true, config: true } } }
   })
 
+  // Broadcast the inbound message immediately so the inbox shows it without waiting for AI.
+  const io = getIO()
+  const room = `workspace:${workspaceId}`
+
+  const messagePayload = {
+    id: message.id,
+    conversationId: message.conversationId,
+    direction: message.direction,
+    senderType: message.senderType,
+    content: message.content,
+    sentAt: message.sentAt
+  }
+
+  if (isNewConversation) {
+    io.to(room).emit('conversation:new', {
+      id: conversation.id,
+      channelId: conversation.channelId,
+      externalId: conversation.externalId,
+      status: conversation.status,
+      contact: conversation.contact,
+      createdAt: conversation.createdAt
+    })
+  }
+
+  io.to(room).emit('message:new', messagePayload)
+
   // 1. Try AI Agent if enabled for channel (isAiEnabled stored in config JSON)
   if (data.skipBotResponse) {
     // Historical/backfilled message (e.g. WhatsApp reconnect sync) — record it, don't respond.
@@ -239,31 +265,6 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       contactId: contact.id
     }, content).catch(err => console.error('[BotEngine]', err))
   }
-
-  const io = getIO()
-  const room = `workspace:${workspaceId}`
-
-  const messagePayload = {
-    id: message.id,
-    conversationId: message.conversationId,
-    direction: message.direction,
-    senderType: message.senderType,
-    content: message.content,
-    sentAt: message.sentAt
-  }
-
-  if (isNewConversation) {
-    io.to(room).emit('conversation:new', {
-      id: conversation.id,
-      channelId: conversation.channelId,
-      externalId: conversation.externalId,
-      status: conversation.status,
-      contact: conversation.contact,
-      createdAt: conversation.createdAt
-    })
-  }
-
-  io.to(room).emit('message:new', messagePayload)
 
   return {
     conversationId: conversation.id,

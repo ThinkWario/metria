@@ -163,16 +163,12 @@ export class WhatsAppSessionManager {
     for (const chat of recentChats) {
       const lastMsg = await chat.fetchMessages({ limit: 1 });
       if (lastMsg.length > 0 && lastMsg[0].body) {
-        // @lid IDs are WhatsApp internal — resolve to real phone via getContactById
+        // @lid IDs are WhatsApp internal — getContactById returns the lid
+        // pseudo-number, not the real phone. Use the raw ID directly.
         let senderPhone: string;
         const isLid = chat.id._serialized.endsWith('@lid');
         if (isLid) {
-          try {
-            const waContact = await client.getContactById(chat.id._serialized);
-            senderPhone = waContact.number ? `+${waContact.number}` : chat.id._serialized;
-          } catch {
-            senderPhone = chat.id._serialized;
-          }
+          senderPhone = chat.id._serialized;
         } else {
           senderPhone = chat.id._serialized.split('@')[0];
         }
@@ -227,16 +223,12 @@ export class WhatsAppSessionManager {
       const { processInboundMessage } = await import('../../modules/messaging/message.service');
 
       // @lid = WhatsApp internal linked-device ID, NOT a phone number.
-      // Try getContact() to resolve the real phone; fall back to the raw ID.
+      // getContact() may return the lid ID as a pseudo-number, so we use
+      // the raw @lid ID directly to avoid creating contacts with wrong phones.
       let senderPhone: string;
       const isLid = msg.from.endsWith('@lid');
       if (isLid) {
-        try {
-          const waContact = await msg.getContact();
-          senderPhone = waContact.number ? `+${waContact.number}` : msg.from;
-        } catch {
-          senderPhone = msg.from;
-        }
+        senderPhone = msg.from;
       } else {
         senderPhone = msg.from.split('@')[0];
       }
