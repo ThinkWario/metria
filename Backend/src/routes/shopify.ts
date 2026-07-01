@@ -7,6 +7,7 @@ import { createAuditLog } from '../lib/logger'
 import { getStartOfDay, getEndOfDay } from '../lib/dateUtils'
 import { upsertDailyMetric } from '../lib/metrics'
 import { AlertService } from '../services/alertService'
+import { sendPurchaseEvent } from '../lib/metaCapi'
 import 'dotenv/config'
 
 const router = Router()
@@ -78,6 +79,14 @@ router.post('/webhooks/orders/create', verifyShopifyWebhook, async (req, res) =>
                 createdAt: new Date(order.created_at)
             }
         })
+
+        sendPurchaseEvent(workspaceId, {
+            value: parseFloat(order.total_price),
+            currency: order.currency,
+            email: order.email,
+            phone: order.customer?.phone
+        }).catch(() => {})
+
         return res.status(200).send('Webhook processed')
     } catch (error) {
         console.error('Shopify Create Order Error:', error)
