@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { fetchAPI } from '@/lib/api'
+import { formatCLP, formatCLPFull } from '@/lib/formatCurrency'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -70,22 +71,10 @@ interface RoiSummary {
 
 const PIE_COLORS = ['#6366f1', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#a78bfa']
 
-function formatCLPFull(v: number): string {
-  return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(v)
-}
-
 function formatCompact(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M CLP`
   if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}k`
   return formatCLPFull(v)
-}
-
-function formatCLP(v: string | number): string {
-  const n = typeof v === 'string' ? parseFloat(v) : v
-  if (isNaN(n) || n === 0) return '$0'
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`
-  return `$${Math.round(n)}`
 }
 function daysAgo(d: string) { return Math.floor((Date.now() - new Date(d).getTime()) / 86_400_000) }
 function TempIcon({ t }: { t?: string | null }) {
