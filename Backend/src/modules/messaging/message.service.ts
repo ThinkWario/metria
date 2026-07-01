@@ -87,26 +87,8 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
   if (!channel) throw new Error(`Channel not found: ${channelId}`)
   const source = PLATFORM_TO_SOURCE[channel.platform] ?? 'MANUAL'
 
-  const contact = data.contactId
-    ? await prisma.contact.update({
-        where: { id: data.contactId },
-        data: { sourceCampaignId: data.metadata?.campaign_id || undefined }
-      })
-    : await prisma.contact.upsert({
-        where: { workspaceId_phone: { workspaceId, phone: senderExternalId } },
-        create: {
-          workspaceId,
-          name: senderName ?? senderExternalId,
-          phone: senderExternalId,
-          source,
-          sourceCampaignId: data.metadata?.campaign_id || null,
-          status: 'LEAD'
-        },
-        update: {
-          sourceCampaignId: data.metadata?.campaign_id || undefined
-        }
-      })
-
+  // Look up conversation first so we can reuse its contact (avoids duplicates
+  // when migrating from @lid-prefixed phones to clean numbers after a fix).
   let isNewConversation = false
   let conversation = await prisma.conversation.findUnique({
     where: {
@@ -118,6 +100,40 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     },
     include: { contact: { select: { id: true, name: true, status: true, phone: true } } }
   })
+
+  let contact: any
+  if (data.contactId) {
+    contact = await prisma.contact.update({
+      where: { id: data.contactId },
+      data: { sourceCampaignId: data.metadata?.campaign_id || undefined }
+    })
+  } else if (conversation) {
+    // Existing conversation → update its contact's phone to the clean version
+    contact = await prisma.contact.update({
+      where: { id: conversation.contactId },
+      data: {
+        phone: senderExternalId,
+        name: senderName ?? undefined,
+        sourceCampaignId: data.metadata?.campaign_id || undefined
+      }
+    })
+  } else {
+    // Truly new conversation → upsert contact by phone
+    contact = await prisma.contact.upsert({
+      where: { workspaceId_phone: { workspaceId, phone: senderExternalId } },
+      create: {
+        workspaceId,
+        name: senderName ?? senderExternalId,
+        phone: senderExternalId,
+        source,
+        sourceCampaignId: data.metadata?.campaign_id || null,
+        status: 'LEAD'
+      },
+      update: {
+        sourceCampaignId: data.metadata?.campaign_id || undefined
+      }
+    })
+  }
 
   if (!conversation) {
     isNewConversation = true

@@ -163,15 +163,7 @@ export class WhatsAppSessionManager {
     for (const chat of recentChats) {
       const lastMsg = await chat.fetchMessages({ limit: 1 });
       if (lastMsg.length > 0 && lastMsg[0].body) {
-        // @lid IDs are WhatsApp internal — getContactById returns the lid
-        // pseudo-number, not the real phone. Use the raw ID directly.
-        let senderPhone: string;
-        const isLid = chat.id._serialized.endsWith('@lid');
-        if (isLid) {
-          senderPhone = chat.id._serialized;
-        } else {
-          senderPhone = chat.id._serialized.split('@')[0];
-        }
+        const senderPhone = await this.resolvePhone(workspaceId, chat.id._serialized);
         await processInboundMessage({
           workspaceId,
           channelId: channel.id,
@@ -196,7 +188,7 @@ export class WhatsAppSessionManager {
     console.log('[WhatsApp] Auto-restoring sessions...');
     try {
       const channels = await prisma.channel.findMany({
-        where: { platform: 'WHATSAPP', status: 'CONNECTED' },
+        where: { platform: 'WHATSAPP', status: { in: ['CONNECTED', 'DISCONNECTED'] } },
         select: { workspaceId: true, config: true }
       });
 
@@ -228,6 +220,28 @@ export class WhatsAppSessionManager {
   }
 
   /**
+   * Resolves the real phone number from a chat ID. For @lid contacts the
+   * prefix is a lid pseudo-number, not the actual phone — we ask the WhatsApp
+   * client via getContactLidAndPhone() to get the real phone (pn).
+   */
+  private async resolvePhone(workspaceId: string, chatId: string): Promise<string> {
+    const fallback = chatId.split('@')[0];
+    if (!chatId.endsWith('@lid')) return fallback;
+
+    const client = this.clients.get(workspaceId);
+    if (!client) return fallback;
+
+    try {
+      const result = await client.getContactLidAndPhone([chatId]);
+      const pn = result?.[0]?.pn;
+      if (pn) return pn.split('@')[0];
+    } catch {
+      // fallback is fine
+    }
+    return fallback;
+  }
+
+  /**
    * Bridges inbound messages to Metria's internal processing logic.
    */
   private async handleInboundMessage(workspaceId: string, msg: WWebMessage) {
@@ -253,16 +267,7 @@ export class WhatsAppSessionManager {
 
       const { processInboundMessage } = await import('../../modules/messaging/message.service');
 
-      // @lid = WhatsApp internal linked-device ID, NOT a phone number.
-      // getContact() may return the lid ID as a pseudo-number, so we use
-      // the raw @lid ID directly to avoid creating contacts with wrong phones.
-      let senderPhone: string;
-      const isLid = msg.from.endsWith('@lid');
-      if (isLid) {
-        senderPhone = msg.from;
-      } else {
-        senderPhone = msg.from.split('@')[0];
-      }
+      const senderPhone = await this.resolvePhone(workspaceId, msg.from);
 
       await processInboundMessage({
         workspaceId,
