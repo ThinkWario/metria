@@ -208,6 +208,9 @@ export class WhatsAppSessionManager {
     if (msg.from === 'status@broadcast' || msg.from?.includes('broadcast')) return;
     // Ignore empty messages
     if (!msg.body) return;
+    // Ignore echoes of messages sent by the connected device itself (prevents
+    // outbound AI/agent replies from being re-ingested as inbound customer messages).
+    if (msg.fromMe) return;
 
     console.log(`[WhatsApp] New message from ${msg.from} in workspace ${workspaceId}`);
 
