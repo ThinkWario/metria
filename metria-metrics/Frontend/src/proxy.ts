@@ -43,7 +43,7 @@ export function proxy(request: NextRequest) {
     const session = request.cookies.get('metria_session')
 
     // Public routes
-    const isPublicRoute = pathname === '/login' || pathname === '/signup' || pathname === '/'
+    const isPublicRoute = pathname === '/login' || pathname === '/signup' || pathname === '/' || pathname === '/force-password'
     const isOnboardingRoute = pathname.startsWith('/onboarding')
 
     // 1. Unauthenticated users
