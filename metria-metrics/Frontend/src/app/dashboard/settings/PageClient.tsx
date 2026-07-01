@@ -333,7 +333,7 @@ function SettingsContent() {
                             <CardDescription>Conecta tus fuentes de datos con un solo clic de forma segura.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <IntegrationHub integrations={integrationsData} token={authToken} />
+                            <IntegrationHub integrations={integrationsData} token={authToken} hiddenMenuItems={brandingData?.hiddenMenuItems ?? []} />
                             <GoogleCalendarCard />
                         </CardContent>
                     </Card>

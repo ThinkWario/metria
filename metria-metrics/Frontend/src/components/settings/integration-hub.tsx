@@ -69,7 +69,7 @@ const PlatformCard = ({ platform, name, description, icon, status, type, lastSyn
     )
 }
 
-export function IntegrationHub({ integrations, token }: { integrations: any[], token: string }) {
+export function IntegrationHub({ integrations, token, hiddenMenuItems = [] }: { integrations: any[], token: string, hiddenMenuItems?: string[] }) {
     const [shopifyDialogOpen, setShopifyDialogOpen] = useState(false)
     const [whatsappQRDialogOpen, setWhatsappQRDialogOpen] = useState(false)
     const [shopifyDomain, setShopifyDomain] = useState("")
@@ -141,7 +141,7 @@ export function IntegrationHub({ integrations, token }: { integrations: any[], t
     return (
         <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {platforms.map((p) => {
+                {platforms.filter((p) => !hiddenMenuItems.includes(`integration:${p.id}`)).map((p) => {
                     const dbData = integrations.find(i => i.platform === p.platform || (p.platform === 'whatsapp-native' && i.platform === 'whatsapp')) || {}
                     return (
                         <PlatformCard 
