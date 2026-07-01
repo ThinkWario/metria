@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { getAdminWorkspaces, toggleWorkspaceStatus, getAdminUsers, resetUserPassword, impersonateWorkspace, createWorkspace, changeWorkspacePlan } from "@/lib/api"
+import { getAdminWorkspaces, toggleWorkspaceStatus, getAdminUsers, resetUserPassword, impersonateWorkspace, createWorkspace, changeWorkspacePlan, updateWorkspaceMenuVisibility } from "@/lib/api"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import { Building2, Power, PowerOff, KeyRound, UserCheck, ShieldAlert, Loader2, Plus, X, Search, Activity, DollarSign, TrendingUp, CheckCircle2, AlertCircle, Crown } from "lucide-react"
 import { mapStatus, getStatusColorClass } from "@/lib/status-mapper"
 import { Badge } from "@/components/ui/badge"
+import { HIDEABLE_MENU_KEYS } from "@/lib/menuVisibility"
 
 export default function AdminWorkspacesPage() {
     const [workspaces, setWorkspaces] = useState<any[]>([])
@@ -26,6 +27,36 @@ export default function AdminWorkspacesPage() {
     const [planValue, setPlanValue] = useState("PRO")
     const [planStatusValue, setPlanStatusValue] = useState("ACTIVE")
     const [isSavingPlan, setIsSavingPlan] = useState(false)
+
+    // Menu visibility modal
+    const [menuVisibilityModal, setMenuVisibilityModal] = useState<{ id: string; name: string; hiddenMenuItems: string[] } | null>(null)
+    const [isSavingMenuVisibility, setIsSavingMenuVisibility] = useState(false)
+
+    const handleOpenMenuVisibilityModal = (ws: any) => {
+        setMenuVisibilityModal({ id: ws.id, name: ws.name, hiddenMenuItems: ws.hiddenMenuItems ?? [] })
+    }
+
+    const toggleMenuVisibilityKey = (key: string) => {
+        if (!menuVisibilityModal) return
+        const current = menuVisibilityModal.hiddenMenuItems
+        const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key]
+        setMenuVisibilityModal({ ...menuVisibilityModal, hiddenMenuItems: next })
+    }
+
+    const handleSaveMenuVisibility = async () => {
+        if (!menuVisibilityModal) return
+        setIsSavingMenuVisibility(true)
+        try {
+            await updateWorkspaceMenuVisibility(menuVisibilityModal.id, menuVisibilityModal.hiddenMenuItems)
+            toast.success('Visibilidad de menú actualizada')
+            setMenuVisibilityModal(null)
+            loadData()
+        } catch {
+            toast.error('Error actualizando visibilidad de menú')
+        } finally {
+            setIsSavingMenuVisibility(false)
+        }
+    }
 
     const handleOpenPlanModal = (ws: any) => {
         setPlanModal({ id: ws.id, name: ws.name, plan: ws.plan, subscriptionStatus: ws.subscriptionStatus })
@@ -334,6 +365,14 @@ export default function AdminWorkspacesPage() {
                                     <Crown className="w-4 h-4" />
                                     Cambiar Plan
                                 </button>
+
+                                <button
+                                    aria-label={`Editar visibilidad de menú de ${ws.name}`}
+                                    onClick={() => handleOpenMenuVisibilityModal(ws)}
+                                    className="flex-1 lg:flex-none px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500 hover:text-white hover:border-transparent transition-all flex items-center justify-center gap-2"
+                                >
+                                    Visibilidad de menú
+                                </button>
                             </div>
                         </div>
 
@@ -523,6 +562,40 @@ export default function AdminWorkspacesPage() {
                                     Confirmar
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Menu Visibility Modal */}
+            {menuVisibilityModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div className="bg-card rounded-lg p-6 w-full max-w-md space-y-4">
+                        <h3 className="font-semibold">Visibilidad de menú — {menuVisibilityModal.name}</h3>
+                        <div className="space-y-2 max-h-80 overflow-y-auto">
+                            {HIDEABLE_MENU_KEYS.map(({ key, label }) => (
+                                <label key={key} className="flex items-center gap-2 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        checked={menuVisibilityModal.hiddenMenuItems.includes(key)}
+                                        onChange={() => toggleMenuVisibilityKey(key)}
+                                        aria-label={label}
+                                    />
+                                    {label}
+                                </label>
+                            ))}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setMenuVisibilityModal(null)} className="px-3 py-1.5 text-sm rounded border">
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleSaveMenuVisibility}
+                                disabled={isSavingMenuVisibility}
+                                className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground"
+                            >
+                                {isSavingMenuVisibility ? 'Guardando...' : 'Guardar'}
+                            </button>
                         </div>
                     </div>
                 </div>
