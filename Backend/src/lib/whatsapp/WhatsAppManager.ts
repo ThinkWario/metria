@@ -183,7 +183,8 @@ export class WhatsAppSessionManager {
           externalMessageId: lastMsg[0].id._serialized,
           senderExternalId: senderPhone,
           senderName: chat.name || 'WhatsApp User',
-          content: lastMsg[0].body
+          content: lastMsg[0].body,
+          skipBotResponse: true
         }).catch(() => {});
       }
     }
