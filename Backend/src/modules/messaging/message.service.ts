@@ -174,7 +174,9 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
   })
 
   // 1. Try AI Agent if enabled for channel (isAiEnabled stored in config JSON)
-  if ((channel.config as any)?.isAiEnabled && updatedConv.isHandledByBot) {
+  if (data.skipBotResponse) {
+    // Historical/backfilled message (e.g. WhatsApp reconnect sync) — record it, don't respond.
+  } else if ((channel.config as any)?.isAiEnabled && updatedConv.isHandledByBot) {
     try {
       const aiResponse = await processAiResponse(workspaceId, conversation.id, content)
       if (aiResponse) {

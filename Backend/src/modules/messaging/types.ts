@@ -16,6 +16,8 @@ export interface InboundMessageData {
   mediaUrl?: string
   mediaType?: string
   metadata?: any
+  /** When true, skip triggering the AI agent / rules engine for this message — used when backfilling historical chat history (e.g. WhatsApp reconnect sync) so the bot doesn't respond to old leads. */
+  skipBotResponse?: boolean
 }
 
 export interface ProcessedMessage {

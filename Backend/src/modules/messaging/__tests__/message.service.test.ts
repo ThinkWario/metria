@@ -38,6 +38,7 @@ import { prisma } from '../../../lib/prisma'
 import { getIO } from '../../../lib/socket'
 import { processAiResponse } from '../../ai-agent/ai.service'
 import { sendTelegramMessage } from '../channels/telegram.service'
+import { tryRunBotFlows } from '../../bot/flow.engine'
 
 const WORKSPACE_ID = 'ws-1'
 const CHANNEL_ID = 'ch-1'
@@ -189,5 +190,28 @@ describe('processInboundMessage', () => {
     expect(prisma.conversation.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'conv-ai' }, data: { lastMessageAt: expect.any(Date) } })
     )
+  })
+
+  it('does not trigger the AI agent or the rules engine when skipBotResponse is set', async () => {
+    const mockChannel = { id: CHANNEL_ID, platform: 'WHATSAPP', config: { isAiEnabled: true } }
+    const mockContact = { id: 'contact-1', name: 'Juan Pérez', phone: '+56912345678', status: 'LEAD' }
+    const mockConversation = {
+      id: 'conv-1', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
+      externalId: 'ext-conv-1', status: 'OPEN', isHandledByBot: true,
+      contact: mockContact
+    }
+    const mockMessage = { id: 'msg-1', conversationId: 'conv-1', direction: 'INBOUND', senderType: 'CONTACT', content: baseData.content, sentAt: new Date() }
+
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, messageCount: 6 } as any)
+    vi.mocked(prisma.message.create).mockResolvedValue(mockMessage as any)
+
+    await processInboundMessage({ ...baseData, skipBotResponse: true })
+
+    expect(processAiResponse).not.toHaveBeenCalled()
+    expect(tryRunBotFlows).not.toHaveBeenCalled()
+    expect(prisma.message.create).toHaveBeenCalledTimes(1)
   })
 })
