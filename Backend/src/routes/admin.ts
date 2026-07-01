@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import { requireSuperAdmin } from '../middleware/adminAuth'
 import 'dotenv/config'
 import bcrypt from 'bcrypt'
+import { isValidMenuKey } from '../lib/menuVisibility'
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
 
@@ -138,6 +139,36 @@ router.patch('/workspaces/:id/plan', async (req, res) => {
         res.status(200).json(updated)
     } catch (error) {
         console.error('Error changing plan:', error)
+        res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
+// Update which sidebar nav items / integration cards are hidden for this workspace
+router.patch('/workspaces/:id/menu-visibility', async (req, res) => {
+    try {
+        const { id } = req.params
+        const { hiddenMenuItems } = req.body as { hiddenMenuItems?: unknown }
+
+        if (!Array.isArray(hiddenMenuItems) || !hiddenMenuItems.every((k) => typeof k === 'string')) {
+            return res.status(400).json({ error: 'hiddenMenuItems debe ser un array de strings' })
+        }
+        const invalidKeys = hiddenMenuItems.filter((k) => !isValidMenuKey(k))
+        if (invalidKeys.length > 0) {
+            return res.status(400).json({ error: `Claves inválidas: ${invalidKeys.join(', ')}` })
+        }
+
+        const workspace = await prisma.workspace.findUnique({ where: { id } })
+        if (!workspace) return res.status(404).json({ error: 'Workspace not found' })
+
+        const updated = await prisma.workspace.update({
+            where: { id },
+            data: { hiddenMenuItems },
+            select: { id: true, name: true, hiddenMenuItems: true }
+        })
+
+        res.status(200).json(updated)
+    } catch (error) {
+        console.error('Error updating menu visibility:', error)
         res.status(500).json({ error: 'Internal server error' })
     }
 })
