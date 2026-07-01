@@ -86,15 +86,21 @@ const TOP_ITEMS: MenuItem[] = [
     { title: "Inbox (Chats)",          icon: MessageSquare,  url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
 ]
 
+// ── Marketing subcategories ──────────────────────────────────────────────────────
+const MARKETING_SUB_ITEMS: MenuItem[] = [
+    { title: "Meta Ads",          icon: Megaphone,          url: "/dashboard/marketing" },
+    { title: "Google Ads (Beta)", icon: MousePointerClick,  url: "/dashboard/google-ads" },
+    { title: "TikTok Ads",        icon: Smartphone,         url: "/dashboard/tiktok-ads" },
+]
+
+const MARKETING_ROLES = ["SUPER_ADMIN", "ADMIN", "VIEWER"]
+
 // ── Non-CRM bottom items ───────────────────────────────────────────────────────
 const BOTTOM_ITEMS: MenuItem[] = [
-    { title: "Configuración IA",       icon: Bot,            url: "/dashboard/settings/ai-agent",  roles: ["SUPER_ADMIN", "ADMIN"] },
+    { title: "Agente IA",              icon: Bot,            url: "/dashboard/settings/ai-agent",  roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Canales de Mensajería",  icon: MessageSquare,  url: "/dashboard/settings/channels",  roles: ["SUPER_ADMIN", "ADMIN"] },
     { title: "Finanzas E-commerce",    icon: Wallet,         url: "/dashboard/finances",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
     { title: "Canales de Venta",       icon: ShoppingBag,    url: "/dashboard/sales",               roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Marketing & Ads",        icon: Megaphone,      url: "/dashboard/marketing",           roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Google Ads (Beta)",      icon: MousePointerClick, url: "/dashboard/google-ads",       roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "TikTok Ads",             icon: Smartphone,     url: "/dashboard/tiktok-ads",          roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
     { title: "Logística & Operaciones",icon: Package,        url: "/dashboard/logistics" },
     { title: "Configuración Técnica",  icon: Settings,       url: "/dashboard/settings",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
 ]
@@ -129,6 +135,14 @@ export function AppSidebar() {
     useEffect(() => {
         if (isCrmRoute) setCrmOpen(true)
     }, [isCrmRoute])
+
+    // Marketing collapsible — auto-open when on any marketing/ads route
+    const isMarketingRoute = MARKETING_SUB_ITEMS.some(item => pathname === item.url || pathname.startsWith(item.url + "/"))
+    const [marketingOpen, setMarketingOpen] = useState(isMarketingRoute)
+
+    useEffect(() => {
+        if (isMarketingRoute) setMarketingOpen(true)
+    }, [isMarketingRoute])
 
     useEffect(() => {
         setMounted(true)
@@ -167,6 +181,7 @@ export function AppSidebar() {
     const userRole = user?.role || null
 
     const showCrm = !userRole || CRM_ROLES.includes(userRole)
+    const showMarketing = !userRole || MARKETING_ROLES.includes(userRole)
     const filteredTop = filterByRole(TOP_ITEMS, userRole)
     const filteredBottom = filterByRole(BOTTOM_ITEMS, userRole)
 
@@ -291,6 +306,57 @@ export function AppSidebar() {
                                                 <CollapsibleContent>
                                                     <SidebarMenuSub>
                                                         {CRM_SUB_ITEMS.map((item) => (
+                                                            <SidebarMenuSubItem key={item.title}>
+                                                                <SidebarMenuSubButton
+                                                                    asChild
+                                                                    isActive={isSubActive(item)}
+                                                                >
+                                                                    <Link href={item.url} className="flex items-center gap-2">
+                                                                        <item.icon className="w-3.5 h-3.5 shrink-0" />
+                                                                        <span>{item.title}</span>
+                                                                    </Link>
+                                                                </SidebarMenuSubButton>
+                                                            </SidebarMenuSubItem>
+                                                        ))}
+                                                    </SidebarMenuSub>
+                                                </CollapsibleContent>
+                                            </Collapsible>
+                                        )}
+                                    </SidebarMenuItem>
+                                )}
+
+                                {/* Marketing collapsible group */}
+                                {showMarketing && (
+                                    <SidebarMenuItem>
+                                        {isCollapsed ? (
+                                            /* Collapsed: simple link to Marketing root */
+                                            <SidebarMenuButton asChild tooltip="Marketing" className="hover:bg-primary/10 transition-colors">
+                                                <Link href="/dashboard/marketing" className="flex items-center gap-3">
+                                                    <Megaphone className="w-4 h-4 shrink-0" />
+                                                    <span>Marketing</span>
+                                                </Link>
+                                            </SidebarMenuButton>
+                                        ) : (
+                                            <Collapsible open={marketingOpen} onOpenChange={setMarketingOpen}>
+                                                <CollapsibleTrigger asChild>
+                                                    <SidebarMenuButton
+                                                        tooltip="Marketing"
+                                                        className={cn(
+                                                            "hover:bg-primary/10 transition-colors w-full",
+                                                            isMarketingRoute && "bg-primary/5 text-primary font-medium"
+                                                        )}
+                                                    >
+                                                        <Megaphone className="w-4 h-4 shrink-0" />
+                                                        <span>Marketing</span>
+                                                        <ChevronRight className={cn(
+                                                            "ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+                                                            marketingOpen && "rotate-90"
+                                                        )} />
+                                                    </SidebarMenuButton>
+                                                </CollapsibleTrigger>
+                                                <CollapsibleContent>
+                                                    <SidebarMenuSub>
+                                                        {MARKETING_SUB_ITEMS.map((item) => (
                                                             <SidebarMenuSubItem key={item.title}>
                                                                 <SidebarMenuSubButton
                                                                     asChild
