@@ -24,6 +24,7 @@ type MetaIntegration = {
         accessToken?: string
         adAccountId?: string
         adAccountsList?: string
+        pixelId?: string
     }
     lastSync?: string | null
 }
@@ -47,6 +48,8 @@ export function MetaIntegrationCard({ integration, token, needsAdAccount: initia
     const [savingAdAccount, setSavingAdAccount] = useState(false)
     const [savingManual, setSavingManual] = useState(false)
     const [disconnecting, setDisconnecting] = useState(false)
+    const [pixelId, setPixelId] = useState(integration?.config?.pixelId ?? '')
+    const [savingPixel, setSavingPixel] = useState(false)
 
     const handleDisconnect = async () => {
         if (!confirm('¿Desconectar Meta? Esto eliminará la integración y los canales de Instagram y Messenger.')) return
@@ -116,6 +119,24 @@ export function MetaIntegrationCard({ integration, token, needsAdAccount: initia
             toast.error(err.message ?? 'Error guardando la configuración')
         } finally {
             setSavingManual(false)
+        }
+    }
+
+    const handleSavePixel = async () => {
+        setSavingPixel(true)
+        try {
+            await updateIntegration({
+                platform: 'meta',
+                name: 'Meta Ads',
+                type: 'REST API',
+                config: { ...integration?.config, pixelId: pixelId.trim() }
+            })
+            queryClient.invalidateQueries({ queryKey: ['settings', 'integrations'] })
+            toast.success('Pixel de Meta guardado')
+        } catch (err: any) {
+            toast.error(err.message ?? 'Error guardando el Pixel')
+        } finally {
+            setSavingPixel(false)
         }
     }
 
@@ -205,6 +226,26 @@ export function MetaIntegrationCard({ integration, token, needsAdAccount: initia
                     <div className="flex items-center justify-between text-xs bg-muted/30 rounded-lg px-3 py-2">
                         <span className="text-muted-foreground">Ad Account ID</span>
                         <span className="font-mono font-medium">{integration?.config?.adAccountId}</span>
+                    </div>
+                )}
+
+                {isConnected && (
+                    <div className="space-y-1.5 pt-2 border-t border-border/50">
+                        <Label htmlFor="meta-pixel-id" className="text-xs">Pixel ID (Conversions API)</Label>
+                        <div className="flex gap-2">
+                            <Input
+                                id="meta-pixel-id"
+                                value={pixelId}
+                                onChange={e => setPixelId(e.target.value)}
+                                placeholder="ej: 123456789012345"
+                            />
+                            <Button size="sm" onClick={handleSavePixel} disabled={savingPixel}>
+                                {savingPixel ? 'Guardando...' : 'Guardar Pixel'}
+                            </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                            El Pixel ID de Meta Ads. Una vez guardado, cada orden de Shopify enviará un evento de Compra automáticamente a Meta.
+                        </p>
                     </div>
                 )}
 
