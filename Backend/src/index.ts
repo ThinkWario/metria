@@ -21,8 +21,11 @@ async function startServer() {
   const io = initSocket(httpServer)
   registerSocketHandlers(io)
 
-  httpServer.listen(PORT, () => {
+  httpServer.listen(PORT, async () => {
     console.log(`[Server] API running on http://127.0.0.1:${PORT}`)
+    // Restore native WhatsApp sessions that were active before restart
+    const { WhatsAppSessionManager } = await import('./lib/whatsapp/WhatsAppManager')
+    WhatsAppSessionManager.getInstance().autoRestoreSessions()
   })
 
   process.on('SIGTERM', () => {

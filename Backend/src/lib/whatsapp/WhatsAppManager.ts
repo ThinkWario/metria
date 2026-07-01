@@ -188,6 +188,37 @@ export class WhatsAppSessionManager {
   }
 
   /**
+   * Restores all previously-connected native WhatsApp sessions on server start.
+   * LocalAuth has the credentials stored in .wwebjs_auth/ — we just need to
+   * re-initialize each client so the in-memory Map is populated again.
+   */
+  public async autoRestoreSessions(): Promise<void> {
+    console.log('[WhatsApp] Auto-restoring sessions...');
+    try {
+      const channels = await prisma.channel.findMany({
+        where: { platform: 'WHATSAPP', status: 'CONNECTED' },
+        select: { workspaceId: true, config: true }
+      });
+
+      const nativeChannels = channels.filter(
+        ch => (ch.config as any)?.isNative === true
+      );
+
+      if (nativeChannels.length === 0) {
+        console.log('[WhatsApp] No native sessions to restore');
+        return;
+      }
+
+      await Promise.allSettled(
+        nativeChannels.map(ch => this.initSession(ch.workspaceId))
+      );
+      console.log(`[WhatsApp] Restore initiated for ${nativeChannels.length} session(s)`);
+    } catch (err) {
+      console.error('[WhatsApp] Error during auto-restore:', err);
+    }
+  }
+
+  /**
    * Sends a message through the native client.
    */
   public async sendMessage(workspaceId: string, to: string, content: string): Promise<void> {
