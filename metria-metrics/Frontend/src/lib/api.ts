@@ -143,6 +143,7 @@ export type BrandingData = {
     logoUrl?: string | null
     primaryColor?: string | null
     brandName?: string | null
+    hiddenMenuItems?: string[]
 }
 
 export const getBranding = (): Promise<BrandingData> => fetchAPI('/settings/branding')
@@ -150,6 +151,12 @@ export const updateBranding = (data: { primaryColor?: string; brandName?: string
     fetchAPI('/settings/branding', {
         method: 'PATCH',
         body: JSON.stringify(data)
+    })
+
+export const updateWorkspaceMenuVisibility = (workspaceId: string, hiddenMenuItems: string[]) =>
+    fetchAPI(`/admin/workspaces/${workspaceId}/menu-visibility`, {
+        method: 'PATCH',
+        body: JSON.stringify({ hiddenMenuItems })
     })
 
 // CRM Extended APIs

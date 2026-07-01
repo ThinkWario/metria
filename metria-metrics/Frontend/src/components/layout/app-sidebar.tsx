@@ -52,6 +52,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { logout } from "@/app/login/actions"
 import { stopImpersonating, getBranding } from "@/lib/api"
+import { filterHiddenItems } from "@/lib/menuVisibility"
 import { toast } from "sonner"
 import { useUserStore } from "@/store/useUserStore"
 import { ProfileDialog } from "@/components/user/profile-dialog"
@@ -59,6 +60,7 @@ import { PreferencesDialog } from "@/components/user/preferences-dialog"
 import type { LucideIcon } from "lucide-react"
 
 type MenuItem = {
+    key: string
     title: string
     icon: LucideIcon
     url: string
@@ -67,42 +69,42 @@ type MenuItem = {
 
 // ── CRM subcategories ──────────────────────────────────────────────────────────
 const CRM_SUB_ITEMS: MenuItem[] = [
-    { title: "Contactos",      icon: Users,        url: "/dashboard/crm" },
-    { title: "Pipelines",      icon: KanbanSquare, url: "/dashboard/crm/pipelines" },
-    { title: "Cobros",         icon: CreditCard,   url: "/dashboard/crm/payments" },
-    { title: "Segmentos",      icon: Filter,       url: "/dashboard/crm/segments" },
-    { title: "Formularios",    icon: FileText,     url: "/dashboard/crm/forms" },
-    { title: "Campañas",       icon: Send,         url: "/dashboard/crm/campaigns" },
-    { title: "Automatizaciones", icon: Zap,        url: "/dashboard/crm/automations" },
-    { title: "Citas",          icon: CalendarDays, url: "/dashboard/crm/appointments" },
-    { title: "Tareas",         icon: CheckSquare,  url: "/dashboard/tasks" },
+    { key: "crm-contacts",      title: "Contactos",      icon: Users,        url: "/dashboard/crm" },
+    { key: "crm-pipelines",     title: "Pipelines",      icon: KanbanSquare, url: "/dashboard/crm/pipelines" },
+    { key: "crm-payments",      title: "Cobros",         icon: CreditCard,   url: "/dashboard/crm/payments" },
+    { key: "crm-segments",      title: "Segmentos",      icon: Filter,       url: "/dashboard/crm/segments" },
+    { key: "crm-forms",         title: "Formularios",    icon: FileText,     url: "/dashboard/crm/forms" },
+    { key: "crm-campaigns",     title: "Campañas",       icon: Send,         url: "/dashboard/crm/campaigns" },
+    { key: "crm-automations",   title: "Automatizaciones", icon: Zap,        url: "/dashboard/crm/automations" },
+    { key: "crm-appointments",  title: "Citas",          icon: CalendarDays, url: "/dashboard/crm/appointments" },
+    { key: "crm-tasks",         title: "Tareas",         icon: CheckSquare,  url: "/dashboard/tasks" },
 ]
 
 const CRM_ROLES = ["SUPER_ADMIN", "ADMIN"]
 
 // ── Non-CRM top items ──────────────────────────────────────────────────────────
 const TOP_ITEMS: MenuItem[] = [
-    { title: "Centro de Control",      icon: BarChart3,      url: "/dashboard" },
-    { title: "Inbox (Chats)",          icon: MessageSquare,  url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
+    { key: "nav:control-center", title: "Centro de Control",      icon: BarChart3,      url: "/dashboard" },
+    { key: "nav:inbox",          title: "Inbox (Chats)",          icon: MessageSquare,  url: "/dashboard/inbox", roles: ["SUPER_ADMIN", "ADMIN"] },
 ]
 
 // ── Marketing subcategories ──────────────────────────────────────────────────────
 const MARKETING_SUB_ITEMS: MenuItem[] = [
-    { title: "Meta Ads",          icon: Megaphone,          url: "/dashboard/marketing" },
-    { title: "Google Ads (Beta)", icon: MousePointerClick,  url: "/dashboard/google-ads" },
-    { title: "TikTok Ads",        icon: Smartphone,         url: "/dashboard/tiktok-ads" },
+    { key: "nav:meta-ads",   title: "Meta Ads",          icon: Megaphone,          url: "/dashboard/marketing" },
+    { key: "nav:google-ads", title: "Google Ads (Beta)", icon: MousePointerClick,  url: "/dashboard/google-ads" },
+    { key: "nav:tiktok-ads", title: "TikTok Ads",        icon: Smartphone,         url: "/dashboard/tiktok-ads" },
 ]
 
 const MARKETING_ROLES = ["SUPER_ADMIN", "ADMIN", "VIEWER"]
 
 // ── Non-CRM bottom items ───────────────────────────────────────────────────────
 const BOTTOM_ITEMS: MenuItem[] = [
-    { title: "Agente IA",              icon: Bot,            url: "/dashboard/settings/ai-agent",  roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Canales de Mensajería",  icon: MessageSquare,  url: "/dashboard/settings/channels",  roles: ["SUPER_ADMIN", "ADMIN"] },
-    { title: "Finanzas E-commerce",    icon: Wallet,         url: "/dashboard/finances",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Canales de Venta",       icon: ShoppingBag,    url: "/dashboard/sales",               roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
-    { title: "Logística & Operaciones",icon: Package,        url: "/dashboard/logistics" },
-    { title: "Configuración Técnica",  icon: Settings,       url: "/dashboard/settings",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { key: "nav:ai-agent",            title: "Agente IA",              icon: Bot,            url: "/dashboard/settings/ai-agent",  roles: ["SUPER_ADMIN", "ADMIN"] },
+    { key: "nav:messaging-channels",  title: "Canales de Mensajería",  icon: MessageSquare,  url: "/dashboard/settings/channels",  roles: ["SUPER_ADMIN", "ADMIN"] },
+    { key: "nav:finances",            title: "Finanzas E-commerce",    icon: Wallet,         url: "/dashboard/finances",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { key: "nav:sales-channels",      title: "Canales de Venta",       icon: ShoppingBag,    url: "/dashboard/sales",               roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
+    { key: "nav:logistics",           title: "Logística & Operaciones",icon: Package,        url: "/dashboard/logistics" },
+    { key: "nav:tech-settings",       title: "Configuración Técnica",  icon: Settings,       url: "/dashboard/settings",            roles: ["SUPER_ADMIN", "ADMIN", "VIEWER"] },
 ]
 
 function filterByRole(items: MenuItem[], role: string | null) {
@@ -127,6 +129,7 @@ export function AppSidebar() {
     const [brandName, setBrandName] = useState<string | null>(null)
     const [logoUrl, setLogoUrl] = useState<string | null>(null)
     const [primaryColor, setPrimaryColor] = useState<string | null>(null)
+    const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([])
 
     // CRM collapsible — auto-open when on any CRM route
     const isCrmRoute = pathname.startsWith("/dashboard/crm") || pathname === "/dashboard/tasks"
@@ -156,6 +159,7 @@ export function AppSidebar() {
                 if (data.brandName) setBrandName(data.brandName)
                 if (data.logoUrl) setLogoUrl(data.logoUrl)
                 if (data.primaryColor) setPrimaryColor(data.primaryColor)
+                setHiddenMenuItems(data.hiddenMenuItems ?? [])
             })
             .catch(() => {})
     }, [mounted, user])
@@ -182,8 +186,8 @@ export function AppSidebar() {
 
     const showCrm = !userRole || CRM_ROLES.includes(userRole)
     const showMarketing = !userRole || MARKETING_ROLES.includes(userRole)
-    const filteredTop = filterByRole(TOP_ITEMS, userRole)
-    const filteredBottom = filterByRole(BOTTOM_ITEMS, userRole)
+    const filteredTop = filterHiddenItems(filterByRole(TOP_ITEMS, userRole), hiddenMenuItems)
+    const filteredBottom = filterHiddenItems(filterByRole(BOTTOM_ITEMS, userRole), hiddenMenuItems)
 
     const handleStopImpersonating = async () => {
         try {
@@ -305,7 +309,7 @@ export function AppSidebar() {
                                                 </CollapsibleTrigger>
                                                 <CollapsibleContent>
                                                     <SidebarMenuSub>
-                                                        {CRM_SUB_ITEMS.map((item) => (
+                                                        {filterHiddenItems(CRM_SUB_ITEMS, hiddenMenuItems).map((item) => (
                                                             <SidebarMenuSubItem key={item.title}>
                                                                 <SidebarMenuSubButton
                                                                     asChild
@@ -356,7 +360,7 @@ export function AppSidebar() {
                                                 </CollapsibleTrigger>
                                                 <CollapsibleContent>
                                                     <SidebarMenuSub>
-                                                        {MARKETING_SUB_ITEMS.map((item) => (
+                                                        {filterHiddenItems(MARKETING_SUB_ITEMS, hiddenMenuItems).map((item) => (
                                                             <SidebarMenuSubItem key={item.title}>
                                                                 <SidebarMenuSubButton
                                                                     asChild
