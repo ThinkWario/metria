@@ -17,6 +17,7 @@ model Workspace {
   logoUrl                  String?                   @map("logo_url")
   primaryColor             String?                   @default("#7c3aed") @map("primary_color")
   brandName                String?                   @map("brand_name")
+  hiddenMenuItems          String[]                  @default([]) @map("hidden_menu_items")
   plan                     String                    @default("STARTER")
   subscriptionStatus       String                    @default("INCOMPLETE")
   subscriptionId           String?                   @unique @map("subscription_id")

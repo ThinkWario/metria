@@ -103,7 +103,7 @@ router.get('/branding', authenticate, async (req: AuthRequest, res: any) => {
         const workspaceId = req.user!.workspaceId!
         const workspace = await prisma.workspace.findUnique({
             where: { id: workspaceId },
-            select: { name: true, logoUrl: true, primaryColor: true, brandName: true }
+            select: { name: true, logoUrl: true, primaryColor: true, brandName: true, hiddenMenuItems: true }
         })
         res.json(workspace ?? {})
     } catch (error) {
