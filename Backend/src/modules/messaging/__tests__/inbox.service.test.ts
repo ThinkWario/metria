@@ -34,7 +34,7 @@ beforeEach(() => vi.clearAllMocks())
 
 describe('getConversations', () => {
   it('returns conversations scoped to workspaceId', async () => {
-    const mockConvs = [{ id: 'c1', status: 'OPEN', contact: { name: 'Ana' } }]
+    const mockConvs = [{ id: 'c1', status: 'OPEN', contact: { name: 'Ana' }, _count: { messages: 2 } }]
     vi.mocked(prisma.conversation.findMany).mockResolvedValue(mockConvs as any)
 
     const result = await getConversations(WS_ID, {})
@@ -42,8 +42,9 @@ describe('getConversations', () => {
     expect(prisma.conversation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ workspaceId: WS_ID }) })
     )
-    // getConversations now resolves an assignee per row (null when unassigned).
-    expect(result).toEqual(mockConvs.map(c => ({ ...c, assignedToUser: null })))
+    // getConversations now resolves an assignee per row (null when unassigned)
+    // and derives unreadCount from the Prisma _count.messages aggregate.
+    expect(result).toEqual(mockConvs.map(c => ({ ...c, assignedToUser: null, unreadCount: c._count.messages })))
   })
 
   it('applies status filter when provided', async () => {
