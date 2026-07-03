@@ -12,6 +12,7 @@ vi.mock('../../../lib/prisma', () => ({
     },
     contact: {
       upsert: vi.fn(),
+      update: vi.fn(),
     },
     conversation: {
       findUnique: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../../../lib/prisma', () => ({
   },
 }))
 
-vi.mock('../../lib/socket', () => ({
+vi.mock('../../../lib/socket', () => ({
   getIO: vi.fn().mockReturnValue({
     to: vi.fn().mockReturnValue({
       emit: vi.fn(),
@@ -65,10 +66,12 @@ describe('Messaging Integration Flow', () => {
       workspaceId: WORKSPACE_ID,
       channelId: CHANNEL_ID,
       externalId: 'user-123',
+      contactId: 'ct-1',
       contact: { id: 'ct-1', name: 'User 123' }
     }
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
     vi.mocked(prisma.conversation.update).mockResolvedValue(mockConversation as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
 
     vi.mocked(prisma.message.create).mockResolvedValue({ id: 'msg-1', conversationId: 'conv-1' } as any)
 

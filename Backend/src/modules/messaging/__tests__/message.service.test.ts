@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
     channel: { findUnique: vi.fn() },
-    contact: { upsert: vi.fn() },
+    contact: { upsert: vi.fn(), update: vi.fn() },
     conversation: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -100,7 +100,7 @@ describe('processInboundMessage', () => {
     const mockContact = { id: 'contact-existing', name: 'Juan', status: 'CUSTOMER', phone: '+56912345678' }
     const mockConversation = {
       id: 'conv-existing', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
-      externalId: 'ext-conv-1', status: 'OPEN', messageCount: 5,
+      externalId: 'ext-conv-1', status: 'OPEN', messageCount: 5, contactId: 'contact-existing',
       contact: mockContact, createdAt: new Date()
     }
     const mockMessage = {
@@ -109,15 +109,16 @@ describe('processInboundMessage', () => {
     }
 
     vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
-    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
     vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, messageCount: 6 } as any)
     vi.mocked(prisma.message.create).mockResolvedValue(mockMessage as any)
 
     const result = await processInboundMessage(baseData)
 
-    expect(prisma.contact.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ update: {} })
+    // Existing conversation → the contact is updated (phone migrated to the clean value), not re-upserted.
+    expect(prisma.contact.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'contact-existing' } })
     )
     expect(result.isNewConversation).toBe(false)
     expect(result.contactId).toBe('contact-existing')
@@ -155,14 +156,14 @@ describe('processInboundMessage', () => {
     const mockContact = { id: 'contact-1', name: 'Juan', status: 'LEAD', phone: '+56912345678' }
     const mockConversation = {
       id: 'conv-ai', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
-      externalId: 'ext-conv-1', status: 'OPEN', messageCount: 2,
+      externalId: 'ext-conv-1', status: 'OPEN', messageCount: 2, contactId: 'contact-1',
       isHandledByBot: true, contact: mockContact, createdAt: new Date()
     }
     const inboundMsg = { id: 'msg-in', conversationId: 'conv-ai', direction: 'INBOUND', senderType: 'CONTACT', content: baseData.content, sentAt: new Date() }
     const botMsg = { id: 'msg-bot', conversationId: 'conv-ai', direction: 'OUTBOUND', senderType: 'BOT', content: 'Tu pedido va en camino', sentAt: new Date() }
 
     vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
-    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
     vi.mocked(prisma.conversation.update).mockResolvedValue({
       ...mockConversation, messageCount: 3, assignedToBotId: 'bot-1',
@@ -197,13 +198,13 @@ describe('processInboundMessage', () => {
     const mockContact = { id: 'contact-1', name: 'Juan Pérez', phone: '+56912345678', status: 'LEAD' }
     const mockConversation = {
       id: 'conv-1', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
-      externalId: 'ext-conv-1', status: 'OPEN', isHandledByBot: true,
+      externalId: 'ext-conv-1', status: 'OPEN', isHandledByBot: true, contactId: 'contact-1',
       contact: mockContact
     }
     const mockMessage = { id: 'msg-1', conversationId: 'conv-1', direction: 'INBOUND', senderType: 'CONTACT', content: baseData.content, sentAt: new Date() }
 
     vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
-    vi.mocked(prisma.contact.upsert).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
     vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, messageCount: 6 } as any)
     vi.mocked(prisma.message.create).mockResolvedValue(mockMessage as any)
