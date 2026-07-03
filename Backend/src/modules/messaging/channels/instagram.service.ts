@@ -121,11 +121,15 @@ export async function parseInstagramUpdate(
 
       try {
         if (config.pageAccessToken) {
-          await sendPrivateReply(
-            config.pageAccessToken,
-            commentId,
-            'Hola! Vimos tu comentario, te escribimos por privado para ayudarte 🙌'
-          )
+          try {
+            await sendPrivateReply(
+              config.pageAccessToken,
+              commentId,
+              'Hola! Vimos tu comentario, te escribimos por privado para ayudarte 🙌'
+            )
+          } catch (replyError) {
+            console.error(`[Instagram] Private reply failed for comment ${commentId} in workspace ${workspaceId}:`, replyError)
+          }
         }
 
         await processInboundMessage({

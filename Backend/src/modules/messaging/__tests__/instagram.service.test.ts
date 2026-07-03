@@ -122,4 +122,38 @@ describe('parseInstagramUpdate', () => {
       content: '¿Cuánto cuesta el envío?'
     })
   })
+
+  it('still converts the comment into a lead message when the private reply fails', async () => {
+    const body = {
+      object: 'instagram',
+      entry: [{
+        id: 'page-123',
+        changes: [{
+          field: 'comments',
+          value: {
+            id: 'comment-789',
+            text: '¿Cuánto cuesta el envío?',
+            from: { id: 'ig-commenter-1', username: 'maria_oficial' }
+          }
+        }]
+      }]
+    }
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 403, text: async () => 'Missing permission' } as Response)
+
+    await parseInstagramUpdate('ws-1', 'ch-ig', body, { pageAccessToken: 'page-token-abc' })
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://graph.facebook.com/v19.0/comment-789/private_replies',
+      expect.objectContaining({ method: 'POST' })
+    )
+    expect(processInboundMessage).toHaveBeenCalledWith({
+      workspaceId: 'ws-1',
+      channelId: 'ch-ig',
+      externalConversationId: 'ig-commenter-1',
+      externalMessageId: 'comment-789',
+      senderExternalId: 'ig_ig-commenter-1',
+      senderName: 'maria_oficial',
+      content: '¿Cuánto cuesta el envío?'
+    })
+  })
 })
