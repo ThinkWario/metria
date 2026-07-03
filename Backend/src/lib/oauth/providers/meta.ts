@@ -23,9 +23,11 @@ export class MetaAdsProvider implements IOAuthProvider {
       'pages_read_engagement',
       'pages_show_list',
       'pages_manage_metadata',
+      'pages_manage_engagement',
       'pages_messaging',
       'instagram_basic',
       'instagram_manage_messages',
+      'instagram_manage_comments',
     ].join(',');
 
     const redirectUri = `${process.env.BACKEND_URL}/api/oauth/meta/callback`;
