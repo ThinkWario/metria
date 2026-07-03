@@ -98,7 +98,7 @@ describe('Messenger Service', () => {
         }]
       }
 
-      await parseMessengerUpdate('ws-1', 'ch-msgr', body)
+      await parseMessengerUpdate('ws-1', 'ch-msgr', body, {})
 
       expect(processInboundMessage).toHaveBeenCalledWith({
         workspaceId: 'ws-1',
@@ -127,7 +127,68 @@ describe('Messenger Service', () => {
         }]
       }
 
-      await parseMessengerUpdate('ws-1', 'ch-msgr', body)
+      await parseMessengerUpdate('ws-1', 'ch-msgr', body, {})
+      expect(processInboundMessage).not.toHaveBeenCalled()
+    })
+
+    it('sends a private reply and converts a new Page comment into a lead message', async () => {
+      const body = {
+        object: 'page',
+        entry: [{
+          id: 'page-123',
+          changes: [{
+            field: 'feed',
+            value: {
+              item: 'comment',
+              verb: 'add',
+              comment_id: 'fb-comment-321',
+              post_id: 'page-123_post-1',
+              from: { id: 'fb-commenter-1', name: 'Juan Pérez' },
+              message: '¿Tienen despacho a regiones?'
+            }
+          }]
+        }]
+      }
+      vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200, json: async () => ({}) } as Response)
+
+      await parseMessengerUpdate('ws-1', 'ch-msgr', body, { pageAccessToken: 'page-token-xyz' })
+
+      expect(fetch).toHaveBeenCalledWith(
+        'https://graph.facebook.com/v19.0/fb-comment-321/private_replies',
+        expect.objectContaining({ method: 'POST' })
+      )
+      expect(processInboundMessage).toHaveBeenCalledWith({
+        workspaceId: 'ws-1',
+        channelId: 'ch-msgr',
+        externalConversationId: 'fb-commenter-1',
+        externalMessageId: 'fb-comment-321',
+        senderExternalId: 'msgr_fb-commenter-1',
+        senderName: 'Juan Pérez',
+        content: '¿Tienen despacho a regiones?'
+      })
+    })
+
+    it('ignores non-add feed events (e.g. comment edits or deletes)', async () => {
+      const body = {
+        object: 'page',
+        entry: [{
+          id: 'page-123',
+          changes: [{
+            field: 'feed',
+            value: {
+              item: 'comment',
+              verb: 'edited',
+              comment_id: 'fb-comment-321',
+              post_id: 'page-123_post-1',
+              from: { id: 'fb-commenter-1', name: 'Juan Pérez' },
+              message: 'edited text'
+            }
+          }]
+        }]
+      }
+
+      await parseMessengerUpdate('ws-1', 'ch-msgr', body, { pageAccessToken: 'page-token-xyz' })
+
       expect(processInboundMessage).not.toHaveBeenCalled()
     })
   })

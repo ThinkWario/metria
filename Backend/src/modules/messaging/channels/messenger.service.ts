@@ -4,6 +4,7 @@
 
 import crypto from 'crypto'
 import { processInboundMessage } from '../message.service'
+import { sendPrivateReply } from './privateReply'
 
 const GRAPH_API_VERSION = 'v19.0'
 
@@ -21,7 +22,14 @@ interface MessagingEvent {
 
 interface MessengerBody {
   object?: string
-  entry?: Array<{ id: string; messaging?: MessagingEvent[] }>
+  entry?: Array<{
+    id: string
+    messaging?: MessagingEvent[]
+    changes?: Array<{
+      field: string
+      value: { item: string; verb: string; comment_id: string; post_id?: string; from: { id: string; name?: string }; message: string }
+    }>
+  }>
 }
 
 export async function sendMessengerMessage(
@@ -72,7 +80,8 @@ export function verifyMessengerSignature(
 export async function parseMessengerUpdate(
   workspaceId: string,
   channelId: string,
-  body: MessengerBody
+  body: MessengerBody,
+  config: Record<string, any>
 ): Promise<void> {
   const entries = body.entry || []
 
@@ -99,6 +108,36 @@ export async function parseMessengerUpdate(
         })
       } catch (error) {
         console.error(`[Messenger] Error processing inbound message in workspace ${workspaceId}:`, error)
+      }
+    }
+
+    const changes = entry.changes || []
+    for (const change of changes) {
+      if (change.field !== 'feed') continue
+      if (change.value.item !== 'comment' || change.value.verb !== 'add') continue
+
+      const { comment_id: commentId, from, message } = change.value
+
+      try {
+        if (config.pageAccessToken) {
+          await sendPrivateReply(
+            config.pageAccessToken,
+            commentId,
+            'Hola! Vimos tu comentario, te escribimos por privado para ayudarte 🙌'
+          )
+        }
+
+        await processInboundMessage({
+          workspaceId,
+          channelId,
+          externalConversationId: from.id,
+          externalMessageId: commentId,
+          senderExternalId: `msgr_${from.id}`,
+          senderName: from.name,
+          content: message
+        })
+      } catch (error) {
+        console.error(`[Messenger] Error processing comment in workspace ${workspaceId}:`, error)
       }
     }
   }
