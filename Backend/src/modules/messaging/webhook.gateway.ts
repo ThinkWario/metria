@@ -67,7 +67,7 @@ export async function metaWebhook(req: Request, res: Response): Promise<void> {
 
     if (!handler.verify(rawBody, signature, appSecret)) return
 
-    handler.parse(channel.workspaceId, channel.id, req.body).catch(
+    handler.parse(channel.workspaceId, channel.id, req.body, config).catch(
       (err: any) => console.error(`[${p} webhook error]`, err)
     )
   } catch (err) {

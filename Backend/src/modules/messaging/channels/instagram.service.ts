@@ -5,6 +5,7 @@
 
 import crypto from 'crypto'
 import { processInboundMessage } from '../message.service'
+import { sendPrivateReply } from './privateReply'
 
 const GRAPH_API_VERSION = 'v19.0'
 
@@ -22,7 +23,11 @@ interface MessagingEvent {
 
 interface InstagramBody {
   object?: string
-  entry?: Array<{ id: string; messaging?: MessagingEvent[] }>
+  entry?: Array<{
+    id: string
+    messaging?: MessagingEvent[]
+    changes?: Array<{ field: string; value: { id: string; text: string; from: { id: string; username?: string } } }>
+  }>
 }
 
 export async function sendInstagramMessage(
@@ -76,7 +81,8 @@ export function verifyInstagramSignature(
 export async function parseInstagramUpdate(
   workspaceId: string,
   channelId: string,
-  body: InstagramBody
+  body: InstagramBody,
+  config: Record<string, any>
 ): Promise<void> {
   const entries = body.entry || []
 
@@ -104,6 +110,35 @@ export async function parseInstagramUpdate(
       } catch (error) {
         console.error(`[Instagram] Error processing inbound message in workspace ${workspaceId}:`, error)
         // Continue processing other messages even if one fails
+      }
+    }
+
+    const changes = entry.changes || []
+    for (const change of changes) {
+      if (change.field !== 'comments') continue
+
+      const { id: commentId, text, from } = change.value
+
+      try {
+        if (config.pageAccessToken) {
+          await sendPrivateReply(
+            config.pageAccessToken,
+            commentId,
+            'Hola! Vimos tu comentario, te escribimos por privado para ayudarte 🙌'
+          )
+        }
+
+        await processInboundMessage({
+          workspaceId,
+          channelId,
+          externalConversationId: from.id,
+          externalMessageId: commentId,
+          senderExternalId: `ig_${from.id}`,
+          senderName: from.username,
+          content: text
+        })
+      } catch (error) {
+        console.error(`[Instagram] Error processing comment in workspace ${workspaceId}:`, error)
       }
     }
   }

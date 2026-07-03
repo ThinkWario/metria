@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import crypto from 'crypto'
 
 vi.mock('../message.service', () => ({
@@ -39,6 +39,8 @@ describe('verifyInstagramSignature', () => {
 
 describe('parseInstagramUpdate', () => {
   beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => vi.stubGlobal('fetch', vi.fn()))
+  afterEach(() => vi.restoreAllMocks())
 
   it('calls processInboundMessage for a DM text event with ig_ prefix', async () => {
     const body = {
@@ -54,7 +56,7 @@ describe('parseInstagramUpdate', () => {
       }]
     }
 
-    await parseInstagramUpdate('ws-1', 'ch-ig', body)
+    await parseInstagramUpdate('ws-1', 'ch-ig', body, {})
 
     expect(processInboundMessage).toHaveBeenCalledWith({
       workspaceId: 'ws-1',
@@ -83,7 +85,41 @@ describe('parseInstagramUpdate', () => {
       }]
     }
 
-    await parseInstagramUpdate('ws-1', 'ch-ig', body)
+    await parseInstagramUpdate('ws-1', 'ch-ig', body, {})
     expect(processInboundMessage).not.toHaveBeenCalled()
+  })
+
+  it('sends a private reply and converts a new comment into a lead message', async () => {
+    const body = {
+      object: 'instagram',
+      entry: [{
+        id: 'page-123',
+        changes: [{
+          field: 'comments',
+          value: {
+            id: 'comment-789',
+            text: '¿Cuánto cuesta el envío?',
+            from: { id: 'ig-commenter-1', username: 'maria_oficial' }
+          }
+        }]
+      }]
+    }
+    vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200, json: async () => ({}) } as Response)
+
+    await parseInstagramUpdate('ws-1', 'ch-ig', body, { pageAccessToken: 'page-token-abc' })
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://graph.facebook.com/v19.0/comment-789/private_replies',
+      expect.objectContaining({ method: 'POST' })
+    )
+    expect(processInboundMessage).toHaveBeenCalledWith({
+      workspaceId: 'ws-1',
+      channelId: 'ch-ig',
+      externalConversationId: 'ig-commenter-1',
+      externalMessageId: 'comment-789',
+      senderExternalId: 'ig_ig-commenter-1',
+      senderName: 'maria_oficial',
+      content: '¿Cuánto cuesta el envío?'
+    })
   })
 })
