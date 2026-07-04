@@ -46,8 +46,8 @@ export async function telegramWebhook(req: Request, res: Response): Promise<void
 export async function getConversationsHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
-    const { status, channelId, search, cursor } = req.query as Record<string, string>
-    const convs = await _getConversations(workspaceId, { status: status as any, channelId, search, cursor })
+    const { status, channelId, platform, search, cursor } = req.query as Record<string, string>
+    const convs = await _getConversations(workspaceId, { status: status as any, channelId, platform, search, cursor })
     res.json(convs)
   } catch {
     res.status(500).json({ error: 'Failed to fetch conversations' })

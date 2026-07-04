@@ -1,8 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { getIO } from '../../lib/socket'
 import { tryRunBotFlows } from '../bot/flow.engine'
-import { processAiResponse } from '../ai-agent/ai.service'
-import { trackAiMetric } from './inbox.service'
+import { scheduleAiReply } from '../ai-agent/aiResponder'
 import { sendWhatsAppMessage } from './channels/whatsapp.service'
 import { sendInstagramMessage } from './channels/instagram.service'
 import { sendMessengerMessage } from './channels/messenger.service'
@@ -82,7 +81,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { platform: true, config: true }
+    select: { platform: true, config: true, name: true }
   })
   if (!channel) throw new Error(`Channel not found: ${channelId}`)
   const source = PLATFORM_TO_SOURCE[channel.platform] ?? 'MANUAL'
@@ -150,6 +149,22 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     })
   }
 
+  // Reconnect syncs can replay messages already ingested — dedup by platform message ID.
+  if (externalMessageId) {
+    const existing = await prisma.message.findFirst({
+      where: { conversationId: conversation.id, externalId: externalMessageId },
+      select: { id: true }
+    })
+    if (existing) {
+      return {
+        conversationId: conversation.id,
+        messageId: existing.id,
+        contactId: contact.id,
+        isNewConversation
+      }
+    }
+  }
+
   const message = await prisma.message.create({
     data: {
       workspaceId,
@@ -209,6 +224,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       externalId: conversation.externalId,
       status: conversation.status,
       contact: conversation.contact,
+      channel: { id: channelId, platform: channel.platform, name: channel.name },
       createdAt: conversation.createdAt
     })
   }
@@ -219,61 +235,14 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
   if (data.skipBotResponse) {
     // Historical/backfilled message (e.g. WhatsApp reconnect sync) — record it, don't respond.
   } else if ((channel.config as any)?.isAiEnabled && updatedConv.isHandledByBot) {
-    try {
-      const aiResponse = await processAiResponse(workspaceId, conversation.id, content)
-      if (aiResponse) {
-        await sendPlatformMessage(channel.platform, channel.config, conversation.externalId, aiResponse, workspaceId)
-
-        // Persist the bot reply (the send already happened above, so write directly)
-        const botMessage = await prisma.message.create({
-          data: {
-            workspaceId,
-            conversationId: conversation.id,
-            direction: 'OUTBOUND',
-            senderType: 'BOT',
-            content: aiResponse,
-            status: 'SENT'
-          }
-        })
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { lastMessageAt: new Date() }
-        })
-
-        // Broadcast AI message via socket
-        const io = getIO()
-        io.to(`workspace:${workspaceId}`).emit('message:new', {
-          id: botMessage.id,
-          conversationId: conversation.id,
-          direction: 'OUTBOUND',
-          senderType: 'BOT',
-          content: aiResponse,
-          sentAt: botMessage.sentAt
-        })
-
-        // Track AI metric
-        await trackAiMetric(workspaceId, channelId, 'botHandledCount')
-
-        // Schedule the next AI follow-up in the sequence (dynamic import: see note above)
-        try {
-          const botId = updatedConv.assignedToBotId
-            ?? (await prisma.botAgent.findFirst({
-              where: { workspaceId, isActive: true },
-              orderBy: { createdAt: 'desc' },
-              select: { id: true }
-            }))?.id
-          if (botId) {
-            const { scheduleNextFollowUp } = await import('../ai-agent/followup.service')
-            await scheduleNextFollowUp(workspaceId, conversation.id, botId)
-          }
-        } catch (err) {
-          console.error('[FollowUp] Failed to schedule follow-up:', err)
-        }
-      }
-    } catch (err) {
-      console.error('[AI Agent Error]', err)
-      // Fallback to rules if AI fails? or just log
-    }
+    // Debounced + serialized per conversation; retries, metrics, follow-up
+    // scheduling and failure alerts live in aiResponder.
+    scheduleAiReply({
+      workspaceId,
+      conversationId: conversation.id,
+      channelId,
+      content
+    })
   } else {
     // 2. Fallback to classic Rules engine
     tryRunBotFlows(workspaceId, channelId, {

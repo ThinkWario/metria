@@ -9,10 +9,25 @@ import path from 'path';
  * Manages multiple WhatsApp sessions (one per workspace) using whatsapp-web.js.
  * Handles QR generation, authentication, and message bridging.
  */
+const WATCHDOG_INTERVAL_MS = 60_000;
+const GET_STATE_TIMEOUT_MS = 15_000;
+/** Consecutive failed health checks before the session is recycled. */
+const MAX_HEALTH_FAILURES = 2;
+/** Grace period for a session that is still initializing (QR scan, auth). */
+const INIT_GRACE_MS = 10 * 60_000;
+const DESTROY_TIMEOUT_MS = 30_000;
+/** Missed messages younger than this get an AI reply after a reconnect. */
+const RECOVERY_WINDOW_S = 30 * 60;
+
 export class WhatsAppSessionManager {
   private static instance: WhatsAppSessionManager;
   private clients: Map<string, Client> = new Map();
   private readonly authPath = path.join(process.cwd(), '.wwebjs_auth');
+  private watchdogs: Map<string, NodeJS.Timeout> = new Map();
+  private healthFailures: Map<string, number> = new Map();
+  private readySessions: Set<string> = new Set();
+  private initStartedAt: Map<string, number> = new Map();
+  private recycling: Set<string> = new Set();
 
   private constructor() {}
 
@@ -80,26 +95,39 @@ export class WhatsAppSessionManager {
     // Event: Ready
     client.on('ready', async () => {
       console.log(`[WhatsApp] Client is ready for workspace: ${workspaceId}`);
+      this.readySessions.add(workspaceId);
+      this.healthFailures.delete(workspaceId);
       io.to(`workspace:${workspaceId}`).emit('whatsapp:ready');
 
-      // Upsert channel row — native QR never creates it via API setup
-      await prisma.channel.upsert({
-        where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
-        create: {
-          workspaceId,
-          platform: 'WHATSAPP',
-          name: 'WhatsApp',
-          status: 'CONNECTED',
-          config: { isNative: true, isAiEnabled: true }
-        },
-        update: {
-          status: 'CONNECTED',
-          config: { isNative: true, isAiEnabled: true }
-        }
-      }).catch(err => console.error(`[WhatsApp] DB Upsert Error (${workspaceId}):`, err));
+      // Upsert channel row — native QR never creates it via API setup.
+      // Merge into the existing config so reconnects preserve isAiEnabled
+      // (and any other keys) instead of force-resetting them.
+      try {
+        const existing = await prisma.channel.findUnique({
+          where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
+          select: { config: true }
+        });
+        const currentConfig = (existing?.config as Record<string, unknown>) ?? {};
+        await prisma.channel.upsert({
+          where: { workspaceId_platform: { workspaceId, platform: 'WHATSAPP' } },
+          create: {
+            workspaceId,
+            platform: 'WHATSAPP',
+            name: 'WhatsApp',
+            status: 'CONNECTED',
+            config: { isNative: true, isAiEnabled: true }
+          },
+          update: {
+            status: 'CONNECTED',
+            config: { isAiEnabled: true, ...currentConfig, isNative: true }
+          }
+        });
+      } catch (err) {
+        console.error(`[WhatsApp] DB Upsert Error (${workspaceId}):`, err);
+      }
 
       // Initial Sync of recent chats
-      this.syncChats(workspaceId).catch(err => 
+      this.syncChats(workspaceId).catch(err =>
         console.error(`[WhatsApp] Initial sync failed for ${workspaceId}:`, err)
       );
     });
@@ -109,11 +137,26 @@ export class WhatsAppSessionManager {
       this.handleInboundMessage(workspaceId, msg);
     });
 
+    client.on('change_state', (state) => {
+      console.log(`[WhatsApp] State changed for ${workspaceId}: ${state}`);
+    });
+
+    client.on('auth_failure', (message) => {
+      console.error(`[WhatsApp] Auth failure for ${workspaceId}: ${message}`);
+    });
+
     // Event: Disconnected
     client.on('disconnected', (reason) => {
       console.log(`[WhatsApp] Disconnected workspace ${workspaceId}:`, reason);
       this.clients.delete(workspaceId);
+      this.readySessions.delete(workspaceId);
       io.to(`workspace:${workspaceId}`).emit('whatsapp:disconnected', { reason });
+
+      // LOGOUT means the user unlinked the device — don't fight it. Any other
+      // reason is transient: the watchdog stays armed and re-initializes.
+      if (String(reason).toUpperCase() === 'LOGOUT') {
+        this.stopWatchdog(workspaceId);
+      }
 
       // updateMany is safe even if no row exists yet
       prisma.channel.updateMany({
@@ -132,6 +175,108 @@ export class WhatsAppSessionManager {
     });
 
     this.clients.set(workspaceId, client);
+    this.initStartedAt.set(workspaceId, Date.now());
+    this.startWatchdog(workspaceId);
+  }
+
+  /**
+   * Health watchdog. whatsapp-web.js sessions can go stale silently: the
+   * underlying page loses its socket and stops emitting 'message' events
+   * WITHOUT firing 'disconnected' — the bot looks "asleep" until something
+   * pokes the page. The watchdog detects that state via getState() and
+   * recycles the session (LocalAuth re-authenticates without a new QR).
+   */
+  private startWatchdog(workspaceId: string): void {
+    if (this.watchdogs.has(workspaceId)) return;
+    const interval = setInterval(() => {
+      this.checkHealth(workspaceId).catch(err =>
+        console.error(`[WhatsApp][watchdog] Unexpected error for ${workspaceId}:`, err)
+      );
+    }, WATCHDOG_INTERVAL_MS);
+    this.watchdogs.set(workspaceId, interval);
+  }
+
+  private stopWatchdog(workspaceId: string): void {
+    const interval = this.watchdogs.get(workspaceId);
+    if (interval) clearInterval(interval);
+    this.watchdogs.delete(workspaceId);
+    this.healthFailures.delete(workspaceId);
+  }
+
+  private async checkHealth(workspaceId: string): Promise<void> {
+    if (this.recycling.has(workspaceId)) return;
+
+    const client = this.clients.get(workspaceId);
+    if (!client) {
+      // Session vanished (failed init, transient disconnect) — self-heal.
+      console.warn(`[WhatsApp][watchdog] No client for ${workspaceId}, re-initializing...`);
+      await this.initSession(workspaceId);
+      return;
+    }
+
+    // Still initializing (QR scan, auth): give it a grace period, then assume
+    // the initialize() call hung and recycle.
+    if (!this.readySessions.has(workspaceId)) {
+      const startedAt = this.initStartedAt.get(workspaceId) ?? Date.now();
+      if (Date.now() - startedAt > INIT_GRACE_MS) {
+        console.warn(`[WhatsApp][watchdog] Init stuck >${INIT_GRACE_MS / 60000}min for ${workspaceId}, recycling`);
+        await this.recycleSession(workspaceId);
+      }
+      return;
+    }
+
+    let healthy = false;
+    try {
+      const state = await Promise.race([
+        client.getState(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('getState timeout')), GET_STATE_TIMEOUT_MS)
+        )
+      ]);
+      healthy = state === 'CONNECTED';
+      if (!healthy) console.warn(`[WhatsApp][watchdog] Unhealthy state "${state}" for ${workspaceId}`);
+    } catch (err) {
+      console.warn(`[WhatsApp][watchdog] Health check failed for ${workspaceId}:`, (err as Error).message);
+    }
+
+    if (healthy) {
+      this.healthFailures.delete(workspaceId);
+      return;
+    }
+
+    const failures = (this.healthFailures.get(workspaceId) ?? 0) + 1;
+    this.healthFailures.set(workspaceId, failures);
+    if (failures >= MAX_HEALTH_FAILURES) {
+      await this.recycleSession(workspaceId);
+    }
+  }
+
+  /** Destroys a stale client and re-initializes it in place. */
+  private async recycleSession(workspaceId: string): Promise<void> {
+    if (this.recycling.has(workspaceId)) return;
+    this.recycling.add(workspaceId);
+    console.warn(`[WhatsApp][watchdog] Recycling session for ${workspaceId}`);
+    getIO().to(`workspace:${workspaceId}`).emit('whatsapp:reconnecting', {});
+
+    const client = this.clients.get(workspaceId);
+    this.clients.delete(workspaceId);
+    this.readySessions.delete(workspaceId);
+    this.healthFailures.delete(workspaceId);
+
+    if (client) {
+      try {
+        // destroy() can hang with a wedged Chromium — don't block recovery on it.
+        await Promise.race([
+          client.destroy(),
+          new Promise(resolve => setTimeout(resolve, DESTROY_TIMEOUT_MS))
+        ]);
+      } catch (err) {
+        console.error(`[WhatsApp][watchdog] destroy() failed for ${workspaceId}:`, (err as Error).message);
+      }
+    }
+
+    this.recycling.delete(workspaceId);
+    await this.initSession(workspaceId);
   }
 
   /**
@@ -159,20 +304,29 @@ export class WhatsAppSessionManager {
       .slice(0, 20);
 
     const { processInboundMessage } = await import('../../modules/messaging/message.service');
+    const nowSec = Math.floor(Date.now() / 1000);
 
     for (const chat of recentChats) {
-      const lastMsg = await chat.fetchMessages({ limit: 1 });
-      if (lastMsg.length > 0 && lastMsg[0].body) {
-        const senderPhone = await this.resolvePhone(workspaceId, chat.id._serialized);
+      // Unread chats get their pending messages replayed; messages that arrived
+      // while the session was down AND are recent get a bot reply (the message
+      // dedup in processInboundMessage makes replays idempotent).
+      const fetchLimit = chat.unreadCount > 0 ? Math.min(chat.unreadCount, 5) : 1;
+      const messages = await chat.fetchMessages({ limit: fetchLimit });
+      const senderPhone = await this.resolvePhone(workspaceId, chat.id._serialized);
+
+      for (const msg of messages) {
+        if (!msg.body || msg.fromMe) continue;
+        const isRecentUnread =
+          chat.unreadCount > 0 && nowSec - msg.timestamp < RECOVERY_WINDOW_S;
         await processInboundMessage({
           workspaceId,
           channelId: channel.id,
           externalConversationId: chat.id._serialized,
-          externalMessageId: lastMsg[0].id._serialized,
+          externalMessageId: msg.id._serialized,
           senderExternalId: senderPhone,
           senderName: chat.name || 'WhatsApp User',
-          content: lastMsg[0].body,
-          skipBotResponse: true
+          content: msg.body,
+          skipBotResponse: !isRecentUnread
         }).catch(() => {});
       }
     }
@@ -287,6 +441,9 @@ export class WhatsAppSessionManager {
    * Disconnects and removes a session.
    */
   public async destroySession(workspaceId: string): Promise<void> {
+    this.stopWatchdog(workspaceId);
+    this.readySessions.delete(workspaceId);
+    this.initStartedAt.delete(workspaceId);
     const client = this.clients.get(workspaceId);
     if (client) {
       await client.logout();

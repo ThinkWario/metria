@@ -7,6 +7,8 @@ export interface GetConversationsOpts {
   /** A concrete status filters by it; 'ALL' (or undefined) returns every status. */
   status?: ConversationStatus | 'ALL'
   channelId?: string
+  /** Filter by channel origin (WHATSAPP, INSTAGRAM, MESSENGER, ...); 'ALL' disables it. */
+  platform?: string
   /** Case-insensitive match against the contact's name OR phone. */
   search?: string
   limit?: number
@@ -14,7 +16,7 @@ export interface GetConversationsOpts {
 }
 
 export async function getConversations(workspaceId: string, opts: GetConversationsOpts) {
-  const { status, channelId, search, limit = 30, cursor } = opts
+  const { status, channelId, platform, search, limit = 30, cursor } = opts
   const term = search?.trim()
 
   const rows = await prisma.conversation.findMany({
@@ -22,6 +24,7 @@ export async function getConversations(workspaceId: string, opts: GetConversatio
       workspaceId,
       ...(status && status !== 'ALL' && { status }),
       ...(channelId && { channelId }),
+      ...(platform && platform !== 'ALL' && { channel: { platform: platform.toUpperCase() } }),
       ...(cursor && { id: { lt: cursor } }),
       ...(term && {
         OR: [
@@ -264,6 +267,12 @@ export async function sendMessage(
         const { sendInstagramMessage } = await import('./channels/instagram.service')
         // contact.phone stores platform-specific IDs (ig_<userId> for Instagram)
         await sendInstagramMessage(config.pageAccessToken, contact.phone!, content)
+        break
+      }
+      case 'MESSENGER': {
+        const { sendMessengerMessage } = await import('./channels/messenger.service')
+        // contact.phone stores platform-specific IDs (msgr_<userId> for Messenger)
+        await sendMessengerMessage(config.pageAccessToken, contact.phone!, content)
         break
       }
       case 'TELEGRAM': {

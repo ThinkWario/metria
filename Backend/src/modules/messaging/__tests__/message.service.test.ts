@@ -9,7 +9,7 @@ vi.mock('../../../lib/prisma', () => ({
       create: vi.fn(),
       update: vi.fn()
     },
-    message: { create: vi.fn() },
+    message: { create: vi.fn(), findFirst: vi.fn(async () => null) },
     botAgent: { findFirst: vi.fn() }
   }
 }))
@@ -21,7 +21,9 @@ vi.mock('../../../lib/socket', () => ({
   }))
 }))
 
-vi.mock('../../ai-agent/ai.service', () => ({ processAiResponse: vi.fn(async () => null) }))
+// AI dispatch is a fire-and-forget hand-off in message.service; the actual
+// generation/retry/debounce contract is covered in aiResponder.test.ts.
+vi.mock('../../ai-agent/aiResponder', () => ({ scheduleAiReply: vi.fn() }))
 vi.mock('../../ai-agent/followup.service', () => ({
   cancelPendingFollowUps: vi.fn(async () => undefined),
   scheduleNextFollowUp: vi.fn(async () => undefined)
@@ -36,8 +38,7 @@ vi.mock('../channels/telegram.service', () => ({ sendTelegramMessage: vi.fn(asyn
 import { processInboundMessage } from '../message.service'
 import { prisma } from '../../../lib/prisma'
 import { getIO } from '../../../lib/socket'
-import { processAiResponse } from '../../ai-agent/ai.service'
-import { sendTelegramMessage } from '../channels/telegram.service'
+import { scheduleAiReply } from '../../ai-agent/aiResponder'
 import { tryRunBotFlows } from '../../bot/flow.engine'
 
 const WORKSPACE_ID = 'ws-1'
@@ -150,7 +151,7 @@ describe('processInboundMessage', () => {
     expect(mockIO.emit).toHaveBeenCalledWith('message:new', expect.objectContaining({ id: 'msg-3' }))
   })
 
-  it('persists the AI bot reply and bumps lastMessageAt (inbound AI path)', async () => {
+  it('hands off to the debounced AI responder when the channel has AI enabled (inbound AI path)', async () => {
     // isAiEnabled lives inside the channel config JSON (that's where the service reads it)
     const mockChannel = { id: CHANNEL_ID, platform: 'TELEGRAM', config: { botToken: 'tok', isAiEnabled: true } }
     const mockContact = { id: 'contact-1', name: 'Juan', status: 'LEAD', phone: '+56912345678' }
@@ -160,7 +161,6 @@ describe('processInboundMessage', () => {
       isHandledByBot: true, contact: mockContact, createdAt: new Date()
     }
     const inboundMsg = { id: 'msg-in', conversationId: 'conv-ai', direction: 'INBOUND', senderType: 'CONTACT', content: baseData.content, sentAt: new Date() }
-    const botMsg = { id: 'msg-bot', conversationId: 'conv-ai', direction: 'OUTBOUND', senderType: 'BOT', content: 'Tu pedido va en camino', sentAt: new Date() }
 
     vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
     vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
@@ -169,28 +169,18 @@ describe('processInboundMessage', () => {
       ...mockConversation, messageCount: 3, assignedToBotId: 'bot-1',
       channel: { platform: 'TELEGRAM', config: { botToken: 'tok' } }
     } as any)
-    vi.mocked(prisma.message.create)
-      .mockResolvedValueOnce(inboundMsg as any) // inbound persist
-      .mockResolvedValueOnce(botMsg as any) // bot reply persist
-    vi.mocked(processAiResponse).mockResolvedValueOnce('Tu pedido va en camino')
+    vi.mocked(prisma.message.create).mockResolvedValueOnce(inboundMsg as any)
 
     await processInboundMessage(baseData)
 
-    // reply was sent through the platform...
-    expect(sendTelegramMessage).toHaveBeenCalledWith('tok', 'ext-conv-1', 'Tu pedido va en camino')
-    // ...AND persisted as an OUTBOUND BOT message
-    expect(prisma.message.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          conversationId: 'conv-ai', direction: 'OUTBOUND', senderType: 'BOT',
-          content: 'Tu pedido va en camino', status: 'SENT'
-        })
-      })
-    )
-    // conversation freshness updated after the bot reply
-    expect(prisma.conversation.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'conv-ai' }, data: { lastMessageAt: expect.any(Date) } })
-    )
+    // Generation/retry/send is aiResponder's job — message.service only enqueues it.
+    expect(scheduleAiReply).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
+      conversationId: 'conv-ai',
+      channelId: CHANNEL_ID,
+      content: baseData.content
+    })
+    expect(tryRunBotFlows).not.toHaveBeenCalled()
   })
 
   it('does not trigger the AI agent or the rules engine when skipBotResponse is set', async () => {
@@ -211,8 +201,29 @@ describe('processInboundMessage', () => {
 
     await processInboundMessage({ ...baseData, skipBotResponse: true })
 
-    expect(processAiResponse).not.toHaveBeenCalled()
+    expect(scheduleAiReply).not.toHaveBeenCalled()
     expect(tryRunBotFlows).not.toHaveBeenCalled()
     expect(prisma.message.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('dedups a replayed inbound message (same externalId) instead of creating a duplicate', async () => {
+    const mockChannel = { id: CHANNEL_ID, platform: 'WHATSAPP' }
+    const mockContact = { id: 'contact-1', name: 'Juan Pérez', status: 'LEAD', phone: '+56912345678' }
+    const mockConversation = {
+      id: 'conv-1', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
+      externalId: 'ext-conv-1', status: 'OPEN', messageCount: 1, contactId: 'contact-1',
+      contact: mockContact, createdAt: new Date()
+    }
+
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
+    vi.mocked(prisma.message.findFirst).mockResolvedValueOnce({ id: 'existing-msg' } as any)
+
+    const result = await processInboundMessage(baseData)
+
+    expect(result.messageId).toBe('existing-msg')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+    expect(prisma.conversation.update).not.toHaveBeenCalled()
   })
 })

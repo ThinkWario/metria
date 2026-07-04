@@ -8,6 +8,8 @@ import { useUserStore } from '@/store/useUserStore'
 export type ConversationStatus = 'OPEN' | 'PENDING' | 'CLOSED'
 /** 'ALL' is a UI-only filter value; the API maps it to "no status filter". */
 export type StatusFilter = ConversationStatus | 'ALL'
+/** Channel origin filter; 'ALL' shows every platform. */
+export type PlatformFilter = 'ALL' | 'WHATSAPP' | 'INSTAGRAM' | 'MESSENGER' | 'TELEGRAM'
 
 export interface WorkspaceUser {
   id: string
@@ -70,6 +72,7 @@ export function useInbox() {
 
   // Team-workflow filters
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('OPEN')
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>('ALL')
   const [search, setSearch] = useState('')
   const [assignedToMe, setAssignedToMe] = useState(false)
 
@@ -93,12 +96,13 @@ export function useInbox() {
       .catch(() => setUsers([]))
   }, [])
 
-  // Fetch conversations whenever the status filter or (debounced) search term changes.
+  // Fetch conversations whenever the status/platform filter or (debounced) search term changes.
   useEffect(() => {
     let cancelled = false
     setLoadingConvs(true)
 
     const params = new URLSearchParams({ status: statusFilter })
+    if (platformFilter !== 'ALL') params.set('platform', platformFilter)
     const term = search.trim()
     if (term) params.set('search', term)
 
@@ -110,7 +114,7 @@ export function useInbox() {
     }, term ? 300 : 0)
 
     return () => { cancelled = true; clearTimeout(debounce) }
-  }, [statusFilter, search])
+  }, [statusFilter, platformFilter, search])
 
   // Load messages when selectedId changes
   useEffect(() => {
@@ -130,10 +134,11 @@ export function useInbox() {
     if (!sock) return
 
     const onConvNew = (conv: Conversation) => {
-      // Only surface a new conversation if it matches the active status filter.
+      // Only surface a new conversation if it matches the active filters.
       setConversations(prev => {
         if (prev.some(c => c.id === conv.id)) return prev
         if (statusFilter !== 'ALL' && conv.status !== statusFilter) return prev
+        if (platformFilter !== 'ALL' && conv.channel?.platform !== platformFilter) return prev
         return [conv, ...prev]
       })
     }
@@ -186,7 +191,7 @@ export function useInbox() {
       sock.off('message:new', onMsgNew)
       sock.off('conversation:updated', onConvUpdated)
     }
-  }, [statusFilter, workspaceId])
+  }, [statusFilter, platformFilter, workspaceId])
 
   const sendMessage = useCallback(async (content: string, isInternal = false) => {
     if (!selectedId || !content.trim()) return
@@ -328,6 +333,8 @@ export function useInbox() {
     // Filters
     statusFilter,
     setStatusFilter,
+    platformFilter,
+    setPlatformFilter,
     search,
     setSearch,
     assignedToMe,

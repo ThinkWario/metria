@@ -21,6 +21,7 @@ vi.mock('../../../lib/prisma', () => ({
     },
     message: {
       create: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
     },
   },
 }))
@@ -95,7 +96,7 @@ describe('Messaging Integration Flow', () => {
       }]
     }
 
-    await parseMessengerUpdate(WORKSPACE_ID, CHANNEL_ID, webhookBody)
+    await parseMessengerUpdate(WORKSPACE_ID, CHANNEL_ID, webhookBody, mockChannel.config)
 
     // 3. Verifications
     // Verify message was stored

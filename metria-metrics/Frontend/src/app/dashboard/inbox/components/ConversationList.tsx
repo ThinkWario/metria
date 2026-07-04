@@ -1,5 +1,5 @@
 'use client'
-import type { Conversation, StatusFilter } from '@/hooks/useInbox'
+import type { Conversation, StatusFilter, PlatformFilter } from '@/hooks/useInbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -16,6 +16,7 @@ import { es } from 'date-fns/locale'
 const PLATFORM_ICONS: Record<string, string> = {
   WHATSAPP: 'https://cdn-icons-png.flaticon.com/512/733/733585.png',
   INSTAGRAM: 'https://cdn-icons-png.flaticon.com/512/174/174855.png',
+  MESSENGER: 'https://cdn-icons-png.flaticon.com/512/5968/5968771.png',
   TELEGRAM: 'https://cdn-icons-png.flaticon.com/512/2111/2111646.png',
   TIKTOK: 'https://cdn-icons-png.flaticon.com/512/3046/3046121.png'
 }
@@ -27,6 +28,14 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'ALL', label: 'Todas' },
 ]
 
+const PLATFORM_TABS: { value: PlatformFilter; label: string }[] = [
+  { value: 'ALL', label: 'Todos' },
+  { value: 'WHATSAPP', label: 'WhatsApp' },
+  { value: 'INSTAGRAM', label: 'Instagram' },
+  { value: 'MESSENGER', label: 'Messenger' },
+  { value: 'TELEGRAM', label: 'Telegram' },
+]
+
 interface Props {
   conversations: Conversation[]
   selectedId: string | null
@@ -34,6 +43,8 @@ interface Props {
   onSelect: (id: string) => void
   statusFilter: StatusFilter
   onStatusFilterChange: (status: StatusFilter) => void
+  platformFilter: PlatformFilter
+  onPlatformFilterChange: (platform: PlatformFilter) => void
   search: string
   onSearchChange: (value: string) => void
   assignedToMe: boolean
@@ -48,6 +59,8 @@ export function ConversationList({
   onSelect,
   statusFilter,
   onStatusFilterChange,
+  platformFilter,
+  onPlatformFilterChange,
   search,
   onSearchChange,
   assignedToMe,
@@ -101,6 +114,28 @@ export function ConversationList({
                             : 'text-muted-foreground hover:text-foreground'
                     )}
                 >
+                    {tab.label}
+                </button>
+            ))}
+        </div>
+
+        {/* Platform origin filter */}
+        <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-0.5">
+            {PLATFORM_TABS.map(tab => (
+                <button
+                    key={tab.value}
+                    onClick={() => onPlatformFilterChange(tab.value)}
+                    aria-pressed={platformFilter === tab.value}
+                    className={cn(
+                        "shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all",
+                        platformFilter === tab.value
+                            ? 'bg-primary/10 text-primary border-primary/20'
+                            : 'bg-background/50 text-muted-foreground border-border/40 hover:text-foreground'
+                    )}
+                >
+                    {tab.value !== 'ALL' && PLATFORM_ICONS[tab.value] && (
+                        <img src={PLATFORM_ICONS[tab.value]} alt="" className="w-3 h-3 object-contain" />
+                    )}
                     {tab.label}
                 </button>
             ))}
@@ -171,9 +206,11 @@ export function ConversationList({
                     <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${conv.contact?.email || conv.id}`} />
                     <AvatarFallback>{conv.contact?.name?.charAt(0) ?? '?'}</AvatarFallback>
                 </Avatar>
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-background flex items-center justify-center shadow-md p-0.5 border border-border/40">
-                    <img src={PLATFORM_ICONS[conv.channel.platform]} alt={conv.channel.platform} className="w-full h-full object-contain" />
-                </div>
+                {PLATFORM_ICONS[conv.channel.platform] && (
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-background flex items-center justify-center shadow-md p-0.5 border border-border/40">
+                        <img src={PLATFORM_ICONS[conv.channel.platform]} alt={conv.channel.platform} className="w-full h-full object-contain" />
+                    </div>
+                )}
               </div>
 
               <div className="min-w-0 flex-1">

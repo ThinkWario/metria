@@ -163,15 +163,28 @@ export async function processAiResponse(
     deal: deal as any
   })
 
-  const history = [...conversation.messages]
+  const rawHistory = [...conversation.messages]
     .reverse() // fetched newest-first; restore chronological order
     .filter(m => !m.isInternal)
     .map(m => ({ role: m.senderType === 'CONTACT' ? 'user' as const : 'assistant' as const, content: m.content }))
 
-  // The inbound message is persisted before processAiResponse runs, so it can already be
-  // the last history item — drop it to avoid sending the user turn twice.
-  const last = history[history.length - 1]
-  if (last && last.role === 'user' && last.content === userContent) history.pop()
+  // Inbound messages are persisted before this runs, so the tail of the history
+  // already contains the turn(s) covered by userContent (which may be a debounced
+  // batch joined with newlines) — drop them to avoid sending the same turns twice.
+  while (rawHistory.length > 0) {
+    const last = rawHistory[rawHistory.length - 1]
+    if (last.role === 'user' && userContent.includes(last.content)) rawHistory.pop()
+    else break
+  }
+
+  // Merge consecutive same-role turns: providers expect alternating roles, and
+  // rapid-fire customer messages produce consecutive user turns in the DB.
+  const history: { role: 'user' | 'assistant'; content: string }[] = []
+  for (const turn of rawHistory) {
+    const prev = history[history.length - 1]
+    if (prev && prev.role === turn.role) prev.content = `${prev.content}\n${turn.content}`
+    else history.push({ ...turn })
+  }
 
   const provider = getProvider(agent.provider)
   let result = await provider.chat({

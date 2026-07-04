@@ -37,6 +37,9 @@ export async function sendMessengerMessage(
   recipientId: string,
   text: string
 ): Promise<void> {
+  // Strip optional msgr_ prefix so both raw IDs and prefixed IDs work
+  const normalizedId = recipientId.startsWith('msgr_') ? recipientId.slice(5) : recipientId
+
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/me/messages`
 
   const response = await fetch(url, {
@@ -46,7 +49,7 @@ export async function sendMessengerMessage(
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      recipient: { id: recipientId },
+      recipient: { id: normalizedId },
       message: { text }
     })
   })

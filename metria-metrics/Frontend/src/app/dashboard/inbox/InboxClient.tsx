@@ -25,6 +25,8 @@ export function InboxClient() {
     assignConversation,
     statusFilter,
     setStatusFilter,
+    platformFilter,
+    setPlatformFilter,
     search,
     setSearch,
     assignedToMe,
@@ -63,6 +65,8 @@ export function InboxClient() {
         onSelect={handleSelectConversation}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
+        platformFilter={platformFilter}
+        onPlatformFilterChange={setPlatformFilter}
         search={search}
         onSearchChange={setSearch}
         assignedToMe={assignedToMe}
