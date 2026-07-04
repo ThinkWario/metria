@@ -4,9 +4,12 @@ import type { Server as HttpServer } from 'http'
 let _io: Server | null = null
 
 export function initSocket(httpServer: HttpServer): Server {
-  // FRONTEND_URL accepts a comma-separated list of allowed origins
-  const origins = (process.env.FRONTEND_URL || 'http://localhost:3000')
-    .split(',')
+  // ALLOWED_ORIGINS / FRONTEND_URL accept comma-separated lists — mirror app.ts's CORS setup
+  // so socket.io doesn't reject origins (e.g. localhost in dev) that the REST API allows.
+  const origins = [
+    ...(process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(','),
+    ...(process.env.FRONTEND_URL || '').split(',')
+  ]
     .map(o => o.trim())
     .filter(Boolean)
   _io = new Server(httpServer, {
