@@ -1,5 +1,5 @@
 'use client'
-import type { Conversation, StatusFilter, PlatformFilter } from '@/hooks/useInbox'
+import type { Conversation, StatusFilter } from '@/hooks/useInbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -28,14 +28,6 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'ALL', label: 'Todas' },
 ]
 
-const PLATFORM_TABS: { value: PlatformFilter; label: string }[] = [
-  { value: 'ALL', label: 'Todos' },
-  { value: 'WHATSAPP', label: 'WhatsApp' },
-  { value: 'INSTAGRAM', label: 'Instagram' },
-  { value: 'MESSENGER', label: 'Messenger' },
-  { value: 'TELEGRAM', label: 'Telegram' },
-]
-
 interface Props {
   conversations: Conversation[]
   selectedId: string | null
@@ -43,8 +35,6 @@ interface Props {
   onSelect: (id: string) => void
   statusFilter: StatusFilter
   onStatusFilterChange: (status: StatusFilter) => void
-  platformFilter: PlatformFilter
-  onPlatformFilterChange: (platform: PlatformFilter) => void
   search: string
   onSearchChange: (value: string) => void
   assignedToMe: boolean
@@ -59,8 +49,6 @@ export function ConversationList({
   onSelect,
   statusFilter,
   onStatusFilterChange,
-  platformFilter,
-  onPlatformFilterChange,
   search,
   onSearchChange,
   assignedToMe,
@@ -114,28 +102,6 @@ export function ConversationList({
                             : 'text-muted-foreground hover:text-foreground'
                     )}
                 >
-                    {tab.label}
-                </button>
-            ))}
-        </div>
-
-        {/* Platform origin filter */}
-        <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-0.5">
-            {PLATFORM_TABS.map(tab => (
-                <button
-                    key={tab.value}
-                    onClick={() => onPlatformFilterChange(tab.value)}
-                    aria-pressed={platformFilter === tab.value}
-                    className={cn(
-                        "shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all",
-                        platformFilter === tab.value
-                            ? 'bg-primary/10 text-primary border-primary/20'
-                            : 'bg-background/50 text-muted-foreground border-border/40 hover:text-foreground'
-                    )}
-                >
-                    {tab.value !== 'ALL' && PLATFORM_ICONS[tab.value] && (
-                        <img src={PLATFORM_ICONS[tab.value]} alt="" className="w-3 h-3 object-contain" />
-                    )}
                     {tab.label}
                 </button>
             ))}

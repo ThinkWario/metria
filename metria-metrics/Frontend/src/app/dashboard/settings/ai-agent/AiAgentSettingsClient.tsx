@@ -16,6 +16,13 @@ import { toast } from "sonner"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getAiAgent, updateAiAgent, getAiChannels, toggleChannelAi, previewAgentPrompt } from "@/lib/api"
 
+const PLATFORM_ICONS: Record<string, string> = {
+    WHATSAPP: 'https://cdn-icons-png.flaticon.com/512/733/733585.png',
+    INSTAGRAM: 'https://cdn-icons-png.flaticon.com/512/174/174855.png',
+    MESSENGER: 'https://cdn-icons-png.flaticon.com/512/5968/5968771.png',
+    TELEGRAM: 'https://cdn-icons-png.flaticon.com/512/2111/2111646.png',
+}
+
 const TONE_OPTIONS = [
     { value: "neutral",    label: "Neutral y Eficiente",           desc: "Directo, claro, sin relleno" },
     { value: "formal",     label: "Profesional y Ejecutivo",        desc: "Ideal para B2B y grandes cuentas" },
@@ -397,30 +404,44 @@ export default function AiAgentSettingsPage() {
                         <CardContent className="space-y-2">
                             {channels.length === 0 ? (
                                 <div className="text-center py-4 border border-dashed rounded-lg">
-                                    <p className="text-sm text-muted-foreground">No hay canales conectados.</p>
-                                    <Button variant="link" className="text-xs" asChild>
-                                        <a href="/dashboard/settings/channels">Conectar canales →</a>
-                                    </Button>
+                                    <p className="text-sm text-muted-foreground">No se pudieron cargar los canales.</p>
                                 </div>
                             ) : (
                                 channels.map((ch: any) => (
-                                    <div key={ch.platform} className="flex items-center justify-between p-2.5 border border-border/50 rounded-lg bg-background/50">
+                                    <div
+                                        key={ch.platform}
+                                        className={`flex items-center justify-between p-2.5 border rounded-lg ${
+                                            ch.isConnected ? 'border-border/50 bg-background/50' : 'border-dashed border-border/40 bg-background/20'
+                                        }`}
+                                    >
                                         <div className="flex items-center gap-2.5">
-                                            <div className="p-1.5 rounded-full bg-primary/10 text-primary">
-                                                <Smartphone className="h-3.5 w-3.5" />
+                                            <div className={`p-1.5 rounded-full bg-primary/10 ${!ch.isConnected && 'opacity-40 grayscale'}`}>
+                                                {PLATFORM_ICONS[ch.platform] ? (
+                                                    <img src={PLATFORM_ICONS[ch.platform]} alt={ch.platform} className="h-3.5 w-3.5 object-contain" />
+                                                ) : (
+                                                    <Smartphone className="h-3.5 w-3.5 text-primary" />
+                                                )}
                                             </div>
                                             <div>
                                                 <div className="font-medium text-sm">{ch.name}</div>
-                                                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">{ch.platform}</div>
+                                                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                                                    {ch.isConnected ? ch.platform : 'No conectado'}
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[9px] font-bold text-muted-foreground">IA</span>
-                                            <Switch
-                                                checked={ch.isAiEnabled}
-                                                onCheckedChange={(checked) => toggleAiMutation.mutate({ platform: ch.platform, enabled: checked })}
-                                            />
-                                        </div>
+                                        {ch.isConnected ? (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[9px] font-bold text-muted-foreground">IA</span>
+                                                <Switch
+                                                    checked={ch.isAiEnabled}
+                                                    onCheckedChange={(checked) => toggleAiMutation.mutate({ platform: ch.platform, enabled: checked })}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <Button variant="link" size="sm" className="h-auto p-0 text-xs" asChild>
+                                                <a href="/dashboard/settings/channels">Conectar →</a>
+                                            </Button>
+                                        )}
                                     </div>
                                 ))
                             )}

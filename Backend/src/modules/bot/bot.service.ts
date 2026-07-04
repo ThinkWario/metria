@@ -145,15 +145,31 @@ export async function toggleChannelAi(workspaceId: string, platform: string, isA
   })
 }
 
+const SUPPORTED_PLATFORMS = ['WHATSAPP', 'INSTAGRAM', 'MESSENGER', 'TELEGRAM'] as const
+const PLATFORM_LABELS: Record<string, string> = {
+  WHATSAPP: 'WhatsApp', INSTAGRAM: 'Instagram', MESSENGER: 'Messenger', TELEGRAM: 'Telegram'
+}
+
 export async function listChannelsWithAiStatus(workspaceId: string) {
   const channels = await prisma.channel.findMany({
     where: { workspaceId },
     select: { platform: true, name: true, status: true, config: true }
   })
-  return channels.map(c => ({
-    ...c,
-    isAiEnabled: (c.config as any)?.isAiEnabled ?? false
-  }))
+  const byPlatform = new Map(channels.map(c => [c.platform, c]))
+
+  // Always list every supported platform, connected or not — lets the user
+  // see and (once connected) toggle AI for a channel before it exists in the
+  // DB, instead of only surfacing channels that have already been set up.
+  return SUPPORTED_PLATFORMS.map(platform => {
+    const channel = byPlatform.get(platform)
+    return {
+      platform,
+      name: channel?.name ?? PLATFORM_LABELS[platform],
+      status: channel?.status ?? 'DISCONNECTED',
+      isConnected: !!channel,
+      isAiEnabled: (channel?.config as any)?.isAiEnabled ?? false
+    }
+  })
 }
 
 const TEMPLATES: Record<string, AgentTemplate> = {

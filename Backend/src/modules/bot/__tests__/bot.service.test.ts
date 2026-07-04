@@ -9,7 +9,7 @@ vi.mock('../../../lib/prisma', () => ({
   }
 }))
 
-import { listAgents, createAgent, updateAgent, deleteAgent, listFlows, createFlow, updateFlow, deleteFlow, applyTemplate } from '../bot.service'
+import { listAgents, createAgent, updateAgent, deleteAgent, listFlows, createFlow, updateFlow, deleteFlow, applyTemplate, listChannelsWithAiStatus } from '../bot.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
@@ -149,5 +149,24 @@ describe('applyTemplate', () => {
   it('throws Agent not found when bot does not belong to workspace', async () => {
     vi.mocked(prisma.botAgent.findFirst).mockResolvedValue(null)
     await expect(applyTemplate(WS, 'a1', 'solar')).rejects.toThrow('Agent not found')
+  })
+})
+
+describe('listChannelsWithAiStatus', () => {
+  it('lists all 4 supported platforms even when only some are connected', async () => {
+    vi.mocked(prisma.channel.findMany).mockResolvedValue([
+      { platform: 'INSTAGRAM', name: 'IG Principal', status: 'CONNECTED', config: { isAiEnabled: true } }
+    ] as any)
+
+    const result = await listChannelsWithAiStatus(WS)
+
+    expect(result).toHaveLength(4)
+    expect(result.map(c => c.platform)).toEqual(['WHATSAPP', 'INSTAGRAM', 'MESSENGER', 'TELEGRAM'])
+
+    const whatsapp = result.find(c => c.platform === 'WHATSAPP')
+    expect(whatsapp).toMatchObject({ name: 'WhatsApp', status: 'DISCONNECTED', isConnected: false, isAiEnabled: false })
+
+    const instagram = result.find(c => c.platform === 'INSTAGRAM')
+    expect(instagram).toMatchObject({ name: 'IG Principal', status: 'CONNECTED', isConnected: true, isAiEnabled: true })
   })
 })
