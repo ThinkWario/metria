@@ -15,7 +15,7 @@ class FakeClient extends EventEmitter {
   logout = vi.fn(async () => undefined)
   getChats = vi.fn(async () => [])
   sendMessage = vi.fn(async () => undefined)
-  getContactLidAndPhone = vi.fn(async () => [])
+  getContactLidAndPhone = vi.fn(async (): Promise<Array<{ pn?: string; lid?: string }>> => [])
 }
 
 let lastCreatedClient: FakeClient | undefined
@@ -143,5 +143,43 @@ describe('WhatsAppSessionManager watchdog', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(createdClients.length).toBe(2) // the watchdog re-initialized a fresh client
+  })
+})
+
+// resolvePhone is private and there's no clean public synchronization point
+// through the fire-and-forget 'message' event pipeline (handleInboundMessage
+// isn't awaited by emit(), by design — matching production). Calling it
+// directly via the `as any` escape hatch tests exactly the caching behavior
+// that changed, deterministically, instead of fighting event-loop timing
+// through several unrelated layers that are already covered elsewhere.
+describe('resolvePhone lid resolution caching', () => {
+  const lidChatId = '61645766283373@lid'
+
+  it('caches a resolved phone so a second lookup for the same lid does not re-query WhatsApp', async () => {
+    const client = await initAndGetReady()
+    client.getContactLidAndPhone.mockResolvedValue([{ pn: '56966992259@c.us' }])
+
+    const first = await (manager as any).resolvePhone(workspaceId, lidChatId)
+    const second = await (manager as any).resolvePhone(workspaceId, lidChatId)
+
+    expect(first).toBe('56966992259')
+    expect(second).toBe('56966992259')
+    expect(client.getContactLidAndPhone).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry a failed lookup immediately, but does after the negative-cache cooldown', async () => {
+    const client = await initAndGetReady()
+    client.getContactLidAndPhone.mockResolvedValue([])
+
+    const first = await (manager as any).resolvePhone(workspaceId, lidChatId)
+    const second = await (manager as any).resolvePhone(workspaceId, lidChatId)
+    expect(first).toBe('61645766283373')
+    expect(second).toBe('61645766283373')
+    expect(client.getContactLidAndPhone).toHaveBeenCalledTimes(1) // WhatsApp rate-limits this — don't spam a failing lookup
+
+    await vi.advanceTimersByTimeAsync(15 * 60_000) // cooldown elapses
+    const third = await (manager as any).resolvePhone(workspaceId, lidChatId)
+    expect(third).toBe('61645766283373')
+    expect(client.getContactLidAndPhone).toHaveBeenCalledTimes(2)
   })
 })

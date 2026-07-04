@@ -18,6 +18,20 @@ const INIT_GRACE_MS = 10 * 60_000;
 const DESTROY_TIMEOUT_MS = 30_000;
 /** Missed messages younger than this get an AI reply after a reconnect. */
 const RECOVERY_WINDOW_S = 30 * 60;
+/**
+ * WhatsApp rate-limits lid→phone lookups (confirmed by wwebjs maintainers:
+ * github.com/pedroslopez/whatsapp-web.js/issues/3969#issuecomment-3564586446 —
+ * repeated calls across ~30 lids started failing intermittently). Without
+ * caching, resolvePhone() re-queries on every single inbound message from the
+ * same contact, which is exactly the kind of hammering that trips it.
+ */
+const LID_NEGATIVE_CACHE_TTL_MS = 15 * 60_000;
+
+interface LidCacheEntry {
+  /** Resolved phone, or null if WhatsApp had nothing for us as of cachedAt. */
+  phone: string | null;
+  cachedAt: number;
+}
 
 export class WhatsAppSessionManager {
   private static instance: WhatsAppSessionManager;
@@ -28,6 +42,7 @@ export class WhatsAppSessionManager {
   private readySessions: Set<string> = new Set();
   private initStartedAt: Map<string, number> = new Map();
   private recycling: Set<string> = new Set();
+  private lidCache: Map<string, LidCacheEntry> = new Map();
 
   private constructor() {}
 
@@ -376,21 +391,27 @@ export class WhatsAppSessionManager {
   /**
    * Resolves the real phone number from a chat ID. For @lid contacts the
    * prefix is a lid pseudo-number, not the actual phone — we ask the WhatsApp
-   * client via getContactLidAndPhone() to get the real phone (pn).
+   * client via getContactLidAndPhone(), which actively queries WhatsApp
+   * (not just a local cache read) to bridge lid → real phone.
    *
-   * This can legitimately come back empty: internally it reads from
-   * WhatsApp Web's own local contact cache (enforceLidAndPnRetrieval), which
-   * only has the real number if WhatsApp has already revealed it to this
-   * account (e.g. never happens for some click-to-chat/ad-originated or
-   * privacy-mode contacts) — that is a platform-side limitation, not
-   * necessarily a bug here. The two failure modes are logged separately so
-   * a real API error is distinguishable from "WhatsApp just won't give it".
-   * Every inbound message re-attempts this, so if WhatsApp ever reveals the
-   * number later it self-heals via processInboundMessage's contact.update.
+   * Cached per chatId to avoid re-querying on every single inbound message:
+   * WhatsApp rate-limits this lookup (confirmed by wwebjs maintainers), so
+   * hammering it on a contact's every message is itself a plausible cause of
+   * failures, not just "WhatsApp won't reveal it". A resolved phone is cached
+   * indefinitely (numbers don't change); a failed attempt is retried after
+   * LID_NEGATIVE_CACHE_TTL_MS instead of on the very next message.
    */
   private async resolvePhone(workspaceId: string, chatId: string): Promise<string> {
     const fallback = chatId.split('@')[0];
     if (!chatId.endsWith('@lid')) return fallback;
+
+    const cacheKey = `${workspaceId}:${chatId}`;
+    const cached = this.lidCache.get(cacheKey);
+    if (cached) {
+      if (cached.phone) return cached.phone;
+      if (Date.now() - cached.cachedAt < LID_NEGATIVE_CACHE_TTL_MS) return fallback;
+      // Cooldown elapsed — fall through and try again.
+    }
 
     const client = this.clients.get(workspaceId);
     if (!client) return fallback;
@@ -398,10 +419,16 @@ export class WhatsAppSessionManager {
     try {
       const result = await client.getContactLidAndPhone([chatId]);
       const pn = result?.[0]?.pn;
-      if (pn) return pn.split('@')[0];
+      if (pn) {
+        const resolved = pn.split('@')[0];
+        this.lidCache.set(cacheKey, { phone: resolved, cachedAt: Date.now() });
+        return resolved;
+      }
       console.warn(`[WhatsApp] lid ${chatId} has no phone number available from WhatsApp yet — using lid as identifier`);
+      this.lidCache.set(cacheKey, { phone: null, cachedAt: Date.now() });
     } catch (err) {
       console.error(`[WhatsApp] getContactLidAndPhone failed for ${chatId}:`, (err as Error).message);
+      this.lidCache.set(cacheKey, { phone: null, cachedAt: Date.now() });
     }
     return fallback;
   }
