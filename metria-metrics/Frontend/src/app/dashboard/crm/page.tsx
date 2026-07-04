@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import {
   KanbanSquare, CreditCard, Filter, FileText,
-  Send, Zap, CalendarDays, CheckSquare
+  Send, Zap, CalendarDays, CheckSquare, Sheet
 } from 'lucide-react'
 import CrmContactsClient from './CrmContactsClient'
 
@@ -16,6 +16,7 @@ const CRM_SECTIONS = [
   { title: 'Cobros',          desc: 'Links de pago por deal',   icon: CreditCard,   url: '/dashboard/crm/payments',     color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
   { title: 'Segmentos',       desc: 'Grupos de contactos',      icon: Filter,       url: '/dashboard/crm/segments',     color: 'text-blue-500',    bg: 'bg-blue-500/10' },
   { title: 'Formularios',     desc: 'Captura de leads',         icon: FileText,     url: '/dashboard/crm/forms',        color: 'text-amber-500',   bg: 'bg-amber-500/10' },
+  { title: 'Planillas',       desc: 'Importar leads desde Sheets', icon: Sheet,     url: '/dashboard/crm/sheets',       color: 'text-green-500',   bg: 'bg-green-500/10' },
   { title: 'Campañas',        desc: 'Mensajería masiva',        icon: Send,         url: '/dashboard/crm/campaigns',    color: 'text-rose-500',    bg: 'bg-rose-500/10' },
   { title: 'Automatizaciones',desc: 'Flujos automáticos',       icon: Zap,          url: '/dashboard/crm/automations',  color: 'text-cyan-500',    bg: 'bg-cyan-500/10' },
   { title: 'Citas',           desc: 'Agenda y reservas',        icon: CalendarDays, url: '/dashboard/crm/appointments', color: 'text-indigo-500',  bg: 'bg-indigo-500/10' },
