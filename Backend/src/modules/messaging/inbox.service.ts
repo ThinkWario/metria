@@ -255,8 +255,12 @@ export async function sendMessage(
     switch (channel.platform) {
       case 'WHATSAPP': {
         if (config.isNative) {
+          // contact.phone can be a stripped/unresolved lid (see resolvePhone in
+          // WhatsAppManager) that whatsapp-web.js can't route a reply to.
+          // conversation.externalId is the exact chat ID whatsapp-web.js gave us
+          // when the message came in (msg.from) — always the correct reply target.
           const { WhatsAppSessionManager } = await import('../../lib/whatsapp/WhatsAppManager')
-          await WhatsAppSessionManager.getInstance().sendMessage(workspaceId, contact.phone!, content)
+          await WhatsAppSessionManager.getInstance().sendMessage(workspaceId, conversation.externalId, content)
         } else {
           const { sendWhatsAppMessage } = await import('./channels/whatsapp.service')
           await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, contact.phone!, content)

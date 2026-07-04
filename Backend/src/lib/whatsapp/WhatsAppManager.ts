@@ -377,6 +377,16 @@ export class WhatsAppSessionManager {
    * Resolves the real phone number from a chat ID. For @lid contacts the
    * prefix is a lid pseudo-number, not the actual phone — we ask the WhatsApp
    * client via getContactLidAndPhone() to get the real phone (pn).
+   *
+   * This can legitimately come back empty: internally it reads from
+   * WhatsApp Web's own local contact cache (enforceLidAndPnRetrieval), which
+   * only has the real number if WhatsApp has already revealed it to this
+   * account (e.g. never happens for some click-to-chat/ad-originated or
+   * privacy-mode contacts) — that is a platform-side limitation, not
+   * necessarily a bug here. The two failure modes are logged separately so
+   * a real API error is distinguishable from "WhatsApp just won't give it".
+   * Every inbound message re-attempts this, so if WhatsApp ever reveals the
+   * number later it self-heals via processInboundMessage's contact.update.
    */
   private async resolvePhone(workspaceId: string, chatId: string): Promise<string> {
     const fallback = chatId.split('@')[0];
@@ -389,8 +399,9 @@ export class WhatsAppSessionManager {
       const result = await client.getContactLidAndPhone([chatId]);
       const pn = result?.[0]?.pn;
       if (pn) return pn.split('@')[0];
-    } catch {
-      // fallback is fine
+      console.warn(`[WhatsApp] lid ${chatId} has no phone number available from WhatsApp yet — using lid as identifier`);
+    } catch (err) {
+      console.error(`[WhatsApp] getContactLidAndPhone failed for ${chatId}:`, (err as Error).message);
     }
     return fallback;
   }

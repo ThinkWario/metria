@@ -24,6 +24,10 @@ vi.mock('../channels/whatsapp.service', () => ({
 vi.mock('../channels/telegram.service', () => ({
   sendTelegramMessage: vi.fn().mockResolvedValue(undefined)
 }))
+const nativeSendMessage = vi.fn().mockResolvedValue(undefined)
+vi.mock('../../../lib/whatsapp/WhatsAppManager', () => ({
+  WhatsAppSessionManager: { getInstance: () => ({ sendMessage: nativeSendMessage }) }
+}))
 
 import { getConversations, getMessages, sendMessage } from '../inbox.service'
 import { prisma } from '../../../lib/prisma'
@@ -103,5 +107,23 @@ describe('sendMessage', () => {
       })
     )
     expect(sendWhatsAppMessage).toHaveBeenCalledWith('ph1', 'tok', '+56912345678', 'Hola')
+  })
+
+  it('native WhatsApp sends to conversation.externalId, not contact.phone (which may be an unresolved lid)', async () => {
+    const mockChannel = { id: 'ch-1', platform: 'WHATSAPP', config: { isNative: true } }
+    // contact.phone is a bare lid pseudo-number — not a valid whatsapp-web.js chatId on its own.
+    const mockContact = { id: 'ct-1', phone: '61645766283373' }
+    const mockConv = { id: 'conv-1', workspaceId: WS_ID, channelId: 'ch-1', contactId: 'ct-1', externalId: '61645766283373@lid' }
+    const mockMsg = { id: 'msg-out', conversationId: 'conv-1', direction: 'OUTBOUND', senderType: 'AGENT', content: 'ok', sentAt: new Date() }
+
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(mockConv as any)
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.message.create).mockResolvedValue(mockMsg as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(mockConv as any)
+
+    await sendMessage(WS_ID, 'conv-1', 'user-1', 'ok')
+
+    expect(nativeSendMessage).toHaveBeenCalledWith(WS_ID, '61645766283373@lid', 'ok')
   })
 })
