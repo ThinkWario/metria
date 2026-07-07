@@ -1,4 +1,6 @@
 import { prisma } from '../../lib/prisma'
+import { getIO } from '../../lib/socket'
+import { normalizePhone } from '../../lib/phoneFormat'
 import { suggestFieldMappings, qualifyLead } from './sheets.agent'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -46,7 +48,94 @@ export async function analyzeSheet(url: string): Promise<{
   return { sheetId, sheetName: meta.title, headers, suggestedMappings }
 }
 
+/**
+ * Prepares (never auto-sends) a WhatsApp conversation for a newly-qualified
+ * lead: creates the Conversation if one doesn't already exist, and leaves a
+ * suggested opening message as an internal note. A human reviews it in the
+ * inbox and sends it manually via the existing compose flow — this never
+ * dispatches anything to WhatsApp itself, avoiding the unsolicited-bulk-
+ * message pattern that gets numbers banned.
+ *
+ * externalId is built ONLY from the lead's own formatted phone number
+ * (contact.phone, already validated by normalizePhone) — this is a fresh
+ * outbound-initiated contact with no prior WhatsApp message, so there is no
+ * lid involved anywhere in this path.
+ */
+async function prepareWhatsappConversation(
+  workspaceId: string,
+  channelId: string,
+  contact: { id: string; name: string; phone: string | null },
+  openingMessageTemplate: string | null
+): Promise<void> {
+  if (!contact.phone) return
+  const externalId = `${contact.phone}@c.us`
+
+  const existing = await prisma.conversation.findUnique({
+    where: { workspaceId_channelId_externalId: { workspaceId, channelId, externalId } }
+  })
+  if (existing) return
+
+  const conversation = await prisma.conversation.create({
+    data: {
+      workspaceId,
+      channelId,
+      contactId: contact.id,
+      externalId,
+      status: 'PENDING',
+      isHandledByBot: false
+    }
+  })
+
+  const openingMessage = (openingMessageTemplate?.trim() || 'Hola {nombre}, vimos tu interés y nos encantaría ayudarte 🙌')
+    .replace(/\{nombre\}/gi, contact.name)
+
+  const note = await prisma.message.create({
+    data: {
+      workspaceId,
+      conversationId: conversation.id,
+      direction: 'OUTBOUND',
+      senderType: 'SYSTEM',
+      content: `💡 Sugerencia de primer mensaje (lead importado desde Google Sheets — revisa y envía manualmente):\n\n${openingMessage}`,
+      isInternal: true
+    }
+  })
+
+  getIO().to(`workspace:${workspaceId}`).emit('conversation:new', {
+    id: conversation.id,
+    channelId,
+    externalId,
+    status: conversation.status,
+    contact: { id: contact.id, name: contact.name },
+    createdAt: conversation.createdAt
+  })
+  getIO().to(`workspace:${workspaceId}`).emit('message:new', {
+    id: note.id,
+    conversationId: conversation.id,
+    direction: 'OUTBOUND',
+    senderType: 'SYSTEM',
+    content: note.content,
+    isInternal: true,
+    sentAt: note.sentAt
+  })
+}
+
+// Guards against the same integration being synced twice concurrently
+// (manual "sync now" click landing mid-way through the scheduled cron run) —
+// without it, both runs read the same importedSessionIds snapshot and can
+// both import the same rows.
+const syncsInProgress = new Set<string>()
+
 export async function syncSheet(integrationId: string): Promise<{ imported: number; skipped: number; errors: number }> {
+  if (syncsInProgress.has(integrationId)) return { imported: 0, skipped: 0, errors: 0 }
+  syncsInProgress.add(integrationId)
+  try {
+    return await runSync(integrationId)
+  } finally {
+    syncsInProgress.delete(integrationId)
+  }
+}
+
+async function runSync(integrationId: string): Promise<{ imported: number; skipped: number; errors: number }> {
   const integration = await prisma.sheetIntegration.findUnique({ where: { id: integrationId } })
   if (!integration || !integration.isActive) return { imported: 0, skipped: 0, errors: 0 }
 
@@ -56,6 +145,14 @@ export async function syncSheet(integrationId: string): Promise<{ imported: numb
   const mappings = integration.fieldMappings as Record<string, string>
   const qualFields = (integration.qualificationFields as string[] | null) ?? []
   const importedIds = new Set(integration.importedSessionIds)
+
+  // Looked up once, reused per row — only relevant when the toggle is on.
+  const whatsappChannel = integration.linkToWhatsapp
+    ? await prisma.channel.findFirst({
+        where: { workspaceId: integration.workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' },
+        select: { id: true }
+      })
+    : null
 
   const sessionIdCol = mappings.sessionId ? headers.indexOf(mappings.sessionId) : -1
   const eventCol = mappings.eventColumn ? headers.indexOf(mappings.eventColumn) : -1
@@ -69,9 +166,14 @@ export async function syncSheet(integrationId: string): Promise<{ imported: numb
   let errors = 0
   const newSessionIds: string[] = []
 
-  for (const row of rows) {
+  for (const [rowIndex, row] of rows.entries()) {
     try {
-      const sessionId = sessionIdCol >= 0 ? row[sessionIdCol] : null
+      // Falls back to the row's position when no sessionId column is mapped
+      // — sheets fed by form responses are append-only, so the row index is
+      // a stable identity for dedup purposes even without an explicit ID
+      // column. Without this, every sync without a sessionId mapping would
+      // re-import every row from scratch.
+      const sessionId = sessionIdCol >= 0 ? row[sessionIdCol] : `_row${rowIndex}`
 
       if (sessionId && importedIds.has(sessionId)) { skipped++; continue }
 
@@ -82,7 +184,11 @@ export async function syncSheet(integrationId: string): Promise<{ imported: numb
 
       const name = nameCol >= 0 ? row[nameCol]?.trim() : ''
       const email = emailCol >= 0 ? row[emailCol]?.trim() : ''
-      const phone = phoneCol >= 0 ? row[phoneCol]?.trim() : ''
+      const rawPhone = phoneCol >= 0 ? row[phoneCol]?.trim() : ''
+      // Validates and normalizes to digits-only E.164 — an unparseable value
+      // (typos, wrong column, garbage) becomes '' rather than being stored
+      // and later used as a WhatsApp send target as-is.
+      const phone = normalizePhone(rawPhone) ?? ''
 
       if (!name && !email && !phone) { skipped++; continue }
 
@@ -137,11 +243,13 @@ export async function syncSheet(integrationId: string): Promise<{ imported: numb
         })
       }
 
+      // Keyed on contact + pipeline only — a title substring match (e.g. on
+      // the lead's name) is unreliable dedup: it can both miss real repeats
+      // and false-positive across unrelated leads that share a short name.
       const existingDeal = await prisma.deal.findFirst({
         where: {
           contactId: contact.id,
           pipelineId: integration.targetPipelineId,
-          title: { contains: sessionId?.slice(0, 8) ?? contact.name },
         },
       })
 
@@ -158,6 +266,15 @@ export async function syncSheet(integrationId: string): Promise<{ imported: numb
             status: 'OPEN',
           },
         })
+      }
+
+      if (whatsappChannel && phone) {
+        try {
+          await prepareWhatsappConversation(integration.workspaceId, whatsappChannel.id, contact, integration.whatsappOpeningMessage)
+        } catch (err) {
+          // Never let a WhatsApp-linking failure undo the CRM import for this row.
+          console.error(`[SheetsSync] Failed to prepare WhatsApp conversation for contact ${contact.id}:`, err)
+        }
       }
 
       if (sessionId) newSessionIds.push(sessionId)

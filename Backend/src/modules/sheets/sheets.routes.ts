@@ -29,6 +29,7 @@ router.post('/sheets', ...auth, async (req: AuthRequest, res: Response): Promise
       sheetUrl, sheetId, sheetName, campaignLabel,
       fieldMappings, qualificationFields, qualificationRules,
       importFilter, targetPipelineId, targetStageId,
+      linkToWhatsapp, whatsappOpeningMessage,
     } = req.body
 
     if (!sheetUrl || !sheetId || !sheetName || !fieldMappings || !targetPipelineId || !targetStageId) {
@@ -48,6 +49,8 @@ router.post('/sheets', ...auth, async (req: AuthRequest, res: Response): Promise
         importFilter: importFilter ?? 'ALL',
         targetPipelineId,
         targetStageId,
+        linkToWhatsapp: linkToWhatsapp ?? false,
+        whatsappOpeningMessage: whatsappOpeningMessage ?? null,
       },
       include: { pipeline: { select: { name: true } }, stage: { select: { name: true } } },
     })
@@ -88,6 +91,7 @@ router.patch('/sheets/:id', ...auth, async (req: AuthRequest, res: Response): Pr
       isActive, campaignLabel, fieldMappings,
       qualificationFields, qualificationRules,
       importFilter, targetPipelineId, targetStageId,
+      linkToWhatsapp, whatsappOpeningMessage,
     } = req.body
 
     const updated = await prisma.sheetIntegration.update({
@@ -101,6 +105,8 @@ router.patch('/sheets/:id', ...auth, async (req: AuthRequest, res: Response): Pr
         ...(importFilter !== undefined && { importFilter }),
         ...(targetPipelineId !== undefined && { targetPipelineId }),
         ...(targetStageId !== undefined && { targetStageId }),
+        ...(linkToWhatsapp !== undefined && { linkToWhatsapp }),
+        ...(whatsappOpeningMessage !== undefined && { whatsappOpeningMessage }),
       },
       include: { pipeline: { select: { name: true } }, stage: { select: { name: true, color: true } } },
     })
