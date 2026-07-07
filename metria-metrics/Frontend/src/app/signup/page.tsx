@@ -14,10 +14,17 @@ import Link from "next/link"
 export default function SignupPage() {
     const router = useRouter()
     const [isLoading, setIsLoading] = useState(false)
+    const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null)
 
     async function handleSubmit(formData: FormData) {
         setIsLoading(true)
         const result = await signup(formData)
+
+        if (result?.success && result.requiresEmailVerification) {
+            setIsLoading(false)
+            setPendingVerificationEmail(result.email)
+            return
+        }
 
         if (result?.success) {
             localStorage.setItem("metria_token", result.token)
@@ -32,6 +39,20 @@ export default function SignupPage() {
                 description: result?.error || "Ocurrió un error inesperado"
             })
         }
+    }
+
+    if (pendingVerificationEmail) {
+        return (
+            <main className="min-h-screen w-full flex items-center justify-center bg-background relative overflow-hidden">
+                <div className="z-10 w-full max-w-md px-4 py-12 text-center space-y-4">
+                    <h1 className="text-2xl font-bold">Revisa tu correo</h1>
+                    <p className="text-muted-foreground">
+                        Enviamos un enlace de verificación a <strong>{pendingVerificationEmail}</strong>. Ábrelo para activar tu cuenta.
+                    </p>
+                    <Link href="/login" className="text-primary hover:underline font-medium">Volver a iniciar sesión</Link>
+                </div>
+            </main>
+        )
     }
 
     return (
