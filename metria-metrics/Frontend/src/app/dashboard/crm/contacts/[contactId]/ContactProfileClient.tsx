@@ -84,6 +84,10 @@ interface Contact {
   conversations: { id: string; status: string; messageCount: number; lastMessageAt: string | null; channel: { platform: string; name: string } }[]
 }
 
+interface DuplicateContact {
+  id: string; name: string; phone: string | null; email: string | null; source: string; status: string; createdAt: string
+}
+
 export default function ContactProfileClient({ contactId }: { contactId: string }) {
   const [mounted, setMounted] = useState(false)
   const [contact, setContact] = useState<Contact | null>(null)
@@ -103,6 +107,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   const [editEmail, setEditEmail] = useState('')
   const [editPhone, setEditPhone] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
+  const [duplicates, setDuplicates] = useState<DuplicateContact[]>([])
+  const [mergeCandidate, setMergeCandidate] = useState<DuplicateContact | null>(null)
+  const [merging, setMerging] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -133,6 +140,31 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
       .catch(() => setRevenueError(true))
       .finally(() => setRevenueLoading(false))
   }, [mounted, contactId])
+
+  useEffect(() => {
+    if (!mounted) return
+    fetchAPI(`/crm/contacts/${contactId}/duplicates`)
+      .then(setDuplicates)
+      .catch(() => setDuplicates([]))
+  }, [mounted, contactId])
+
+  async function handleMergeConfirm() {
+    if (!mergeCandidate || merging) return
+    setMerging(true)
+    try {
+      await fetchAPI(`/crm/contacts/${contactId}/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ duplicateContactId: mergeCandidate.id })
+      })
+      toast.success('Contactos fusionados')
+      setDuplicates(prev => prev.filter(d => d.id !== mergeCandidate.id))
+      setMergeCandidate(null)
+    } catch {
+      toast.error('Error al fusionar los contactos')
+    } finally {
+      setMerging(false)
+    }
+  }
 
   async function handleStatusChange(newStatus: string) {
     if (!contact || newStatus === contact.status) return
@@ -254,6 +286,25 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
 
   return (
     <div className="space-y-6">
+      {duplicates.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Posible contacto duplicado</p>
+          {duplicates.map(dup => (
+            <div key={dup.id} className="flex items-center justify-between mt-2 gap-2">
+              <span className="text-sm text-muted-foreground truncate">
+                {dup.name} · {PLATFORM_LABEL[dup.source] ?? dup.source}
+              </span>
+              <button
+                onClick={() => setMergeCandidate(dup)}
+                className="shrink-0 px-3 py-1.5 text-sm rounded-lg border hover:bg-muted"
+              >
+                Fusionar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4">
         <button onClick={() => router.back()} className="text-sm text-muted-foreground hover:text-foreground">← Volver</button>
@@ -283,23 +334,23 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
             <SelectItem value="CHURNED">Inactivo</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={contact.leadTemperature ?? ''} onValueChange={handleTemperatureChange}>
+        <Select value={contact.leadTemperature ?? 'NONE'} onValueChange={(v) => handleTemperatureChange(v === 'NONE' ? '' : v)}>
           <SelectTrigger className={`h-6 text-xs font-medium px-2.5 rounded-full border-0 shadow-none w-auto min-w-0 gap-1 focus:ring-0 focus:ring-offset-0 ${TEMP_COLOR[contact.leadTemperature ?? ''] ?? 'bg-muted/50 text-muted-foreground'}`}>
             <SelectValue placeholder="Temperatura" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Sin definir</SelectItem>
+            <SelectItem value="NONE">Sin definir</SelectItem>
             <SelectItem value="COLD">Frío</SelectItem>
             <SelectItem value="WARM">Tibio</SelectItem>
             <SelectItem value="HOT">Caliente</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={contact.leadType ?? ''} onValueChange={handleContactTypeChange}>
+        <Select value={contact.leadType ?? 'NONE'} onValueChange={(v) => handleContactTypeChange(v === 'NONE' ? '' : v)}>
           <SelectTrigger className={`h-6 text-xs font-medium px-2.5 rounded-full border-0 shadow-none w-auto min-w-0 gap-1 focus:ring-0 focus:ring-offset-0 ${LEAD_TYPE_COLOR[contact.leadType ?? ''] ?? 'bg-muted/50 text-muted-foreground'}`}>
             <SelectValue placeholder="Tipo" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Sin definir</SelectItem>
+            <SelectItem value="NONE">Sin definir</SelectItem>
             <SelectItem value="CURIOUS">Curioso</SelectItem>
             <SelectItem value="QUOTING">Cotizando</SelectItem>
             <SelectItem value="READY_TO_BUY">Listo para comprar</SelectItem>
@@ -495,6 +546,32 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
               className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
             >
               {savingEdit ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!mergeCandidate} onOpenChange={(open) => !open && setMergeCandidate(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Fusionar contactos</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            Se moverán conversaciones, deals, tickets y notas de <strong>{mergeCandidate?.name}</strong> ({mergeCandidate ? (PLATFORM_LABEL[mergeCandidate.source] ?? mergeCandidate.source) : ''}) a este contacto, y el duplicado se eliminará. Esta acción no se puede deshacer.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => setMergeCandidate(null)}
+              className="px-3 py-1.5 text-sm rounded-lg border hover:bg-muted"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleMergeConfirm}
+              disabled={merging}
+              className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+            >
+              {merging ? 'Fusionando...' : 'Confirmar fusión'}
             </button>
           </div>
         </DialogContent>
