@@ -348,4 +348,29 @@ router.post('/verify-email', async (req, res) => {
     }
 })
 
+router.post('/resend-verification', async (req, res) => {
+    try {
+        const { email } = req.body
+        if (!email) {
+            return res.status(400).json({ error: 'email is required' })
+        }
+
+        const user = await prisma.user.findUnique({ where: { email } })
+        if (user && !user.emailVerified) {
+            await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } })
+            const verifyToken = crypto.randomBytes(32).toString('hex')
+            await prisma.emailVerificationToken.create({
+                data: { userId: user.id, token: verifyToken, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }
+            })
+            const frontendUrl = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',')[0].trim()
+            sendVerificationEmail(user.email, user.name ?? user.email, `${frontendUrl}/verify-email?token=${verifyToken}`).catch(() => {})
+        }
+
+        return res.status(200).json({ message: 'if_exists_sent' })
+    } catch (error) {
+        console.error('Resend verification error:', error)
+        return res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
 export default router

@@ -143,6 +143,52 @@ describe('POST /api/auth/verify-email', () => {
   })
 })
 
+describe('POST /api/auth/resend-verification', () => {
+  it('issues a new token and emails it when the user exists and is unverified', async () => {
+    const app = buildApp()
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'u1', email: 'new@example.com', name: 'New User', emailVerified: false
+    } as any)
+
+    const res = await request(app)
+      .post('/api/auth/resend-verification')
+      .send({ email: 'new@example.com' })
+      .expect(200)
+
+    expect(res.body).toEqual({ message: 'if_exists_sent' })
+    expect(prisma.emailVerificationToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } })
+    expect(mockSendVerificationEmail).toHaveBeenCalled()
+  })
+
+  it('returns the same response when the user does not exist (no enumeration)', async () => {
+    const app = buildApp()
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
+
+    const res = await request(app)
+      .post('/api/auth/resend-verification')
+      .send({ email: 'ghost@example.com' })
+      .expect(200)
+
+    expect(res.body).toEqual({ message: 'if_exists_sent' })
+    expect(mockSendVerificationEmail).not.toHaveBeenCalled()
+  })
+
+  it('returns the same response when the user is already verified (no email sent)', async () => {
+    const app = buildApp()
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'u1', email: 'new@example.com', name: 'New User', emailVerified: true
+    } as any)
+
+    const res = await request(app)
+      .post('/api/auth/resend-verification')
+      .send({ email: 'new@example.com' })
+      .expect(200)
+
+    expect(res.body).toEqual({ message: 'if_exists_sent' })
+    expect(mockSendVerificationEmail).not.toHaveBeenCalled()
+  })
+})
+
 describe('POST /api/auth/google — audience mismatch', () => {
   it('logs a clear client-id-mismatch diagnostic and returns a distinct error code', async () => {
     const app = buildApp()
