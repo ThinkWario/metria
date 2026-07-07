@@ -494,6 +494,8 @@ model SheetIntegration {
   fieldMappings          Json          @map("field_mappings")
   qualificationFields    Json?         @map("qualification_fields")
   qualificationRules     String?       @map("qualification_rules")
+  excludedColumns        String[]      @default([]) @map("excluded_columns")
+  customFieldMappings    Json?         @map("custom_field_mappings")
   importFilter           String        @default("ALL") @map("import_filter")
   importedSessionIds     String[]      @default([]) @map("imported_session_ids")
   targetPipelineId       String        @map("target_pipeline_id")
