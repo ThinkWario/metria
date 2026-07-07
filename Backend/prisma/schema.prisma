@@ -93,11 +93,23 @@ model User {
   avatarUrl          String?         @map("avatar_url")
   googleId           String?         @unique @map("google_id")
   trialUsedAt        DateTime?       @map("trial_used_at")
+  emailVerified      Boolean         @default(true) @map("email_verified")
   paymentLogs        PaymentLog[]
   preferences        UserPreference?
   workspace          Workspace?      @relation(fields: [workspaceId], references: [id])
 
   @@map("users")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("email_verification_tokens")
 }
 
 model UserPreference {
@@ -349,31 +361,31 @@ model Channel {
 }
 
 model Contact {
-  id                String               @id @default(uuid())
-  workspaceId       String               @map("workspace_id")
-  name              String
-  email             String?
-  phone             String?
-  avatarUrl         String?              @map("avatar_url")
-  source            String
-  sourceCampaignId  String?              @map("source_campaign_id")
-  shopifyCustomerId String?              @map("shopify_customer_id")
-  status            String               @default("LEAD")
-  ltv               Decimal              @default(0) @db.Decimal(10, 2)
-  healthScore       Int?                 @map("health_score")
-  leadScore         Int?                 @map("lead_score")
-  leadTemperature   String?              @map("lead_temperature") // COLD | WARM | HOT
-  leadType          String?              @map("lead_type") // CURIOUS | QUOTING | READY_TO_BUY | POST_SALE
-  qualificationData Json?                @map("qualification_data")
-  createdAt         DateTime             @default(now()) @map("created_at")
-  updatedAt         DateTime             @updatedAt @map("updated_at")
-  healthScores      ContactHealthScore[]
-  contactNotes      ContactNote[]
-  tags              ContactTag[]
-  appointments      Appointment[]
-  events            ContactEvent[]
-  tasks             ContactTask[]
-  workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                 String               @id @default(uuid())
+  workspaceId        String               @map("workspace_id")
+  name               String
+  email              String?
+  phone              String?
+  avatarUrl          String?              @map("avatar_url")
+  source             String
+  sourceCampaignId   String?              @map("source_campaign_id")
+  shopifyCustomerId  String?              @map("shopify_customer_id")
+  status             String               @default("LEAD")
+  ltv                Decimal              @default(0) @db.Decimal(10, 2)
+  healthScore        Int?                 @map("health_score")
+  leadScore          Int?                 @map("lead_score")
+  leadTemperature    String?              @map("lead_temperature") // COLD | WARM | HOT
+  leadType           String?              @map("lead_type") // CURIOUS | QUOTING | READY_TO_BUY | POST_SALE
+  qualificationData  Json?                @map("qualification_data")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  healthScores       ContactHealthScore[]
+  contactNotes       ContactNote[]
+  tags               ContactTag[]
+  appointments       Appointment[]
+  events             ContactEvent[]
+  tasks              ContactTask[]
+  workspace          Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
   deals              Deal[]
   tickets            Ticket[]
@@ -458,27 +470,32 @@ model PipelineStage {
 }
 
 model SheetIntegration {
-  id                   String        @id @default(uuid())
-  workspaceId          String        @map("workspace_id")
-  sheetUrl             String        @map("sheet_url")
-  sheetId              String        @map("sheet_id")
-  sheetName            String        @map("sheet_name")
-  campaignLabel        String?       @map("campaign_label")
-  fieldMappings        Json          @map("field_mappings")
-  qualificationFields  Json?         @map("qualification_fields")
-  qualificationRules   String?       @map("qualification_rules")
-  importFilter         String        @default("ALL") @map("import_filter")
-  importedSessionIds   String[]      @default([]) @map("imported_session_ids")
-  targetPipelineId     String        @map("target_pipeline_id")
-  targetStageId        String        @map("target_stage_id")
-  isActive             Boolean       @default(true) @map("is_active")
-  lastSyncedAt         DateTime?     @map("last_synced_at")
-  lastSyncError        String?       @map("last_sync_error")
-  createdAt            DateTime      @default(now()) @map("created_at")
-  updatedAt            DateTime      @updatedAt @map("updated_at")
-  workspace            Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  pipeline             Pipeline      @relation(fields: [targetPipelineId], references: [id])
-  stage                PipelineStage @relation(fields: [targetStageId], references: [id])
+  id                     String        @id @default(uuid())
+  workspaceId            String        @map("workspace_id")
+  sheetUrl               String        @map("sheet_url")
+  sheetId                String        @map("sheet_id")
+  sheetName              String        @map("sheet_name")
+  campaignLabel          String?       @map("campaign_label")
+  fieldMappings          Json          @map("field_mappings")
+  qualificationFields    Json?         @map("qualification_fields")
+  qualificationRules     String?       @map("qualification_rules")
+  importFilter           String        @default("ALL") @map("import_filter")
+  importedSessionIds     String[]      @default([]) @map("imported_session_ids")
+  targetPipelineId       String        @map("target_pipeline_id")
+  targetStageId          String        @map("target_stage_id")
+  // Opt-in: prepares (never auto-sends) a WhatsApp conversation with a
+  // suggested opening message for qualified leads with a valid phone — a
+  // human must review and send it manually from the inbox.
+  linkToWhatsapp         Boolean       @default(false) @map("link_to_whatsapp")
+  whatsappOpeningMessage String?       @map("whatsapp_opening_message")
+  isActive               Boolean       @default(true) @map("is_active")
+  lastSyncedAt           DateTime?     @map("last_synced_at")
+  lastSyncError          String?       @map("last_sync_error")
+  createdAt              DateTime      @default(now()) @map("created_at")
+  updatedAt              DateTime      @updatedAt @map("updated_at")
+  workspace              Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pipeline               Pipeline      @relation(fields: [targetPipelineId], references: [id])
+  stage                  PipelineStage @relation(fields: [targetStageId], references: [id])
 
   @@index([workspaceId, isActive])
   @@map("sheet_integrations")
@@ -734,20 +751,20 @@ model AvailabilityRule {
 }
 
 model Appointment {
-  id          String    @id @default(uuid())
-  workspaceId String    @map("workspace_id")
-  contactId   String    @map("contact_id")
-  dealId      String?   @map("deal_id")
-  type        String    @default("SITE_VISIT") // SITE_VISIT | CALL
-  scheduledAt DateTime  @map("scheduled_at")
-  durationMin Int       @default(60) @map("duration_min")
-  status      String    @default("SCHEDULED") // SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
+  id            String    @id @default(uuid())
+  workspaceId   String    @map("workspace_id")
+  contactId     String    @map("contact_id")
+  dealId        String?   @map("deal_id")
+  type          String    @default("SITE_VISIT") // SITE_VISIT | CALL
+  scheduledAt   DateTime  @map("scheduled_at")
+  durationMin   Int       @default(60) @map("duration_min")
+  status        String    @default("SCHEDULED") // SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
   notes         String?
   googleEventId String?   @map("google_event_id")
-  createdBy   String    @map("created_by") // 'BOT' | userId
-  createdAt   DateTime  @default(now()) @map("created_at")
-  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy     String    @map("created_by") // 'BOT' | userId
+  createdAt     DateTime  @default(now()) @map("created_at")
+  contact       Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, scheduledAt])
   @@map("appointments")
