@@ -1,11 +1,12 @@
 import { Router } from 'express'
 import jwt from 'jsonwebtoken'
+import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import 'dotenv/config'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import bcrypt from 'bcrypt'
 import { OAuth2Client } from 'google-auth-library'
-import { sendWelcomeEmail } from '../lib/mailer'
+import { sendWelcomeEmail, sendVerificationEmail } from '../lib/mailer'
 
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod'
@@ -294,28 +295,19 @@ router.post('/register', async (req, res) => {
         const workspace = await prisma.workspace.create({ data: { name: workspaceName } })
         const passwordHash = await bcrypt.hash(password, 10)
         const user = await prisma.user.create({
-            data: { email, name, passwordHash, role: 'ADMIN', workspaceId: workspace.id }
+            data: { email, name, passwordHash, role: 'ADMIN', workspaceId: workspace.id, emailVerified: false }
         })
 
         sendWelcomeEmail(email, name).catch(() => {})
 
-        const token = jwt.sign(
-            { 
-                id: user.id, 
-                email: user.email, 
-                name: user.name, 
-                role: user.role, 
-                workspaceId: workspace.id,
-                subscriptionStatus: workspace.subscriptionStatus 
-            },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        )
-
-        return res.status(201).json({
-            token,
-            user: { id: user.id, email, role: 'ADMIN', workspaceId: workspace.id }
+        const verifyToken = crypto.randomBytes(32).toString('hex')
+        await prisma.emailVerificationToken.create({
+            data: { userId: user.id, token: verifyToken, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) }
         })
+        const frontendUrl = (process.env.FRONTEND_URL ?? 'http://localhost:3000').split(',')[0].trim()
+        sendVerificationEmail(email, name, `${frontendUrl}/verify-email?token=${verifyToken}`).catch(() => {})
+
+        return res.status(201).json({ requiresEmailVerification: true, email })
     } catch (error) {
         console.error('Register error:', error)
         return res.status(500).json({ error: 'Internal server error' })
