@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, ChevronRight, ChevronLeft, AlertCircle, Sparkles } from 'lucide-react'
+import { Loader2, ChevronRight, ChevronLeft, AlertCircle, Sparkles, MessageCircle, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { fetchAPI } from '@/lib/api'
 
@@ -61,11 +62,17 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
   const [mappings, setMappings] = useState<Record<string, string>>({})
   const [eventFilter, setEventFilter] = useState('')
   const [pipelines, setPipelines] = useState<Pipeline[]>([])
+  const [pipelinesChecked, setPipelinesChecked] = useState(false)
   const [pipelineId, setPipelineId] = useState('')
   const [stageId, setStageId] = useState('')
   const [qualFields, setQualFields] = useState<string[]>([])
+  const [customFieldDefs, setCustomFieldDefs] = useState<{ id: string; key: string; label: string }[]>([])
+  const [includedColumns, setIncludedColumns] = useState<Record<string, boolean>>({})
+  const [columnCustomFieldMap, setColumnCustomFieldMap] = useState<Record<string, string>>({})
   const [qualRules, setQualRules] = useState('')
   const [importFilter, setImportFilter] = useState('ALL')
+  const [linkToWhatsapp, setLinkToWhatsapp] = useState(false)
+  const [whatsappOpeningMessage, setWhatsappOpeningMessage] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -82,13 +89,19 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
         }
       })
       .catch(() => {})
+      .finally(() => setPipelinesChecked(true))
+    fetchAPI('/crm/custom-fields').then(setCustomFieldDefs).catch(() => {})
   }, [open])
+
+  const noPipelines = pipelinesChecked && pipelines.length === 0
 
   const reset = () => {
     setStep(1); setUrl(''); setCampaignLabel(''); setAnalyzing(false)
     setAnalyzeResult(null); setMappings({}); setEventFilter('')
+    setPipelines([]); setPipelinesChecked(false)
+    setCustomFieldDefs([]); setIncludedColumns({}); setColumnCustomFieldMap({})
     setPipelineId(''); setStageId(''); setQualFields([]); setQualRules('')
-    setImportFilter('ALL'); setSaving(false)
+    setImportFilter('ALL'); setLinkToWhatsapp(false); setWhatsappOpeningMessage(''); setSaving(false)
   }
 
   const handleClose = () => { reset(); onClose() }
@@ -110,6 +123,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
       )
       setEventFilter(result.suggestedMappings.mappings.eventFilter ?? '')
       setQualFields(result.suggestedMappings.suggestedQualificationFields ?? [])
+      setIncludedColumns(Object.fromEntries(result.headers.map(h => [h, true])))
       setStep(2)
     } catch (err: any) {
       toast.error(err.message)
@@ -122,6 +136,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
     if (!pipelineId || !stageId) { toast.error('Selecciona pipeline y etapa'); return }
     setSaving(true)
     try {
+      const excludedColumns = Object.entries(includedColumns).filter(([, included]) => !included).map(([h]) => h)
       await fetchAPI('/sheets', {
         method: 'POST',
         body: JSON.stringify({
@@ -135,6 +150,10 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
           importFilter,
           targetPipelineId: pipelineId,
           targetStageId: stageId,
+          linkToWhatsapp,
+          whatsappOpeningMessage: whatsappOpeningMessage.trim() || null,
+          excludedColumns,
+          customFieldMappings: columnCustomFieldMap,
         }),
       })
       toast.success('Planilla vinculada correctamente')
@@ -164,6 +183,18 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
         {/* PASO 1: URL */}
         {step === 1 && (
           <div className="space-y-4">
+            {noPipelines && (
+              <div className="flex gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-700 dark:text-amber-400">
+                <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  Todavía no tienes ningún Pipeline creado. Necesitas al menos uno para poder
+                  asignarle los leads importados desde la planilla.{' '}
+                  <Link href="/dashboard/crm/pipelines" className="underline font-medium">
+                    Crear un Pipeline primero →
+                  </Link>
+                </span>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>URL de la planilla</Label>
               <Input
@@ -184,7 +215,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
                 onChange={e => setCampaignLabel(e.target.value)}
               />
             </div>
-            <Button className="w-full" onClick={analyze} disabled={analyzing}>
+            <Button className="w-full" onClick={analyze} disabled={analyzing || noPipelines}>
               {analyzing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Analizando planilla...</> : 'Analizar con IA →'}
             </Button>
           </div>
@@ -275,17 +306,38 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
               <p className="text-xs text-muted-foreground mb-3">
                 El agente usará estos campos para evaluar cada lead antes de ingresarlo al CRM
               </p>
-              <div className="grid grid-cols-1 gap-1 max-h-48 overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 gap-1 max-h-64 overflow-y-auto pr-1">
                 {analyzeResult.headers.map(h => (
-                  <label key={h} className="flex items-center justify-between gap-2 cursor-pointer hover:bg-muted/40 rounded px-2 py-1.5">
-                    <span className="text-xs truncate">{h}</span>
+                  <div key={h} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-muted/40">
+                    <span className="text-xs truncate flex-1">{h}</span>
+                    <Switch
+                      aria-label={`Incluir ${h}`}
+                      checked={includedColumns[h] ?? true}
+                      onCheckedChange={checked => setIncludedColumns(prev => ({ ...prev, [h]: checked }))}
+                    />
+                    <Select
+                      value={columnCustomFieldMap[h] ?? '__none__'}
+                      onValueChange={v => setColumnCustomFieldMap(prev => {
+                        const next = { ...prev }
+                        if (v === '__none__') delete next[h]; else next[h] = v
+                        return next
+                      })}
+                    >
+                      <SelectTrigger aria-label={`Campo personalizado para ${h}`} className="h-7 w-40 text-xs">
+                        <SelectValue placeholder="— Sin mapear —" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— Sin mapear —</SelectItem>
+                        {customFieldDefs.map(def => <SelectItem key={def.key} value={def.key}>{def.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                     <Switch
                       checked={qualFields.includes(h)}
                       onCheckedChange={checked => setQualFields(prev =>
                         checked ? [...prev, h] : prev.filter(f => f !== h)
                       )}
                     />
-                  </label>
+                  </div>
                 ))}
               </div>
             </div>
@@ -316,6 +368,42 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
               <p className="text-xs text-muted-foreground">
                 Puedes cambiar esto después desde la tarjeta de integración
               </p>
+            </div>
+
+            <div className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-sm flex items-center gap-1.5">
+                  <MessageCircle className="h-4 w-4" />
+                  Vincular con WhatsApp
+                </Label>
+                <Switch checked={linkToWhatsapp} onCheckedChange={setLinkToWhatsapp} />
+              </div>
+
+              {linkToWhatsapp && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-md text-xs text-amber-700 dark:text-amber-400">
+                    <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Esto NO envía mensajes automáticamente. Solo prepara la conversación con un
+                      primer mensaje sugerido para que lo revises y envíes tú manualmente desde el
+                      inbox. Enviar mensajes masivos no solicitados por WhatsApp puede hacer que Meta
+                      bloquee el número — por eso el envío siempre requiere tu confirmación manual.
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      Mensaje sugerido <span>(opcional, usa {'{nombre}'} para el nombre del lead)</span>
+                    </Label>
+                    <Textarea
+                      className="text-xs resize-none"
+                      rows={3}
+                      placeholder="Hola {nombre}, vimos tu interés y nos encantaría ayudarte 🙌"
+                      value={whatsappOpeningMessage}
+                      onChange={e => setWhatsappOpeningMessage(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2 pt-2">
