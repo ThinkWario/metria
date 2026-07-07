@@ -3,7 +3,7 @@ import request from 'supertest'
 import express from 'express'
 
 vi.mock('../../../lib/prisma', () => ({
-  prisma: { sheetIntegration: { create: vi.fn(), update: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() } }
+  prisma: { sheetIntegration: { create: vi.fn(), update: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() } }
 }))
 vi.mock('../../../middleware/auth', () => ({
   authenticate: (req: any, _res: any, next: any) => { req.user = { workspaceId: 'ws-1' }; next() }
@@ -62,6 +62,42 @@ describe('POST /api/sheets', () => {
 
     expect(prisma.sheetIntegration.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ excludedColumns: [], customFieldMappings: null }) })
+    )
+  })
+
+  it('passes stageRouting through to prisma.sheetIntegration.create', async () => {
+    vi.mocked(prisma.sheetIntegration.create).mockResolvedValue({ id: 'integ-1' } as any)
+
+    await request(buildApp())
+      .post('/api/sheets')
+      .send({
+        sheetUrl: 'https://docs.google.com/spreadsheets/d/abc/edit',
+        sheetId: 'abc', sheetName: 'Leads', fieldMappings: { name: 'Nombre' },
+        targetPipelineId: 'pipe-1', targetStageId: 'stage-1',
+        stageRouting: { CALIFICA: 'stage-hot', NO_CALIFICA: 'stage-cold' }
+      })
+      .expect(201)
+
+    expect(prisma.sheetIntegration.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ stageRouting: { CALIFICA: 'stage-hot', NO_CALIFICA: 'stage-cold' } })
+      })
+    )
+  })
+})
+
+describe('PATCH /api/sheets/:id', () => {
+  it('updates stageRouting when provided', async () => {
+    vi.mocked(prisma.sheetIntegration.findFirst).mockResolvedValue({ id: 'integ-1', workspaceId: 'ws-1' } as any)
+    vi.mocked(prisma.sheetIntegration.update).mockResolvedValue({ id: 'integ-1' } as any)
+
+    await request(buildApp())
+      .patch('/api/sheets/integ-1')
+      .send({ stageRouting: { REVISAR: 'stage-review' } })
+      .expect(200)
+
+    expect(prisma.sheetIntegration.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stageRouting: { REVISAR: 'stage-review' } }) })
     )
   })
 })
