@@ -45,6 +45,7 @@ import {
     CreditCard,
     CheckSquare,
     DollarSign,
+    ListPlus,
 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import Link from "next/link"
@@ -72,6 +73,7 @@ type MenuItem = {
 const CRM_SUB_ITEMS: MenuItem[] = [
     { key: "crm-contacts",      title: "Contactos",      icon: Users,        url: "/dashboard/crm" },
     { key: "crm-pipelines",     title: "Pipelines",      icon: KanbanSquare, url: "/dashboard/crm/pipelines" },
+    { key: "crm-custom-fields", title: "Campos Personalizados", icon: ListPlus, url: "/dashboard/crm/custom-fields" },
     { key: "crm-deals",         title: "Deals",          icon: DollarSign,   url: "/dashboard/crm/deals" },
     { key: "crm-payments",      title: "Cobros",         icon: CreditCard,   url: "/dashboard/crm/payments" },
     { key: "crm-segments",      title: "Segmentos",      icon: Filter,       url: "/dashboard/crm/segments" },
