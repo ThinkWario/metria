@@ -140,6 +140,7 @@ router.post('/google', async (req, res) => {
                     avatarUrl: picture,
                     role: 'ADMIN',
                     workspaceId: workspace.id,
+                    emailVerified: true,
                 },
                 include: { workspace: true }
             })

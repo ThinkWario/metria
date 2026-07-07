@@ -16,6 +16,7 @@ vi.mock('../../lib/prisma', () => ({
   prisma: {
     user: {
       findUnique: vi.fn().mockResolvedValue(null),
+      findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({
         id: 'u1', email: 'new@example.com', name: 'New User', role: 'ADMIN',
         workspaceId: 'ws1', workspace: { id: 'ws1', status: 'ACTIVE' }
@@ -35,17 +36,17 @@ vi.mock('../../lib/prisma', () => ({
 import authRouter from '../auth'
 import { prisma } from '../../lib/prisma'
 
+const { mockVerifyIdToken } = vi.hoisted(() => ({ mockVerifyIdToken: vi.fn() }))
 vi.mock('google-auth-library', () => ({
   OAuth2Client: vi.fn().mockImplementation(function () {
-    return {
-      verifyIdToken: vi.fn().mockRejectedValue(
-        new Error('Wrong recipient, payload audience != requiredAudience')
-      )
-    }
+    return { verifyIdToken: mockVerifyIdToken }
   })
 }))
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockVerifyIdToken.mockRejectedValue(new Error('Wrong recipient, payload audience != requiredAudience'))
+})
 
 function buildApp() {
   const app = express()
@@ -221,6 +222,31 @@ describe('POST /api/auth/google — audience mismatch', () => {
     expect(res.body.error).toBe('google_client_id_mismatch')
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('NEXT_PUBLIC_GOOGLE_CLIENT_ID')
+    )
+  })
+})
+
+describe('POST /api/auth/google — new user creation', () => {
+  it('creates the user with emailVerified explicitly true', async () => {
+    const app = buildApp()
+    mockVerifyIdToken.mockResolvedValue({
+      getPayload: () => ({ email: 'newgoogle@example.com', name: 'Google User', sub: 'g-sub-1', picture: 'https://x/pic.png' })
+    })
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.workspace.create).mockResolvedValue({ id: 'ws2', subscriptionStatus: 'INCOMPLETE' } as any)
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: 'u2', email: 'newgoogle@example.com', name: 'Google User', role: 'ADMIN',
+      workspaceId: 'ws2', avatarUrl: 'https://x/pic.png', trialUsedAt: null,
+      workspace: { id: 'ws2', status: 'ACTIVE', subscriptionStatus: 'INCOMPLETE' }
+    } as any)
+
+    await request(app)
+      .post('/api/auth/google')
+      .send({ credential: 'good-token' })
+      .expect(200)
+
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ emailVerified: true }) })
     )
   })
 })
