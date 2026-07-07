@@ -15,3 +15,14 @@ export async function sendWelcomeEmail(to: string, name: string): Promise<void> 
     console.error(`[mailer] welcome email to ${to} failed: ${result.error}`)
   }
 }
+
+export async function sendVerificationEmail(to: string, name: string, verifyUrl: string): Promise<void> {
+  const driver = getDriver('EMAIL')
+  const subject = 'Verifica tu cuenta de Metria Metrics'
+  const body = `Hola ${name},\n\nConfirma tu correo para activar tu cuenta en Metria Metrics:\n\n${verifyUrl}\n\nEste enlace expira en 24 horas.\n\n— El equipo de Metria`
+
+  const result = await driver.sendEmail(to, subject, body)
+  if (!result.ok) {
+    console.error(`[mailer] verification email to ${to} failed: ${result.error}`)
+  }
+}
