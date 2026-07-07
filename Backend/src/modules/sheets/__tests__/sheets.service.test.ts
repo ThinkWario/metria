@@ -4,7 +4,7 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: {
     sheetIntegration: { findUnique: vi.fn(), update: vi.fn(async () => ({})) },
     channel: { findFirst: vi.fn() },
-    contact: { findUnique: vi.fn(async () => null), create: vi.fn() },
+    contact: { findUnique: vi.fn(async () => null), create: vi.fn(), update: vi.fn(async () => ({})) },
     deal: { findFirst: vi.fn(async () => null), create: vi.fn(async () => ({})) },
     conversation: { findUnique: vi.fn(async () => null), create: vi.fn() },
     message: { create: vi.fn(async () => ({ id: 'note-1', content: '', sentAt: new Date() })) }
@@ -180,5 +180,60 @@ describe('syncSheet dedup safeguards', () => {
       expect.objectContaining({ where: { contactId: 'c1', pipelineId: 'pipe-1' } })
     )
     expect(prisma.deal.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('syncSheet column exclusion + custom field mapping', () => {
+  it('omits excluded columns from qualificationData.rawFields', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono' }, excludedColumns: ['Telefono'] }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678' } as any)
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    const createArg = vi.mocked(prisma.contact.create).mock.calls[0][0] as any
+    expect(createArg.data.qualificationData.rawFields).not.toHaveProperty('Telefono')
+    expect(createArg.data.qualificationData.rawFields).toHaveProperty('Nombre', 'Ana')
+  })
+
+  it('writes customFieldMappings values onto contact.customFields for a newly-created contact', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        customFieldMappings: { Nombre: 'display_name' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { customFields: { display_name: 'Ana' } }
+    })
+  })
+
+  it('merges customFieldMappings values into an already-existing contact\'s customFields', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        customFieldMappings: { Nombre: 'display_name' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: { rut: '11.111.111-1' } } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'deal-1' } as any)
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { customFields: { rut: '11.111.111-1', display_name: 'Ana' } }
+    })
   })
 })

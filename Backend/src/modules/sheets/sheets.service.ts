@@ -160,6 +160,8 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
   const nameCol = mappings.name ? headers.indexOf(mappings.name) : -1
   const emailCol = mappings.email ? headers.indexOf(mappings.email) : -1
   const phoneCol = mappings.phone ? headers.indexOf(mappings.phone) : -1
+  const excludedColumns = new Set(integration.excludedColumns ?? [])
+  const customFieldMappings = (integration.customFieldMappings as Record<string, string> | null) ?? {}
 
   let imported = 0
   let skipped = 0
@@ -193,7 +195,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
       if (!name && !email && !phone) { skipped++; continue }
 
       const rowData: Record<string, string> = {}
-      headers.forEach((h, i) => { rowData[h] = row[i] ?? '' })
+      headers.forEach((h, i) => { if (!excludedColumns.has(h)) rowData[h] = row[i] ?? '' })
 
       let qualResult: Awaited<ReturnType<typeof qualifyLead>> | null = null
       if (qualFields.length > 0) {
@@ -241,6 +243,17 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
             qualificationData,
           },
         })
+      }
+
+      const customFieldValues: Record<string, string> = {}
+      for (const [sheetCol, defKey] of Object.entries(customFieldMappings)) {
+        const idx = headers.indexOf(sheetCol)
+        const val = idx >= 0 ? row[idx]?.trim() : ''
+        if (val) customFieldValues[defKey] = val
+      }
+      if (Object.keys(customFieldValues).length > 0) {
+        const merged = { ...((contact.customFields as Record<string, string> | null) ?? {}), ...customFieldValues }
+        contact = await prisma.contact.update({ where: { id: contact.id }, data: { customFields: merged } })
       }
 
       // Keyed on contact + pipeline only — a title substring match (e.g. on
