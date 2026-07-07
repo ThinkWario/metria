@@ -26,6 +26,10 @@ export async function login(formData: FormData) {
             return { success: true, requiresPasswordChange: true, tempToken: data.token }
         }
 
+        if (data.requiresEmailVerification) {
+            return { success: true, requiresEmailVerification: true, email: data.email }
+        }
+
         // Set a session cookie for Next.js middleware protection
         const cookieStore = await cookies()
         cookieStore.set("metria_session", data.token, {

@@ -51,6 +51,12 @@ export default function LoginPage() {
                 return
             }
 
+            if (result.requiresEmailVerification) {
+                setIsLoading(false)
+                toast.error("Debes verificar tu correo antes de iniciar sesión. Revisa tu email.")
+                return
+            }
+
             // Standard success
             localStorage.setItem("metria_token", result.token)
 
