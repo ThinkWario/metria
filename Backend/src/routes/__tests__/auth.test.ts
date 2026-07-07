@@ -94,6 +94,55 @@ describe('POST /api/auth/register', () => {
   })
 })
 
+describe('POST /api/auth/verify-email', () => {
+  it('marks the user verified and returns a session token', async () => {
+    const app = buildApp()
+    vi.mocked(prisma.emailVerificationToken.findUnique).mockResolvedValue({
+      id: 'evt1', userId: 'u1', token: 'goodtoken', expiresAt: new Date(Date.now() + 60_000)
+    } as any)
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      id: 'u1', email: 'new@example.com', role: 'ADMIN', workspaceId: 'ws1'
+    } as any)
+
+    const res = await request(app)
+      .post('/api/auth/verify-email')
+      .send({ token: 'goodtoken' })
+      .expect(200)
+
+    expect(res.body.token).toEqual(expect.any(String))
+    expect(res.body.user).toEqual({ id: 'u1', email: 'new@example.com', role: 'ADMIN', workspaceId: 'ws1' })
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { emailVerified: true } })
+    expect(prisma.emailVerificationToken.delete).toHaveBeenCalledWith({ where: { id: 'evt1' } })
+  })
+
+  it('rejects an expired token', async () => {
+    const app = buildApp()
+    vi.mocked(prisma.emailVerificationToken.findUnique).mockResolvedValue({
+      id: 'evt1', userId: 'u1', token: 'oldtoken', expiresAt: new Date(Date.now() - 60_000)
+    } as any)
+
+    const res = await request(app)
+      .post('/api/auth/verify-email')
+      .send({ token: 'oldtoken' })
+      .expect(400)
+
+    expect(res.body.error).toBe('invalid_or_expired_token')
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unknown token', async () => {
+    const app = buildApp()
+    vi.mocked(prisma.emailVerificationToken.findUnique).mockResolvedValue(null)
+
+    const res = await request(app)
+      .post('/api/auth/verify-email')
+      .send({ token: 'nonexistent' })
+      .expect(400)
+
+    expect(res.body.error).toBe('invalid_or_expired_token')
+  })
+})
+
 describe('POST /api/auth/google — audience mismatch', () => {
   it('logs a clear client-id-mismatch diagnostic and returns a distinct error code', async () => {
     const app = buildApp()

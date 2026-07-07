@@ -314,4 +314,38 @@ router.post('/register', async (req, res) => {
     }
 })
 
+router.post('/verify-email', async (req, res) => {
+    try {
+        const { token } = req.body
+        if (!token) {
+            return res.status(400).json({ error: 'token is required' })
+        }
+
+        const record = await prisma.emailVerificationToken.findUnique({ where: { token } })
+        if (!record || record.expiresAt < new Date()) {
+            return res.status(400).json({ error: 'invalid_or_expired_token' })
+        }
+
+        const user = await prisma.user.update({
+            where: { id: record.userId },
+            data: { emailVerified: true }
+        })
+        await prisma.emailVerificationToken.delete({ where: { id: record.id } })
+
+        const jwtToken = jwt.sign(
+            { id: user.id, email: user.email, role: user.role, workspaceId: user.workspaceId },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        )
+
+        return res.status(200).json({
+            token: jwtToken,
+            user: { id: user.id, email: user.email, role: user.role, workspaceId: user.workspaceId }
+        })
+    } catch (error) {
+        console.error('Verify email error:', error)
+        return res.status(500).json({ error: 'Internal server error' })
+    }
+})
+
 export default router
