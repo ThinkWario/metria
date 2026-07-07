@@ -56,6 +56,7 @@ model Workspace {
   orders                   Order[]
   paymentLogs              PaymentLog[]
   pipelines                Pipeline[]
+  contactCustomFieldDefinitions ContactCustomFieldDefinition[]
   products                 Product[]
   quickReplies             QuickReply[]
   shipments                Shipment[]
@@ -377,6 +378,7 @@ model Contact {
   leadTemperature    String?              @map("lead_temperature") // COLD | WARM | HOT
   leadType           String?              @map("lead_type") // CURIOUS | QUOTING | READY_TO_BUY | POST_SALE
   qualificationData  Json?                @map("qualification_data")
+  customFields       Json?                @map("custom_fields")
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
   healthScores       ContactHealthScore[]
@@ -435,6 +437,19 @@ model ContactHealthScore {
 
   @@index([contactId, calculatedAt])
   @@map("contact_health_scores")
+}
+
+model ContactCustomFieldDefinition {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  key         String
+  label       String
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@map("contact_custom_field_definitions")
 }
 
 model Pipeline {
