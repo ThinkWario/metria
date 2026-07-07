@@ -3,10 +3,41 @@ import type { AuthRequest } from '../../middleware/auth'
 import * as cs from './contact.service'
 import * as ps from './pipeline.service'
 import * as ts from './ticket.service'
+import * as cfs from './customField.service'
 import { prisma } from '../../lib/prisma'
 
 function notFoundStatus(msg: string) {
   return msg.toLowerCase().includes('not found') ? 404 : 500
+}
+
+// ── Custom Fields ────────────────────────────────────────────────────────────
+
+export async function listCustomFieldsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    res.json(await cfs.listDefinitions(req.user!.workspaceId!))
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
+export async function createCustomFieldHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { label } = req.body
+    if (!label?.trim()) { res.status(400).json({ error: 'label is required' }); return }
+    res.status(201).json(await cfs.createDefinition(req.user!.workspaceId!, label.trim()))
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
+export async function deleteCustomFieldHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    await cfs.deleteDefinition(req.user!.workspaceId!, req.params.id)
+    res.status(204).send()
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+export async function setContactCustomFieldsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { values } = req.body
+    res.json(await cfs.setContactCustomFields(req.user!.workspaceId!, req.params.contactId, values ?? {}))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
 // ── Contacts ──────────────────────────────────────────────────────────────────

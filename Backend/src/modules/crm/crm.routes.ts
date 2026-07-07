@@ -9,6 +9,7 @@ import {
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
   bulkUpdateContactsHandler, bulkDeleteContactsHandler,
   listDuplicateContactsHandler, mergeContactsHandler,
+  listCustomFieldsHandler, createCustomFieldHandler, deleteCustomFieldHandler, setContactCustomFieldsHandler,
   listPipelinesHandler, createPipelineHandler,
   createStageHandler, updateStageHandler, deleteStageHandler, reorderStagesHandler,
   listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler, updateDealHandler,
@@ -32,6 +33,12 @@ router.post('/crm/contacts/:contactId/notes', ...auth, addNoteHandler)
 router.post('/crm/contacts/:contactId/tags', ...auth, addTagHandler)
 router.delete('/crm/contacts/:contactId/tags/:tagId', ...auth, removeTagHandler)
 router.post('/crm/contacts/:contactId/health-score', ...auth, calculateHealthScoreHandler)
+
+// Custom Fields
+router.get('/crm/custom-fields', ...auth, listCustomFieldsHandler)
+router.post('/crm/custom-fields', ...auth, createCustomFieldHandler)
+router.delete('/crm/custom-fields/:id', ...auth, deleteCustomFieldHandler)
+router.patch('/crm/contacts/:contactId/custom-fields', ...auth, setContactCustomFieldsHandler)
 router.get('/crm/contacts/:contactId/duplicates', ...auth, listDuplicateContactsHandler)
 router.post('/crm/contacts/:contactId/merge', ...auth, mergeContactsHandler)
 
