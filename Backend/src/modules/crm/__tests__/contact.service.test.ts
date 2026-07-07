@@ -2,14 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
-    contact: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
-    contactNote: { create: vi.fn() },
-    contactTag: { upsert: vi.fn(), findFirst: vi.fn(), delete: vi.fn() },
-    contactHealthScore: { create: vi.fn() }
+    contact: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    contactNote: { create: vi.fn(), updateMany: vi.fn() },
+    contactTag: { upsert: vi.fn(), findFirst: vi.fn(), delete: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
+    contactHealthScore: { create: vi.fn(), updateMany: vi.fn() },
+    conversation: { updateMany: vi.fn() },
+    deal: { updateMany: vi.fn() },
+    ticket: { updateMany: vi.fn() },
+    invoice: { updateMany: vi.fn() },
+    contactEvent: { updateMany: vi.fn() },
+    contactTask: { updateMany: vi.fn() },
+    campaignRecipient: { updateMany: vi.fn() },
+    auditLog: { create: vi.fn() },
+    $transaction: vi.fn()
   }
 }))
 
-import { listContacts, getContact, updateContact, addNote, addTag, removeTag, calculateHealthScore, updateQualification } from '../contact.service'
+import { listContacts, getContact, updateContact, addNote, addTag, removeTag, calculateHealthScore, updateQualification, findPossibleDuplicates, mergeContacts } from '../contact.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
@@ -171,5 +180,85 @@ describe('updateQualification', () => {
 
   it('rejects invalid temperature value', async () => {
     await expect(updateQualification(WS, CONTACT_ID, { temperature: 'LAVA' as any })).rejects.toThrow('Invalid temperature')
+  })
+})
+
+describe('findPossibleDuplicates', () => {
+  it('finds other contacts in the same workspace with a matching name', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({ id: CONTACT_ID, name: 'Juan Perez' } as any)
+    const dupes = [{ id: 'ct-2', name: 'Juan Perez', phone: 'ig_98765' }]
+    vi.mocked(prisma.contact.findMany).mockResolvedValue(dupes as any)
+
+    const result = await findPossibleDuplicates(WS, CONTACT_ID)
+
+    expect(prisma.contact.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: WS,
+          id: { not: CONTACT_ID },
+          name: { equals: 'Juan Perez', mode: 'insensitive' }
+        })
+      })
+    )
+    expect(result).toEqual(dupes)
+  })
+
+  it('returns an empty array when the source contact is not found', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue(null)
+
+    const result = await findPossibleDuplicates(WS, CONTACT_ID)
+
+    expect(result).toEqual([])
+    expect(prisma.contact.findMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('mergeContacts', () => {
+  const SURVIVOR = 'ct-survivor'
+  const DUPLICATE = 'ct-duplicate'
+
+  it('reassigns every related record onto the survivor and deletes the duplicate', async () => {
+    vi.mocked(prisma.contact.findFirst)
+      .mockResolvedValueOnce({ id: SURVIVOR, workspaceId: WS } as any)
+      .mockResolvedValueOnce({ id: DUPLICATE, workspaceId: WS } as any)
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => fn(prisma))
+    vi.mocked(prisma.contactTag.findMany).mockResolvedValue([])
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: SURVIVOR, name: 'Juan Perez' } as any)
+
+    const result = await mergeContacts(WS, SURVIVOR, DUPLICATE)
+
+    expect(prisma.conversation.updateMany).toHaveBeenCalledWith({ where: { contactId: DUPLICATE }, data: { contactId: SURVIVOR } })
+    expect(prisma.deal.updateMany).toHaveBeenCalledWith({ where: { contactId: DUPLICATE }, data: { contactId: SURVIVOR } })
+    expect(prisma.contactNote.updateMany).toHaveBeenCalledWith({ where: { contactId: DUPLICATE }, data: { contactId: SURVIVOR } })
+    expect(prisma.contactTag.updateMany).toHaveBeenCalledWith({ where: { contactId: DUPLICATE }, data: { contactId: SURVIVOR } })
+    expect(prisma.contact.delete).toHaveBeenCalledWith({ where: { id: DUPLICATE } })
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ workspaceId: WS, event: 'contact.merge' }) })
+    )
+    expect(result).toEqual({ id: SURVIVOR, name: 'Juan Perez' })
+  })
+
+  it('deletes duplicate-owned tags that already exist on the survivor before reassigning the rest', async () => {
+    vi.mocked(prisma.contact.findFirst)
+      .mockResolvedValueOnce({ id: SURVIVOR, workspaceId: WS } as any)
+      .mockResolvedValueOnce({ id: DUPLICATE, workspaceId: WS } as any)
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: any) => fn(prisma))
+    vi.mocked(prisma.contactTag.findMany).mockResolvedValue([{ name: 'VIP' }] as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: SURVIVOR } as any)
+
+    await mergeContacts(WS, SURVIVOR, DUPLICATE)
+
+    expect(prisma.contactTag.deleteMany).toHaveBeenCalledWith({ where: { contactId: DUPLICATE, name: { in: ['VIP'] } } })
+    expect(prisma.contactTag.updateMany).toHaveBeenCalledWith({ where: { contactId: DUPLICATE }, data: { contactId: SURVIVOR } })
+  })
+
+  it('throws when survivorId equals duplicateId', async () => {
+    await expect(mergeContacts(WS, SURVIVOR, SURVIVOR)).rejects.toThrow('Cannot merge a contact into itself')
+  })
+
+  it('throws when either contact is not in the workspace', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValueOnce(null)
+
+    await expect(mergeContacts(WS, SURVIVOR, DUPLICATE)).rejects.toThrow('Contact not found')
   })
 })

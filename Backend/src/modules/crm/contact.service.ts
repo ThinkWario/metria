@@ -79,6 +79,63 @@ export async function getContact(workspaceId: string, contactId: string) {
   return contact
 }
 
+export async function findPossibleDuplicates(workspaceId: string, contactId: string) {
+  const source = await prisma.contact.findFirst({ where: { id: contactId, workspaceId }, select: { name: true } })
+  if (!source?.name?.trim()) return []
+
+  return prisma.contact.findMany({
+    where: {
+      workspaceId,
+      id: { not: contactId },
+      name: { equals: source.name.trim(), mode: 'insensitive' }
+    },
+    select: { id: true, name: true, phone: true, email: true, source: true, createdAt: true, status: true },
+    orderBy: { createdAt: 'asc' }
+  })
+}
+
+export async function mergeContacts(workspaceId: string, survivorId: string, duplicateId: string) {
+  if (survivorId === duplicateId) throw new Error('Cannot merge a contact into itself')
+
+  const [survivor, duplicate] = await Promise.all([
+    prisma.contact.findFirst({ where: { id: survivorId, workspaceId } }),
+    prisma.contact.findFirst({ where: { id: duplicateId, workspaceId } })
+  ])
+  if (!survivor || !duplicate) throw new Error('Contact not found')
+
+  return prisma.$transaction(async (tx) => {
+    await tx.conversation.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.deal.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.ticket.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.invoice.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.contactNote.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.contactEvent.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.contactTask.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.contactHealthScore.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+    await tx.campaignRecipient.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+
+    const survivorTagNames = (await tx.contactTag.findMany({ where: { contactId: survivorId }, select: { name: true } })).map((t: { name: string }) => t.name)
+    if (survivorTagNames.length > 0) {
+      await tx.contactTag.deleteMany({ where: { contactId: duplicateId, name: { in: survivorTagNames } } })
+    }
+    await tx.contactTag.updateMany({ where: { contactId: duplicateId }, data: { contactId: survivorId } })
+
+    await tx.contact.delete({ where: { id: duplicateId } })
+    await tx.auditLog.create({
+      data: {
+        workspaceId,
+        source: 'CRM',
+        event: 'contact.merge',
+        status: 'SUCCESS',
+        message: `Merged contact ${duplicateId} into ${survivorId}`,
+        payload: { survivorId, duplicateId }
+      }
+    })
+
+    return tx.contact.update({ where: { id: survivorId }, data: {} })
+  })
+}
+
 export async function updateContact(
   workspaceId: string,
   contactId: string,
