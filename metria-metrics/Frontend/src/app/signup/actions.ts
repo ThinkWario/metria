@@ -22,6 +22,10 @@ export async function signup(formData: FormData) {
             return { success: false, error: data.error || "Error al registrarse" }
         }
 
+        if (data.requiresEmailVerification) {
+            return { success: true, requiresEmailVerification: true, email: data.email }
+        }
+
         // Set session cookie for middleware
         const cookieStore = await cookies()
         cookieStore.set("metria_session", data.token, {
