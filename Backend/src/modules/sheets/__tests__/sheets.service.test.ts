@@ -23,7 +23,7 @@ vi.mock('../sheets.agent', () => ({
 
 import { syncSheet, analyzeSheet } from '../sheets.service'
 import { prisma } from '../../../lib/prisma'
-import { suggestFieldMappings } from '../sheets.agent'
+import { suggestFieldMappings, qualifyLead } from '../sheets.agent'
 
 const WS_ID = 'ws-1'
 const INTEGRATION_ID = 'integ-1'
@@ -340,5 +340,62 @@ describe('analyzeSheet permission errors', () => {
 
     const result = await analyzeSheet('https://docs.google.com/spreadsheets/d/abc123/edit')
     expect(result.sheetName).toBe('Leads')
+  })
+})
+
+describe('syncSheet AI stage routing', () => {
+  it('routes a CALIFICA lead to the mapped stage instead of targetStageId', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        qualificationFields: ['Nombre'],
+        stageRouting: { CALIFICA: 'stage-hot', NO_CALIFICA: 'stage-cold' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(qualifyLead).mockResolvedValue({ qualificationStatus: 'CALIFICA', qualificationSummary: 'ok', observations: [] })
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.deal.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stageId: 'stage-hot' }) })
+    )
+  })
+
+  it('falls back to targetStageId when the qualified status has no mapping', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        qualificationFields: ['Nombre'],
+        stageRouting: { CALIFICA: 'stage-hot' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(qualifyLead).mockResolvedValue({ qualificationStatus: 'REVISAR', qualificationSummary: 'hmm', observations: [] })
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.deal.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stageId: 'stage-1' }) })
+    )
+  })
+
+  it('falls back to targetStageId when no stageRouting is configured at all', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono' } }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.deal.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stageId: 'stage-1' }) })
+    )
   })
 })

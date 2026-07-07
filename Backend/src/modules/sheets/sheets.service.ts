@@ -281,13 +281,16 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
         },
       })
 
+      const stageRouting = (integration.stageRouting as Record<string, string> | null) ?? {}
+      const dealStageId = (qualResult && stageRouting[qualResult.qualificationStatus]) || integration.targetStageId
+
       if (!existingDeal) {
         await prisma.deal.create({
           data: {
             workspaceId: integration.workspaceId,
             contactId: contact.id,
             pipelineId: integration.targetPipelineId,
-            stageId: integration.targetStageId,
+            stageId: dealStageId,
             title: `Lead ${integration.campaignLabel ?? integration.sheetName} - ${contact.name}`,
             value: 0,
             currency: 'CLP',
