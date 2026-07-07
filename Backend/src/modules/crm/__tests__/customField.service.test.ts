@@ -4,11 +4,14 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: {
     contactCustomFieldDefinition: {
       findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), delete: vi.fn()
+    },
+    contact: {
+      findFirst: vi.fn(), update: vi.fn()
     }
   }
 }))
 
-import { listDefinitions, createDefinition, deleteDefinition } from '../customField.service'
+import { listDefinitions, createDefinition, deleteDefinition, setContactCustomFields } from '../customField.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
@@ -62,5 +65,32 @@ describe('deleteDefinition', () => {
   it('throws when the definition does not belong to the workspace', async () => {
     vi.mocked(prisma.contactCustomFieldDefinition.findFirst).mockResolvedValue(null)
     await expect(deleteDefinition(WS, 'cf-1')).rejects.toThrow('Custom field not found')
+  })
+})
+
+describe('setContactCustomFields', () => {
+  const CONTACT_ID = 'ct-1'
+
+  it('merges known keys into the contact and preserves existing values', async () => {
+    vi.mocked(prisma.contactCustomFieldDefinition.findMany).mockResolvedValue([
+      { key: 'rut' }, { key: 'comuna' }
+    ] as any)
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({ id: CONTACT_ID, workspaceId: WS, customFields: { comuna: 'Providencia' } } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: CONTACT_ID, customFields: { comuna: 'Providencia', rut: '11.111.111-1' } } as any)
+
+    const result = await setContactCustomFields(WS, CONTACT_ID, { rut: '11.111.111-1', unknown_key: 'x' })
+
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: CONTACT_ID },
+      data: { customFields: { comuna: 'Providencia', rut: '11.111.111-1' } }
+    })
+    expect(result).toEqual({ id: CONTACT_ID, customFields: { comuna: 'Providencia', rut: '11.111.111-1' } })
+  })
+
+  it('throws when the contact is not in the workspace', async () => {
+    vi.mocked(prisma.contactCustomFieldDefinition.findMany).mockResolvedValue([{ key: 'rut' }] as any)
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue(null)
+
+    await expect(setContactCustomFields(WS, CONTACT_ID, { rut: 'x' })).rejects.toThrow('Contact not found')
   })
 })
