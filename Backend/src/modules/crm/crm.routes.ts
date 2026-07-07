@@ -8,6 +8,7 @@ import {
   listContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
   bulkUpdateContactsHandler, bulkDeleteContactsHandler,
+  listDuplicateContactsHandler, mergeContactsHandler,
   listPipelinesHandler, createPipelineHandler,
   createStageHandler, updateStageHandler, deleteStageHandler, reorderStagesHandler,
   listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler, updateDealHandler,
@@ -31,6 +32,8 @@ router.post('/crm/contacts/:contactId/notes', ...auth, addNoteHandler)
 router.post('/crm/contacts/:contactId/tags', ...auth, addTagHandler)
 router.delete('/crm/contacts/:contactId/tags/:tagId', ...auth, removeTagHandler)
 router.post('/crm/contacts/:contactId/health-score', ...auth, calculateHealthScoreHandler)
+router.get('/crm/contacts/:contactId/duplicates', ...auth, listDuplicateContactsHandler)
+router.post('/crm/contacts/:contactId/merge', ...auth, mergeContactsHandler)
 
 // Pipelines + Deals
 router.get('/crm/pipelines', ...auth, listPipelinesHandler)

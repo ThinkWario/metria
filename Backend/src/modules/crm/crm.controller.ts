@@ -25,6 +25,20 @@ export async function getContactHandler(req: AuthRequest, res: Response): Promis
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
+export async function listDuplicateContactsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    res.json(await cs.findPossibleDuplicates(req.user!.workspaceId!, req.params.contactId))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+export async function mergeContactsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { duplicateContactId } = req.body
+    if (!duplicateContactId) { res.status(400).json({ error: 'duplicateContactId is required' }); return }
+    res.json(await cs.mergeContacts(req.user!.workspaceId!, req.params.contactId, duplicateContactId))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
 export async function createContactHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { name, email, phone, status } = req.body
