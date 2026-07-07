@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import request from 'supertest'
 import express from 'express'
+import bcrypt from 'bcrypt'
 
 const { mockSendWelcomeEmail, mockSendVerificationEmail } = vi.hoisted(() => ({
   mockSendWelcomeEmail: vi.fn().mockResolvedValue(undefined),
@@ -186,6 +187,24 @@ describe('POST /api/auth/resend-verification', () => {
 
     expect(res.body).toEqual({ message: 'if_exists_sent' })
     expect(mockSendVerificationEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/auth/login — unverified email', () => {
+  it('returns requiresEmailVerification instead of a session token', async () => {
+    const app = buildApp()
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'u1', email: 'unverified@example.com', passwordHash: await bcrypt.hash('pw12345678', 10),
+      emailVerified: false, mustChangePassword: false, role: 'ADMIN', workspaceId: 'ws1',
+      workspace: { status: 'ACTIVE' }
+    } as any)
+
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'unverified@example.com', password: 'pw12345678' })
+      .expect(200)
+
+    expect(res.body).toEqual({ requiresEmailVerification: true, email: 'unverified@example.com' })
   })
 })
 

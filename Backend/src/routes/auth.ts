@@ -39,6 +39,10 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' })
         }
 
+        if (user.passwordHash && user.emailVerified === false) {
+            return res.status(200).json({ requiresEmailVerification: true, email: user.email })
+        }
+
         // Check if forced password change is needed
         if (user.mustChangePassword) {
             const tempToken = jwt.sign(
