@@ -21,8 +21,9 @@ vi.mock('../sheets.agent', () => ({
   qualifyLead: vi.fn()
 }))
 
-import { syncSheet } from '../sheets.service'
+import { syncSheet, analyzeSheet } from '../sheets.service'
 import { prisma } from '../../../lib/prisma'
+import { suggestFieldMappings } from '../sheets.agent'
 
 const WS_ID = 'ws-1'
 const INTEGRATION_ID = 'integ-1'
@@ -303,5 +304,41 @@ describe('syncSheet incomplete-lead capture', () => {
     expect(prisma.sheetIntegration.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ importedSessionIds: { push: [] } }) })
     )
+  })
+})
+
+describe('analyzeSheet permission errors', () => {
+  it('throws a stable SHEET_PERMISSION_DENIED error when Google returns 403 PERMISSION_DENIED', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => JSON.stringify({ error: { code: 403, status: 'PERMISSION_DENIED', message: 'The caller does not have permission' } })
+    } as any)
+
+    await expect(analyzeSheet('https://docs.google.com/spreadsheets/d/abc123/edit')).rejects.toThrow('SHEET_PERMISSION_DENIED')
+  })
+
+  it('passes through other Google Sheets API errors unchanged', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => JSON.stringify({ error: { code: 400, status: 'INVALID_ARGUMENT', message: 'API key not valid' } })
+    } as any)
+
+    await expect(analyzeSheet('https://docs.google.com/spreadsheets/d/abc123/edit')).rejects.toThrow(/Google Sheets API 400/)
+  })
+
+  it('succeeds normally when the sheet is accessible', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (url: any) => {
+      const s = String(url)
+      if (s.includes('fields=properties.title')) {
+        return { ok: true, json: async () => ({ properties: { title: 'Leads' } }) } as any
+      }
+      return { ok: true, json: async () => ({ values: [['Nombre'], ['Ana']] }) } as any
+    })
+    vi.mocked(suggestFieldMappings).mockResolvedValue({ mappings: {}, suggestedQualificationFields: [], notes: [] } as any)
+
+    const result = await analyzeSheet('https://docs.google.com/spreadsheets/d/abc123/edit')
+    expect(result.sheetName).toBe('Leads')
   })
 })

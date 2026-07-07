@@ -69,6 +69,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
   const [customFieldDefs, setCustomFieldDefs] = useState<{ id: string; key: string; label: string }[]>([])
   const [includedColumns, setIncludedColumns] = useState<Record<string, boolean>>({})
   const [columnCustomFieldMap, setColumnCustomFieldMap] = useState<Record<string, string>>({})
+  const [permissionError, setPermissionError] = useState(false)
   const [qualRules, setQualRules] = useState('')
   const [importFilter, setImportFilter] = useState('ALL')
   const [linkToWhatsapp, setLinkToWhatsapp] = useState(false)
@@ -99,7 +100,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
     setStep(1); setUrl(''); setCampaignLabel(''); setAnalyzing(false)
     setAnalyzeResult(null); setMappings({}); setEventFilter('')
     setPipelines([]); setPipelinesChecked(false)
-    setCustomFieldDefs([]); setIncludedColumns({}); setColumnCustomFieldMap({})
+    setCustomFieldDefs([]); setIncludedColumns({}); setColumnCustomFieldMap({}); setPermissionError(false)
     setPipelineId(''); setStageId(''); setQualFields([]); setQualRules('')
     setImportFilter('ALL'); setLinkToWhatsapp(false); setWhatsappOpeningMessage(''); setSaving(false)
   }
@@ -109,6 +110,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
   const analyze = async () => {
     if (!url.trim()) { toast.error('Ingresa una URL de Google Sheets'); return }
     setAnalyzing(true)
+    setPermissionError(false)
     try {
       const res = await fetchAPI('/sheets/analyze', {
         method: 'POST',
@@ -126,7 +128,11 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
       setIncludedColumns(Object.fromEntries(result.headers.map(h => [h, true])))
       setStep(2)
     } catch (err: any) {
-      toast.error(err.message)
+      if (err.message === 'SHEET_PERMISSION_DENIED') {
+        setPermissionError(true)
+      } else {
+        toast.error(err.message)
+      }
     } finally {
       setAnalyzing(false)
     }
@@ -192,6 +198,16 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
                   <Link href="/dashboard/crm/pipelines" className="underline font-medium">
                     Crear un Pipeline primero →
                   </Link>
+                </span>
+              </div>
+            )}
+            {permissionError && (
+              <div className="flex gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-xs text-destructive">
+                <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  Metria no tiene permiso para leer esta planilla. Abrí el Sheet → botón{' '}
+                  <strong>Compartir</strong> → cambiá el acceso general a{' '}
+                  <strong>&quot;Cualquiera con el enlace&quot; → Lector</strong> → volvé a intentar.
                 </span>
               </div>
             )}

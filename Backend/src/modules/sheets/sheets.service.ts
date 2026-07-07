@@ -15,6 +15,14 @@ async function sheetsGet(path: string): Promise<any> {
   const res = await fetch(`${SHEETS_API}${path}${path.includes('?') ? '&' : '?'}key=${API_KEY}`)
   if (!res.ok) {
     const body = await res.text()
+    let reason: string | undefined
+    try { reason = JSON.parse(body)?.error?.status } catch { /* body wasn't JSON */ }
+    // A public-API-key request to a private sheet always comes back 403
+    // PERMISSION_DENIED — there is no OAuth identity behind the key, so this
+    // means the sheet isn't shared "Anyone with the link", not a bad key.
+    if (res.status === 403 || reason === 'PERMISSION_DENIED') {
+      throw new Error('SHEET_PERMISSION_DENIED')
+    }
     throw new Error(`Google Sheets API ${res.status}: ${body}`)
   }
   return res.json()

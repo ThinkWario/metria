@@ -63,3 +63,23 @@ describe('SheetLinkModal — column exclusion + custom field mapping', () => {
     })))
   }, 15000)
 })
+
+describe('SheetLinkModal — permission-denied on analyze', () => {
+  it('shows the sharing-fix instructions instead of a generic toast when the sheet is not accessible', async () => {
+    mockFetchAPI.mockImplementation((path: string) => {
+      if (path === '/crm/pipelines') return Promise.resolve([{ id: 'pipe-1', name: 'Ventas', isDefault: true, stages: [{ id: 'stage-1', name: 'Lead', order: 0, color: '#000' }] }])
+      if (path === '/crm/custom-fields') return Promise.resolve([])
+      if (path === '/sheets/analyze') return Promise.reject(new Error('SHEET_PERMISSION_DENIED'))
+      return Promise.resolve({})
+    })
+    const user = userEvent.setup()
+    render(<SheetLinkModal open onClose={() => {}} onCreated={() => {}} />)
+
+    const urlInput = await screen.findByPlaceholderText(/docs.google.com/i)
+    fireEvent.change(urlInput, { target: { value: 'https://docs.google.com/spreadsheets/d/restricted/edit' } })
+    await user.click(screen.getByRole('button', { name: /analizar con ia/i }))
+
+    expect(await screen.findByText(/no tiene permiso para leer esta planilla/i)).toBeInTheDocument()
+    expect(screen.getByText(/cualquiera con el enlace/i)).toBeInTheDocument()
+  })
+})
