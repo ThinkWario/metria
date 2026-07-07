@@ -82,6 +82,13 @@ interface Contact {
   deals: { id: string; title: string; value: string; status: string; stage: { name: string; color: string } }[]
   tickets: { id: string; title: string; status: string; priority: string; createdAt: string; slaDeadline: string | null }[]
   conversations: { id: string; status: string; messageCount: number; lastMessageAt: string | null; channel: { platform: string; name: string } }[]
+  customFields?: Record<string, string> | null
+}
+
+interface CustomFieldDefinition {
+  id: string
+  key: string
+  label: string
 }
 
 interface DuplicateContact {
@@ -110,6 +117,9 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   const [duplicates, setDuplicates] = useState<DuplicateContact[]>([])
   const [mergeCandidate, setMergeCandidate] = useState<DuplicateContact | null>(null)
   const [merging, setMerging] = useState(false)
+  const [customFieldDefs, setCustomFieldDefs] = useState<CustomFieldDefinition[]>([])
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({})
+  const [savingCustomFields, setSavingCustomFields] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -147,6 +157,33 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
       .then(setDuplicates)
       .catch(() => setDuplicates([]))
   }, [mounted, contactId])
+
+  useEffect(() => {
+    if (!mounted) return
+    fetchAPI('/crm/custom-fields')
+      .then(setCustomFieldDefs)
+      .catch(() => setCustomFieldDefs([]))
+  }, [mounted])
+
+  useEffect(() => {
+    if (contact) setCustomFieldValues(contact.customFields ?? {})
+  }, [contact])
+
+  async function handleSaveCustomFields() {
+    if (savingCustomFields) return
+    setSavingCustomFields(true)
+    try {
+      await fetchAPI(`/crm/contacts/${contactId}/custom-fields`, {
+        method: 'PATCH',
+        body: JSON.stringify({ values: customFieldValues })
+      })
+      toast.success('Campos guardados')
+    } catch {
+      toast.error('Error al guardar los campos personalizados')
+    } finally {
+      setSavingCustomFields(false)
+    }
+  }
 
   async function handleMergeConfirm() {
     if (!mergeCandidate || merging) return
@@ -400,6 +437,30 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+            {customFieldDefs.length > 0 && (
+              <div className="rounded-lg border p-4 space-y-3">
+                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Campos personalizados</h3>
+                {customFieldDefs.map(def => (
+                  <div key={def.id} className="space-y-1">
+                    <label htmlFor={`cf-${def.key}`} className="text-xs text-muted-foreground">{def.label}</label>
+                    <input
+                      id={`cf-${def.key}`}
+                      aria-label={def.label}
+                      className="w-full h-8 text-sm border rounded-md px-2 bg-background"
+                      value={customFieldValues[def.key] ?? ''}
+                      onChange={e => setCustomFieldValues(prev => ({ ...prev, [def.key]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={handleSaveCustomFields}
+                  disabled={savingCustomFields}
+                  className="px-3 py-1.5 text-sm rounded-lg border hover:bg-muted disabled:opacity-50"
+                >
+                  {savingCustomFields ? 'Guardando...' : 'Guardar campos'}
+                </button>
               </div>
             )}
             </div>
