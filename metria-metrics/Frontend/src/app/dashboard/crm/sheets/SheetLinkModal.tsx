@@ -70,6 +70,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
   const [includedColumns, setIncludedColumns] = useState<Record<string, boolean>>({})
   const [columnCustomFieldMap, setColumnCustomFieldMap] = useState<Record<string, string>>({})
   const [permissionError, setPermissionError] = useState(false)
+  const [stageRouting, setStageRouting] = useState<Record<string, string>>({})
   const [qualRules, setQualRules] = useState('')
   const [importFilter, setImportFilter] = useState('ALL')
   const [linkToWhatsapp, setLinkToWhatsapp] = useState(false)
@@ -101,6 +102,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
     setAnalyzeResult(null); setMappings({}); setEventFilter('')
     setPipelines([]); setPipelinesChecked(false)
     setCustomFieldDefs([]); setIncludedColumns({}); setColumnCustomFieldMap({}); setPermissionError(false)
+    setStageRouting({})
     setPipelineId(''); setStageId(''); setQualFields([]); setQualRules('')
     setImportFilter('ALL'); setLinkToWhatsapp(false); setWhatsappOpeningMessage(''); setSaving(false)
   }
@@ -160,6 +162,7 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
           whatsappOpeningMessage: whatsappOpeningMessage.trim() || null,
           excludedColumns,
           customFieldMappings: columnCustomFieldMap,
+          stageRouting,
         }),
       })
       toast.success('Planilla vinculada correctamente')
@@ -357,6 +360,39 @@ export default function SheetLinkModal({ open, onClose, onCreated }: Props) {
                 ))}
               </div>
             </div>
+
+            {qualFields.length > 0 && (
+              <div className="space-y-2 rounded-lg border p-3">
+                <p className="text-sm font-medium">Ruteo automático por calificación</p>
+                <p className="text-xs text-muted-foreground">
+                  Opcional — si no eliges una etapa para un resultado, ese lead entra a la etapa
+                  inicial configurada más abajo, como hoy.
+                </p>
+                {([
+                  { status: 'CALIFICA', label: 'Etapa si CALIFICA' },
+                  { status: 'REVISAR', label: 'Etapa si REVISAR' },
+                  { status: 'NO_CALIFICA', label: 'Etapa si NO CALIFICA' },
+                ] as const).map(({ status, label }) => (
+                  <div key={status} className="flex items-center gap-2">
+                    <Label className="w-32 text-xs shrink-0">{label}</Label>
+                    <Select
+                      value={stageRouting[status] ?? '__none__'}
+                      onValueChange={v => setStageRouting(prev => {
+                        const next = { ...prev }
+                        if (v === '__none__') delete next[status]; else next[status] = v
+                        return next
+                      })}
+                    >
+                      <SelectTrigger aria-label={label} className="h-8 text-xs"><SelectValue placeholder="— Usar etapa inicial —" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— Usar etapa inicial —</SelectItem>
+                        {stages.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label className="text-sm">Reglas de calificación <span className="text-muted-foreground">(opcional)</span></Label>

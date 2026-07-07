@@ -83,3 +83,57 @@ describe('SheetLinkModal — permission-denied on analyze', () => {
     expect(screen.getByText(/cualquiera con el enlace/i)).toBeInTheDocument()
   })
 })
+
+describe('SheetLinkModal — AI stage routing', () => {
+  it('sends stageRouting for the statuses the user mapped', async () => {
+    mockFetchAPI.mockImplementation((path: string) => {
+      if (path === '/crm/pipelines') return Promise.resolve([{
+        id: 'pipe-1', name: 'Ventas', isDefault: true,
+        stages: [{ id: 'stage-1', name: 'Lead', order: 0, color: '#000' }, { id: 'stage-hot', name: 'Contactar ya', order: 1, color: '#f00' }]
+      }])
+      if (path === '/crm/custom-fields') return Promise.resolve([])
+      if (path === '/sheets/analyze') return Promise.resolve({
+        data: {
+          sheetId: 'abc', sheetName: 'Leads',
+          headers: ['Nombre', 'Ingreso'],
+          suggestedMappings: { mappings: { name: 'Nombre' }, suggestedQualificationFields: ['Ingreso'], notes: [] }
+        }
+      })
+      return Promise.resolve({})
+    })
+    const user = userEvent.setup()
+    render(<SheetLinkModal open onClose={() => {}} onCreated={() => {}} />)
+
+    const urlInput = await screen.findByPlaceholderText(/docs.google.com/i)
+    fireEvent.change(urlInput, { target: { value: 'https://docs.google.com/spreadsheets/d/abc/edit' } })
+    await user.click(screen.getByRole('button', { name: /analizar con ia/i }))
+
+    await screen.findByText(/mapeo de campos al crm/i)
+    await user.click(screen.getByRole('button', { name: /configurar pre-calificación/i }))
+
+    await screen.findByText(/ruteo automático por calificación/i)
+    await user.click(await screen.findByRole('combobox', { name: /etapa si califica/i }))
+    await user.click(await screen.findByRole('option', { name: 'Contactar ya' }))
+
+    await user.click(await screen.findByRole('button', { name: /vincular planilla/i }))
+
+    await waitFor(() => expect(mockFetchAPI).toHaveBeenCalledWith('/sheets', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"stageRouting":{"CALIFICA":"stage-hot"}')
+    })))
+  }, 15000)
+
+  it('does not render the routing section when no qualification fields are selected', async () => {
+    mockAnalyzeAndPipelines()
+    const user = userEvent.setup()
+    render(<SheetLinkModal open onClose={() => {}} onCreated={() => {}} />)
+
+    const urlInput = await screen.findByPlaceholderText(/docs.google.com/i)
+    fireEvent.change(urlInput, { target: { value: 'https://docs.google.com/spreadsheets/d/abc/edit' } })
+    await user.click(screen.getByRole('button', { name: /analizar con ia/i }))
+    await screen.findByText(/mapeo de campos al crm/i)
+    await user.click(screen.getByRole('button', { name: /configurar pre-calificación/i }))
+
+    expect(screen.queryByText(/ruteo automático por calificación/i)).not.toBeInTheDocument()
+  })
+})
