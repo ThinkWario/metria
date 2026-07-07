@@ -179,10 +179,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
 
       if (sessionId && importedIds.has(sessionId)) { skipped++; continue }
 
-      if (eventFilter && eventCol >= 0 && row[eventCol]?.toLowerCase() !== eventFilter.toLowerCase()) {
-        skipped++
-        continue
-      }
+      const isComplete = !eventFilter || eventCol < 0 || row[eventCol]?.toLowerCase() === eventFilter.toLowerCase()
 
       const name = nameCol >= 0 ? row[nameCol]?.trim() : ''
       const email = emailCol >= 0 ? row[emailCol]?.trim() : ''
@@ -198,16 +195,16 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
       headers.forEach((h, i) => { if (!excludedColumns.has(h)) rowData[h] = row[i] ?? '' })
 
       let qualResult: Awaited<ReturnType<typeof qualifyLead>> | null = null
-      if (qualFields.length > 0) {
+      if (isComplete && qualFields.length > 0) {
         qualResult = await qualifyLead(rowData, qualFields, integration.qualificationRules ?? '')
       }
 
-      if (integration.importFilter === 'CALIFICA_ONLY' && qualResult?.qualificationStatus !== 'CALIFICA') {
+      if (isComplete && integration.importFilter === 'CALIFICA_ONLY' && qualResult?.qualificationStatus !== 'CALIFICA') {
         skipped++
         if (sessionId) newSessionIds.push(sessionId)
         continue
       }
-      if (integration.importFilter === 'EXCLUDE_NO_CALIFICA' && qualResult?.qualificationStatus === 'NO_CALIFICA') {
+      if (isComplete && integration.importFilter === 'EXCLUDE_NO_CALIFICA' && qualResult?.qualificationStatus === 'NO_CALIFICA') {
         skipped++
         if (sessionId) newSessionIds.push(sessionId)
         continue
@@ -256,6 +253,16 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
         contact = await prisma.contact.update({ where: { id: contact.id }, data: { customFields: merged } })
       }
 
+      if (isComplete) {
+        await prisma.contactTag.deleteMany({ where: { contactId: contact.id, name: 'Incompleto' } })
+      } else {
+        await prisma.contactTag.upsert({
+          where: { contactId_name: { contactId: contact.id, name: 'Incompleto' } },
+          create: { workspaceId: integration.workspaceId, contactId: contact.id, name: 'Incompleto', color: '#f97316' },
+          update: {}
+        })
+      }
+
       // Keyed on contact + pipeline only — a title substring match (e.g. on
       // the lead's name) is unreliable dedup: it can both miss real repeats
       // and false-positive across unrelated leads that share a short name.
@@ -281,7 +288,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
         })
       }
 
-      if (whatsappChannel && phone) {
+      if (whatsappChannel && phone && isComplete) {
         try {
           await prepareWhatsappConversation(integration.workspaceId, whatsappChannel.id, contact, integration.whatsappOpeningMessage)
         } catch (err) {
@@ -290,7 +297,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
         }
       }
 
-      if (sessionId) newSessionIds.push(sessionId)
+      if (sessionId && isComplete) newSessionIds.push(sessionId)
       imported++
     } catch (err) {
       console.error(`[SheetsSync] Error en fila:`, err)

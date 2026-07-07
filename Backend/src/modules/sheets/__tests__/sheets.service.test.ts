@@ -5,6 +5,7 @@ vi.mock('../../../lib/prisma', () => ({
     sheetIntegration: { findUnique: vi.fn(), update: vi.fn(async () => ({})) },
     channel: { findFirst: vi.fn() },
     contact: { findUnique: vi.fn(async () => null), create: vi.fn(), update: vi.fn(async () => ({})) },
+    contactTag: { upsert: vi.fn(), deleteMany: vi.fn() },
     deal: { findFirst: vi.fn(async () => null), create: vi.fn(async () => ({})) },
     conversation: { findUnique: vi.fn(async () => null), create: vi.fn() },
     message: { create: vi.fn(async () => ({ id: 'note-1', content: '', sentAt: new Date() })) }
@@ -235,5 +236,72 @@ describe('syncSheet column exclusion + custom field mapping', () => {
       where: { id: 'c1' },
       data: { customFields: { rut: '11.111.111-1', display_name: 'Ana' } }
     })
+  })
+})
+
+describe('syncSheet incomplete-lead capture', () => {
+  it('still creates the contact and deal when the row fails the eventFilter, tagged Incompleto', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', eventColumn: 'Evento', eventFilter: 'completo' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue(null)
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ values: [['Nombre', 'Telefono', 'Evento'], ['Ana', '9 1234 5678', 'iniciado']] })
+    } as any)
+
+    const result = await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.contact.create).toHaveBeenCalledTimes(1)
+    expect(prisma.contactTag.upsert).toHaveBeenCalledWith({
+      where: { contactId_name: { contactId: 'c1', name: 'Incompleto' } },
+      create: { workspaceId: WS_ID, contactId: 'c1', name: 'Incompleto', color: '#f97316' },
+      update: {}
+    })
+    expect(result.imported).toBe(1)
+  })
+
+  it('removes the Incompleto tag when a later sync sees the same lead now matching the eventFilter', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', eventColumn: 'Evento', eventFilter: 'completo' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'deal-1' } as any)
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ values: [['Nombre', 'Telefono', 'Evento'], ['Ana', '9 1234 5678', 'completo']] })
+    } as any)
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.contactTag.deleteMany).toHaveBeenCalledWith({ where: { contactId: 'c1', name: 'Incompleto' } })
+    expect(prisma.contactTag.upsert).not.toHaveBeenCalled()
+  })
+
+  it('does not add an incomplete row\'s sessionId to importedSessionIds, so it is re-evaluated next sync', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID', eventColumn: 'Evento', eventFilter: 'completo' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue(null)
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ values: [['Nombre', 'Telefono', 'SID', 'Evento'], ['Ana', '9 1234 5678', 'sess-1', 'iniciado']] })
+    } as any)
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.sheetIntegration.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ importedSessionIds: { push: [] } }) })
+    )
   })
 })
