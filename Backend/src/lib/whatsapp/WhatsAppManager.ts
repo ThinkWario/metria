@@ -1,8 +1,9 @@
-import { Client, LocalAuth, Message as WWebMessage } from 'whatsapp-web.js';
+import { Client, RemoteAuth, Message as WWebMessage } from 'whatsapp-web.js';
 import qrcode from 'qrcode';
 import { getIO } from '../socket';
 import { prisma } from '../prisma';
 import path from 'path';
+import { PrismaWhatsAppStore } from './prismaSessionStore';
 
 /**
  * WhatsAppSessionManager
@@ -16,6 +17,14 @@ const MAX_HEALTH_FAILURES = 2;
 /** Grace period for a session that is still initializing (QR scan, auth). */
 const INIT_GRACE_MS = 10 * 60_000;
 const DESTROY_TIMEOUT_MS = 30_000;
+/**
+ * How often RemoteAuth re-zips the local Chromium profile and backs it up to
+ * Postgres. Local disk is ephemeral (container redeploys wipe it) — this is
+ * what makes the session survive a redeploy without a new QR scan. Minimum
+ * allowed by whatsapp-web.js is 60000ms; 5 minutes balances staleness against
+ * writing a multi-MB blob to the DB too often.
+ */
+const REMOTE_BACKUP_INTERVAL_MS = 5 * 60_000;
 /** Missed messages younger than this get an AI reply after a reconnect. */
 const RECOVERY_WINDOW_S = 30 * 60;
 /**
@@ -65,9 +74,11 @@ export class WhatsAppSessionManager {
     console.log(`[WhatsApp] Initializing session for workspace: ${workspaceId}`);
     
     const client = new Client({
-      authStrategy: new LocalAuth({
+      authStrategy: new RemoteAuth({
         clientId: workspaceId,
-        dataPath: this.authPath
+        dataPath: this.authPath,
+        store: new PrismaWhatsAppStore(workspaceId, this.authPath),
+        backupSyncIntervalMs: REMOTE_BACKUP_INTERVAL_MS
       }),
       puppeteer: {
         headless: true,
@@ -187,6 +198,15 @@ export class WhatsAppSessionManager {
       this.clients.delete(workspaceId);
       client.destroy().catch(() => {});
       io.to(`workspace:${workspaceId}`).emit('whatsapp:error', { message: 'Initialization failed' });
+
+      // Without this, a channel that was CONNECTED before a restart/crash
+      // stays "Conectado" in the UI forever while init keeps failing in the
+      // background — the only sign anything is wrong is a send erroring out
+      // with "WhatsApp session not active". Mirrors the 'disconnected' handler.
+      prisma.channel.updateMany({
+        where: { workspaceId, platform: 'WHATSAPP' },
+        data: { status: 'DISCONNECTED' }
+      }).catch(dbErr => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, dbErr));
     });
 
     this.clients.set(workspaceId, client);

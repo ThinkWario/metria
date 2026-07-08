@@ -28,7 +28,7 @@ vi.mock('whatsapp-web.js', () => ({
     createdClients.push(instance)
     return instance
   }),
-  LocalAuth: vi.fn()
+  RemoteAuth: vi.fn()
 }))
 
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,x') } }))
@@ -43,6 +43,11 @@ vi.mock('../../prisma', () => ({
       findUnique: vi.fn(async () => null),
       upsert: vi.fn(async () => ({})),
       updateMany: vi.fn(async () => ({ count: 0 }))
+    },
+    whatsAppSession: {
+      findUnique: vi.fn(async () => null),
+      upsert: vi.fn(async () => ({})),
+      deleteMany: vi.fn(async () => ({ count: 0 }))
     }
   }
 }))

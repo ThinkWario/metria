@@ -42,6 +42,7 @@ model Workspace {
   businessHours            BusinessHours?
   channelAnalyticSnapshots ChannelAnalyticSnapshot[]
   channels                 Channel[]
+  whatsAppSessions         WhatsAppSession[]
   contactNotes             ContactNote[]
   contactTags              ContactTag[]
   contacts                 Contact[]
@@ -341,6 +342,22 @@ model AdProductMapping {
   @@unique([workspaceId, adId, sku])
   @@index([workspaceId, adId])
   @@map("ad_product_mappings")
+}
+
+// Persists the whatsapp-web.js RemoteAuth session blob (zipped Chromium
+// profile: auth cookies + IndexedDB) in Postgres instead of the container's
+// local disk — so a redeploy (ephemeral filesystem) doesn't force a fresh QR
+// scan. `session` is RemoteAuth's own naming convention: `RemoteAuth-<clientId>`.
+model WhatsAppSession {
+  id          String   @id @default(uuid())
+  workspaceId String   @map("workspace_id")
+  session     String   @unique
+  data        Bytes
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_sessions")
 }
 
 model Channel {
