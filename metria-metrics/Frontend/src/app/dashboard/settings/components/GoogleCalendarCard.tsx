@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Calendar, CheckCircle2, Link2Off, RefreshCw, ExternalLink } from 'lucide-react'
+import { Calendar, ExternalLink, RefreshCw } from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -104,83 +105,92 @@ export function GoogleCalendarCard() {
 
   if (!mounted || loading) {
     return (
-      <div className="rounded-xl border border-white/10 bg-white/5 p-5 animate-pulse">
-        <div className="h-5 w-40 rounded bg-white/10 mb-2" />
-        <div className="h-3 w-72 rounded bg-white/10" />
-      </div>
+      <Card className="bg-card/30 backdrop-blur-xl border border-border/50 animate-pulse">
+        <CardHeader className="pb-3">
+          <div className="h-9 w-9 rounded-xl bg-muted/50 mb-2" />
+          <div className="h-5 w-32 rounded bg-muted/50" />
+        </CardHeader>
+      </Card>
     )
   }
 
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10">
-            <Calendar className="h-5 w-5 text-blue-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm">Google Calendar</span>
-              {status?.connected && (
-                <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30 bg-emerald-400/10">
-                  <CheckCircle2 className="h-3 w-3 mr-1" /> Conectado
-                </Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {status?.connected
-                ? `Sincronizando con ${status.email}`
-                : 'Sincroniza disponibilidad y crea eventos automáticamente en tu agenda'}
-            </p>
-          </div>
-        </div>
+  const isConnected = !!status?.connected
+  // Opens Google Calendar pre-selecting the connected account via authuser —
+  // there's no reliable deep link straight to a specific calendarId across
+  // Google's UI, so this is the best "jump to the associated calendar" we can do.
+  const calendarUrl = status?.email
+    ? `https://calendar.google.com/calendar/r?authuser=${encodeURIComponent(status.email)}`
+    : 'https://calendar.google.com/calendar/r'
 
-        {!status?.connected ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleConnect}
-            disabled={connecting}
-            className="shrink-0"
-          >
-            {connecting ? (
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <ExternalLink className="h-4 w-4 mr-2" />
-            )}
-            Conectar
-          </Button>
+  return (
+    <Card className="group bg-card/30 backdrop-blur-xl border border-border/50 hover:border-primary/50 transition-all duration-300 shadow-lg hover:shadow-primary/5">
+      <CardHeader className="pb-3">
+        <div className="flex justify-between items-start">
+          <div className="p-2.5 rounded-xl bg-blue-500 bg-opacity-10 text-opacity-100 mb-2 transition-transform group-hover:scale-110 duration-300">
+            <Calendar className="h-5 w-5 text-blue-500" />
+          </div>
+          <Badge variant={isConnected ? "default" : "outline"} className={isConnected ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20" : "bg-muted/50 text-muted-foreground"}>
+            {isConnected ? "Conectado" : "Desconectado"}
+          </Badge>
+        </div>
+        <CardTitle className="text-lg font-bold tracking-tight">Google Calendar</CardTitle>
+        <CardDescription className="text-xs line-clamp-1">
+          {isConnected ? `Sincronizando con ${status?.email}` : 'Sincroniza disponibilidad y crea eventos automáticamente'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pb-4 space-y-2">
+        <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-bold text-muted-foreground/60">
+          <span>Método</span>
+          <span className="text-foreground/80">OAuth 2.0</span>
+        </div>
+        {isConnected && calendars.length > 0 && (
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground/60 shrink-0">Calendario</span>
+            <Select value={status?.calendarId ?? 'primary'} onValueChange={handleCalendarChange}>
+              <SelectTrigger className="h-7 text-xs flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {calendars.map(c => (
+                  <SelectItem key={c.id} value={c.id} className="text-xs">
+                    {c.summary}{c.primary ? ' (principal)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </CardContent>
+      <CardFooter className="flex gap-2">
+        {isConnected ? (
+          <>
+            <Button variant="outline" size="sm" className="flex-1" asChild>
+              <a href={calendarUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-3.5 w-3.5 mr-2" />
+                Abrir calendario
+              </a>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDisconnect}
+              disabled={disconnecting}
+              className="text-destructive hover:text-destructive"
+            >
+              Desconectar
+            </Button>
+          </>
         ) : (
           <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleDisconnect}
-            disabled={disconnecting}
-            className="shrink-0 text-destructive hover:text-destructive"
+            className="w-full"
+            onClick={handleConnect}
+            disabled={connecting}
           >
-            <Link2Off className="h-4 w-4 mr-2" />
-            Desconectar
+            {connecting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <ExternalLink className="h-4 w-4 mr-2" />}
+            Conectar Ahora
           </Button>
         )}
-      </div>
-
-      {status?.connected && calendars.length > 0 && (
-        <div className="flex items-center gap-3 pt-1">
-          <span className="text-xs text-muted-foreground w-32 shrink-0">Calendario activo</span>
-          <Select value={status.calendarId ?? 'primary'} onValueChange={handleCalendarChange}>
-            <SelectTrigger className="h-8 text-xs flex-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {calendars.map(c => (
-                <SelectItem key={c.id} value={c.id} className="text-xs">
-                  {c.summary}{c.primary ? ' (principal)' : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-    </div>
+      </CardFooter>
+    </Card>
   )
 }

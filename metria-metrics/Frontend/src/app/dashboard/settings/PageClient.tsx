@@ -21,7 +21,6 @@ import { useUserStore } from "@/store/useUserStore"
 import { BillingSection } from "@/components/settings/billing-section"
 import { IntegrationHub } from "@/components/settings/integration-hub"
 import { MetaIntegrationCard } from "@/components/settings/MetaIntegrationCard"
-import { GoogleCalendarCard } from "./components/GoogleCalendarCard"
 
 // Table structure for system event logs
 
@@ -334,7 +333,6 @@ function SettingsContent() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <IntegrationHub integrations={integrationsData} token={authToken} hiddenMenuItems={brandingData?.hiddenMenuItems ?? []} />
-                            <GoogleCalendarCard />
                         </CardContent>
                     </Card>
                 </div>

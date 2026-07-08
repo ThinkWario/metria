@@ -7,10 +7,10 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { CheckCircle2, AlertCircle, ArrowRight, ExternalLink, Smartphone } from "lucide-react"
-import { BASE_BACKEND_URL, API_BASE_URL } from "@/lib/constants"
+import { CheckCircle2, AlertCircle, ArrowRight, ExternalLink } from "lucide-react"
+import { BASE_BACKEND_URL } from "@/lib/constants"
 import { toast } from "sonner"
-import { WhatsAppQRDialog } from "../messaging/WhatsAppQRDialog"
+import { GoogleCalendarCard } from "@/app/dashboard/settings/components/GoogleCalendarCard"
 
 interface PlatformCardProps {
     platform: string
@@ -71,26 +71,11 @@ const PlatformCard = ({ platform, name, description, icon, status, type, lastSyn
 
 export function IntegrationHub({ integrations, token, hiddenMenuItems = [] }: { integrations: any[], token: string, hiddenMenuItems?: string[] }) {
     const [shopifyDialogOpen, setShopifyDialogOpen] = useState(false)
-    const [whatsappQRDialogOpen, setWhatsappQRDialogOpen] = useState(false)
     const [shopifyDomain, setShopifyDomain] = useState("")
 
     const handleConnect = async (platform: string) => {
         if (platform === "shopify") {
             setShopifyDialogOpen(true)
-            return
-        }
-
-        if (platform === "whatsapp-native") {
-            setWhatsappQRDialogOpen(true)
-            // Trigger backend initialization
-            try {
-                await fetch(`${API_BASE_URL}/messaging/whatsapp/init`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                })
-            } catch (err) {
-                console.error("Failed to init WhatsApp", err)
-            }
             return
         }
 
@@ -109,15 +94,6 @@ export function IntegrationHub({ integrations, token, hiddenMenuItems = [] }: { 
     }
 
     const platforms = [
-        { 
-            id: "whatsapp", 
-            platform: "whatsapp-native", 
-            name: "WhatsApp Native", 
-            description: "Conexión directa vía código QR", 
-            icon: <Smartphone className="h-5 w-5" />, 
-            colorClass: "bg-emerald-500 text-emerald-500",
-            type: "QR Scan"
-        },
         {
             id: "google", 
             platform: "google", 
@@ -142,9 +118,9 @@ export function IntegrationHub({ integrations, token, hiddenMenuItems = [] }: { 
         <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {platforms.filter((p) => !hiddenMenuItems.includes(`integration:${p.id}`)).map((p) => {
-                    const dbData = integrations.find(i => i.platform === p.platform || (p.platform === 'whatsapp-native' && i.platform === 'whatsapp')) || {}
+                    const dbData = integrations.find(i => i.platform === p.platform) || {}
                     return (
-                        <PlatformCard 
+                        <PlatformCard
                             key={p.id}
                             {...p}
                             status={dbData.status || "Disconnected"}
@@ -153,9 +129,10 @@ export function IntegrationHub({ integrations, token, hiddenMenuItems = [] }: { 
                         />
                     )
                 })}
+                {!hiddenMenuItems.includes('integration:google-calendar') && (
+                    <GoogleCalendarCard />
+                )}
             </div>
-
-            <WhatsAppQRDialog open={whatsappQRDialogOpen} onOpenChange={setWhatsappQRDialogOpen} />
 
             <Dialog open={shopifyDialogOpen} onOpenChange={setShopifyDialogOpen}>
                 <DialogContent className="sm:max-w-[400px] bg-card/90 backdrop-blur-2xl border-primary/20">

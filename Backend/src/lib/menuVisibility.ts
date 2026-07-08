@@ -15,9 +15,9 @@ export const HIDEABLE_MENU_KEYS = [
   'nav:tiktok-ads',
   'nav:logistics',
   'nav:tech-settings',
-  'integration:whatsapp',
   'integration:google',
   'integration:shopify',
+  'integration:google-calendar',
 ] as const
 
 export type HideableMenuKey = typeof HIDEABLE_MENU_KEYS[number]

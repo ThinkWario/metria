@@ -15,9 +15,9 @@ export const HIDEABLE_MENU_KEYS: { key: string; label: string }[] = [
   { key: 'nav:tiktok-ads', label: 'TikTok Ads' },
   { key: 'nav:logistics', label: 'Logística & Operaciones' },
   { key: 'nav:tech-settings', label: 'Configuración Técnica' },
-  { key: 'integration:whatsapp', label: 'WhatsApp Native (integración)' },
   { key: 'integration:google', label: 'Google Ads (integración)' },
   { key: 'integration:shopify', label: 'Shopify Store (integración)' },
+  { key: 'integration:google-calendar', label: 'Google Calendar (integración)' },
 ]
 
 export function filterHiddenItems<T extends { key: string }>(items: T[], hiddenKeys: string[]): T[] {
