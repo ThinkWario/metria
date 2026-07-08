@@ -18,6 +18,13 @@ export const DEBOUNCE_MS = Number(process.env.AI_REPLY_DEBOUNCE_MS ?? 8000)
 export const DRAIN_DELAY_MS = 1000
 const MAX_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 2000
+/**
+ * processAiResponse() calls the LLM provider and, via its tool loop, external
+ * APIs (e.g. Google Calendar) with no timeout of their own — a stalled call
+ * would otherwise hang this conversation forever instead of retrying or
+ * reporting failure to a human.
+ */
+const AI_RESPONSE_TIMEOUT_MS = Number(process.env.AI_RESPONSE_TIMEOUT_MS ?? 30_000)
 
 interface PendingReply {
   workspaceId: string
@@ -90,7 +97,12 @@ async function generateAndSend(
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS && !sent; attempt++) {
     try {
-      const aiResponse = await processAiResponse(workspaceId, conversationId, userContent)
+      const aiResponse = await Promise.race([
+        processAiResponse(workspaceId, conversationId, userContent),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('AI response timed out')), AI_RESPONSE_TIMEOUT_MS)
+        )
+      ])
       // null = intentionally silent (bot disabled, handover, no active agent)
       if (!aiResponse) return
 
