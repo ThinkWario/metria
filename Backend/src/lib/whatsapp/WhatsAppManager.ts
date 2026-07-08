@@ -28,7 +28,17 @@ const REMOTE_BACKUP_INTERVAL_MS = 5 * 60_000;
 /** Delay between launching each restored session's Chromium on server boot. */
 const RESTORE_STAGGER_MS = 20_000;
 /** Missed messages younger than this get an AI reply after a reconnect. */
-const RECOVERY_WINDOW_S = 30 * 60;
+const RECOVERY_WINDOW_S = 30 * 60
+/**
+ * whatsapp-web.js can report a session as usable before its injected page
+ * helper (window.WWebJS, which sendMessage/getChats depend on) has finished
+ * attaching after a RemoteAuth restore — operations fail transiently for a
+ * couple of seconds with "Cannot read properties of undefined (reading
+ * 'getChat')" until it does. Confirmed via a failed manual send right after
+ * a session restore.
+ */
+const SEND_MESSAGE_RETRY_ATTEMPTS = 3
+const SEND_MESSAGE_RETRY_DELAY_MS = 1500;
 /**
  * WhatsApp rate-limits lid→phone lookups (confirmed by wwebjs maintainers:
  * github.com/pedroslopez/whatsapp-web.js/issues/3969#issuecomment-3564586446 —
@@ -417,7 +427,18 @@ export class WhatsAppSessionManager {
   public async sendMessage(workspaceId: string, to: string, content: string): Promise<void> {
     const client = this.clients.get(workspaceId);
     if (!client) throw new Error('WhatsApp session not active');
-    await client.sendMessage(to, content);
+
+    for (let attempt = 1; attempt <= SEND_MESSAGE_RETRY_ATTEMPTS; attempt++) {
+      try {
+        await client.sendMessage(to, content);
+        return;
+      } catch (err) {
+        const isInjectedHelperRace = err instanceof Error && /getChat/.test(err.message);
+        if (!isInjectedHelperRace || attempt === SEND_MESSAGE_RETRY_ATTEMPTS) throw err;
+        console.warn(`[WhatsApp] sendMessage race (attempt ${attempt}/${SEND_MESSAGE_RETRY_ATTEMPTS}) for ${workspaceId}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, SEND_MESSAGE_RETRY_DELAY_MS));
+      }
+    }
   }
 
   /**
