@@ -60,12 +60,7 @@ RUN apt-get update -y && apt-get install -y \
     lsb-release \
     wget \
     xdg-utils \
-    chromium \
     && rm -rf /var/lib/apt/lists/*
-
-# whatsapp-web.js (puppeteer) uses the system Chromium instead of downloading Chrome
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 RUN npm install -g pnpm
 
@@ -73,6 +68,13 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
+
+# pnpm blocks dependency postinstall scripts by default, so puppeteer never
+# downloads its own Chrome — run its installer explicitly instead. Debian's
+# apt `chromium` package was tried as a workaround but its headless mode
+# crashes with SIGTRAP (Trace/breakpoint trap) on this Chromium build;
+# Puppeteer's own Chrome for Testing binary doesn't have that issue.
+RUN node node_modules/puppeteer/install.mjs
 
 COPY prisma ./prisma
 RUN npx prisma generate

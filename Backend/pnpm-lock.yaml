@@ -68,6 +68,9 @@ importers:
       prisma:
         specifier: ^5.10.0
         version: 5.22.0
+      puppeteer:
+        specifier: 24.38.0
+        version: 24.38.0(typescript@5.9.3)
       qrcode:
         specifier: ^1.5.3
         version: 1.5.4
