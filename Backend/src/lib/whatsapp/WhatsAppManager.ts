@@ -25,6 +25,8 @@ const DESTROY_TIMEOUT_MS = 30_000;
  * writing a multi-MB blob to the DB too often.
  */
 const REMOTE_BACKUP_INTERVAL_MS = 5 * 60_000;
+/** Delay between launching each restored session's Chromium on server boot. */
+const RESTORE_STAGGER_MS = 20_000;
 /** Missed messages younger than this get an AI reply after a reconnect. */
 const RECOVERY_WINDOW_S = 30 * 60;
 /**
@@ -370,8 +372,13 @@ export class WhatsAppSessionManager {
 
   /**
    * Restores all previously-connected native WhatsApp sessions on server start.
-   * LocalAuth has the credentials stored in .wwebjs_auth/ — we just need to
-   * re-initialize each client so the in-memory Map is populated again.
+   * RemoteAuth pulls each session's credentials from Postgres — we just need
+   * to re-initialize each client so the in-memory Map is populated again.
+   *
+   * Staggered on purpose: each initSession() launches a full Chromium
+   * instance, and kicking off several at the exact same moment on a shared
+   * host (other services, other Chromiums) risks a memory spike that kills
+   * the newly-spawned browser processes before they even get to report why.
    */
   public async autoRestoreSessions(): Promise<void> {
     console.log('[WhatsApp] Auto-restoring sessions...');
@@ -390,9 +397,14 @@ export class WhatsAppSessionManager {
         return;
       }
 
-      await Promise.allSettled(
-        nativeChannels.map(ch => this.initSession(ch.workspaceId))
-      );
+      for (const ch of nativeChannels) {
+        await this.initSession(ch.workspaceId).catch(err =>
+          console.error(`[WhatsApp] Restore failed to start for ${ch.workspaceId}:`, err)
+        );
+        if (ch !== nativeChannels[nativeChannels.length - 1]) {
+          await new Promise(resolve => setTimeout(resolve, RESTORE_STAGGER_MS));
+        }
+      }
       console.log(`[WhatsApp] Restore initiated for ${nativeChannels.length} session(s)`);
     } catch (err) {
       console.error('[WhatsApp] Error during auto-restore:', err);

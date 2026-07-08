@@ -41,6 +41,7 @@ vi.mock('../../prisma', () => ({
   prisma: {
     channel: {
       findUnique: vi.fn(async () => null),
+      findMany: vi.fn(async () => []),
       upsert: vi.fn(async () => ({})),
       updateMany: vi.fn(async () => ({ count: 0 }))
     },
@@ -53,6 +54,7 @@ vi.mock('../../prisma', () => ({
 }))
 
 import { WhatsAppSessionManager } from '../WhatsAppManager'
+import { prisma } from '../../prisma'
 
 const manager = WhatsAppSessionManager.getInstance()
 
@@ -148,6 +150,28 @@ describe('WhatsAppSessionManager watchdog', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(createdClients.length).toBe(2) // the watchdog re-initialized a fresh client
+  })
+})
+
+describe('autoRestoreSessions', () => {
+  it('staggers Chromium launches on boot instead of starting them all at once', async () => {
+    const ids = ['restore-a', 'restore-b', 'restore-c']
+    vi.mocked(prisma.channel.findMany).mockResolvedValue(
+      ids.map(id => ({ workspaceId: id, config: { isNative: true } })) as any
+    )
+
+    const restorePromise = manager.autoRestoreSessions()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(createdClients.length).toBe(1) // only the first launched so far
+
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(createdClients.length).toBe(2)
+
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(createdClients.length).toBe(3)
+
+    await restorePromise
+    await Promise.all(ids.map(id => manager.destroySession(id)))
   })
 })
 
