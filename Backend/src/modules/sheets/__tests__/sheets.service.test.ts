@@ -156,11 +156,11 @@ describe('syncSheet dedup safeguards', () => {
 
   it('falls back to row position for dedup when no sessionId column is mapped, so re-syncing does not reimport', async () => {
     let integration = baseIntegration()
-    vi.mocked(prisma.sheetIntegration.findUnique).mockImplementation(async () => integration as any)
-    vi.mocked(prisma.sheetIntegration.update).mockImplementation(async ({ data }: any) => {
-      integration = { ...integration, importedSessionIds: [...integration.importedSessionIds, ...data.importedSessionIds.push] }
-      return integration as any
-    })
+    vi.mocked(prisma.sheetIntegration.findUnique).mockImplementation((async () => integration) as any)
+    vi.mocked(prisma.sheetIntegration.update).mockImplementation((async ({ data }: any) => {
+      integration = { ...integration, importedSessionIds: [...integration.importedSessionIds, ...data.importedSessionIds.push] } as any
+      return integration
+    }) as any)
     vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678' } as any)
     mockSheetRows([['Ana', '9 1234 5678']])
 
