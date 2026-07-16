@@ -14,6 +14,10 @@ class FakeClient extends EventEmitter {
   destroy = vi.fn(async () => undefined)
   logout = vi.fn(async () => undefined)
   getChats = vi.fn(async () => [])
+  getChatById = vi.fn(async () => ({
+    sendStateTyping: vi.fn(async () => undefined),
+    clearState: vi.fn(async () => undefined)
+  }))
   sendMessage = vi.fn(async () => undefined)
   getContactLidAndPhone = vi.fn(async (): Promise<Array<{ pn?: string; lid?: string }>> => [])
 }
@@ -86,18 +90,23 @@ afterEach(async () => {
 })
 
 describe('WhatsAppSessionManager watchdog', () => {
-  it('recycles the session after MAX_HEALTH_FAILURES consecutive unhealthy checks', async () => {
+  it('recycles after MAX_HEALTH_FAILURES unhealthy checks, then re-initializes only after backoff', async () => {
     const client = await initAndGetReady()
     client.getState.mockResolvedValue('UNPAIRED')
 
     await vi.advanceTimersByTimeAsync(60_000) // 1st unhealthy check
+    await vi.advanceTimersByTimeAsync(60_000) // 2nd unhealthy check
     expect(client.destroy).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(60_000) // 2nd unhealthy check → recycle
+    await vi.advanceTimersByTimeAsync(60_000) // 3rd unhealthy check → recycle
     await vi.advanceTimersByTimeAsync(0)
 
     expect(client.destroy).toHaveBeenCalledTimes(1)
-    // Recycling re-initializes in place — a new client should have been created.
+    // Immediate re-login after every recycle is itself a ban signal — the
+    // re-init is deferred until the backoff window elapses.
+    expect(createdClients.length).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(60_000) // backoff elapsed → watchdog re-initializes
     expect(createdClients.length).toBe(2)
   })
 
@@ -117,12 +126,17 @@ describe('WhatsAppSessionManager watchdog', () => {
     expect(client.destroy).not.toHaveBeenCalled()
   })
 
-  it('treats a getState() timeout as an unhealthy check', async () => {
+  it('tolerates more consecutive getState() timeouts before recycling (slow host ≠ dead session)', async () => {
     const client = await initAndGetReady()
     client.getState.mockImplementation(() => new Promise(() => {})) // never resolves
 
-    await vi.advanceTimersByTimeAsync(60_000 + 15_000) // health check interval + getState timeout
-    await vi.advanceTimersByTimeAsync(60_000 + 15_000)
+    // 4 timeout-only failures: still under the timeout-only threshold.
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(60_000 + 15_000)
+    }
+    expect(client.destroy).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(60_000 + 15_000) // 5th → recycle
     await vi.advanceTimersByTimeAsync(0)
 
     expect(client.destroy).toHaveBeenCalledTimes(1)
@@ -153,7 +167,105 @@ describe('WhatsAppSessionManager watchdog', () => {
   })
 })
 
+describe('QR exhaustion and auth failure (ban prevention)', () => {
+  it('passes qrMaxRetries to the client so an unscanned session cannot request QRs forever', async () => {
+    await initAndGetReady()
+    const { Client } = await import('whatsapp-web.js')
+    expect(vi.mocked(Client).mock.calls[0][0]).toMatchObject({ qrMaxRetries: 3 })
+  })
+
+  it('stops the watchdog and marks the channel NEEDS_QR when QR retries are exhausted', async () => {
+    const initPromise = manager.initSession(workspaceId)
+    await vi.advanceTimersByTimeAsync(0)
+    const client = lastCreatedClient!
+    client.emit('disconnected', 'Max qrcode retries reached')
+    await vi.advanceTimersByTimeAsync(0)
+    await initPromise
+
+    expect(prisma.channel.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'NEEDS_QR' } })
+    )
+
+    // Watchdog must be disarmed: no autonomous re-init (which would start a
+    // fresh endless QR stream) even long past the init grace period.
+    await vi.advanceTimersByTimeAsync(20 * 60_000)
+    expect(createdClients.length).toBe(1)
+  })
+
+  it('wipes the stored session, stops the watchdog and requires a new QR on auth_failure', async () => {
+    const initPromise = manager.initSession(workspaceId)
+    await vi.advanceTimersByTimeAsync(0)
+    const client = lastCreatedClient!
+    client.emit('auth_failure', 'invalid session')
+    await vi.advanceTimersByTimeAsync(0)
+    await initPromise
+
+    // Retrying a corrupt/rejected session in a loop hammers WhatsApp with
+    // failed logins — the stored blob must go and the loop must stop.
+    expect(prisma.whatsAppSession.deleteMany).toHaveBeenCalledWith({ where: { workspaceId } })
+    expect(prisma.channel.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'NEEDS_QR' } })
+    )
+    expect(client.destroy).toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(20 * 60_000)
+    expect(createdClients.length).toBe(1)
+  })
+})
+
+describe('re-init backoff schedule', () => {
+  it('escalates exponentially and caps at the cooldown after the recycle limit', () => {
+    const delay = (attempts: number) => (manager as any).reinitDelayMs(attempts)
+    expect(delay(1)).toBe(60_000)
+    expect(delay(2)).toBe(120_000)
+    expect(delay(4)).toBe(480_000)
+    expect(delay(5)).toBe(30 * 60_000)
+    expect(delay(9)).toBe(30 * 60_000)
+  })
+})
+
+describe('sendMessage typing simulation', () => {
+  it('shows typing state and delays before sending (bot-like instant replies are a ban signal)', async () => {
+    const client = await initAndGetReady()
+    const chat = {
+      sendStateTyping: vi.fn(async () => undefined),
+      clearState: vi.fn(async () => undefined)
+    }
+    client.getChatById.mockResolvedValue(chat)
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(chat.sendStateTyping).toHaveBeenCalled()
+    expect(client.sendMessage).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(10_000) // max typing delay comfortably covered
+    await sendPromise
+    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola')
+    expect(chat.clearState).toHaveBeenCalled()
+  })
+
+  it('still sends if the typing simulation itself fails', async () => {
+    const client = await initAndGetReady()
+    client.getChatById.mockRejectedValue(new Error('page not ready'))
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise
+    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola')
+  })
+})
+
 describe('autoRestoreSessions', () => {
+  it('only restores channels that were CONNECTED — dead sessions must not re-enter the QR loop on boot', async () => {
+    vi.mocked(prisma.channel.findMany).mockResolvedValue([] as any)
+    await manager.autoRestoreSessions()
+    expect(prisma.channel.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { platform: 'WHATSAPP', status: 'CONNECTED' }
+      })
+    )
+  })
+
   it('staggers Chromium launches on boot instead of starting them all at once', async () => {
     const ids = ['restore-a', 'restore-b', 'restore-c']
     vi.mocked(prisma.channel.findMany).mockResolvedValue(

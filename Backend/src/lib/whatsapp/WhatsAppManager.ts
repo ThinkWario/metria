@@ -13,7 +13,33 @@ import { PrismaWhatsAppStore } from './prismaSessionStore';
 const WATCHDOG_INTERVAL_MS = 60_000;
 const GET_STATE_TIMEOUT_MS = 15_000;
 /** Consecutive failed health checks before the session is recycled. */
-const MAX_HEALTH_FAILURES = 2;
+const MAX_HEALTH_FAILURES = 3;
+/**
+ * getState() timeouts alone are weak evidence of a dead session — on a slow
+ * or memory-pressured host they happen while the session is actually fine.
+ * Recycle churn (destroy + fresh login every couple of minutes) is itself a
+ * WhatsApp ban signal, so timeout-only streaks get more strikes.
+ */
+const MAX_TIMEOUT_ONLY_FAILURES = 5;
+/**
+ * Without this, whatsapp-web.js refreshes the QR (a pairing request to
+ * WhatsApp's servers) every ~30s forever if nobody scans. An unattended
+ * session doing that 24/7 from a server IP is a strong ban signal — cap it
+ * and require the user to explicitly reconnect from the UI.
+ */
+const QR_MAX_RETRIES = 3;
+/** Reason string whatsapp-web.js emits with 'disconnected' at the QR cap. */
+const QR_EXHAUSTED_REASON = 'Max qrcode retries reached';
+/** First re-init delay after a recycle; doubles per consecutive attempt. */
+const REINIT_BACKOFF_BASE_MS = 60_000;
+/** Consecutive recycles before backing off hard to the cooldown. */
+const MAX_RECYCLE_ATTEMPTS = 5;
+const RECYCLE_COOLDOWN_MS = 30 * 60_000;
+/** Typing simulation: instant uniform replies read as a bot to WhatsApp. */
+const TYPING_BASE_MS = 1_500;
+const TYPING_PER_CHAR_MS = 40;
+const TYPING_MAX_MS = 6_000;
+const TYPING_JITTER_MAX_MS = 1_000;
 /** Grace period for a session that is still initializing (QR scan, auth). */
 const INIT_GRACE_MS = 10 * 60_000;
 const DESTROY_TIMEOUT_MS = 30_000;
@@ -33,12 +59,16 @@ const RECOVERY_WINDOW_S = 30 * 60
  * whatsapp-web.js can report a session as usable before its injected page
  * helper (window.WWebJS, which sendMessage/getChats depend on) has finished
  * attaching after a RemoteAuth restore — operations fail transiently for a
- * couple of seconds with "Cannot read properties of undefined (reading
- * 'getChat')" until it does. Confirmed via a failed manual send right after
- * a session restore.
+ * couple of seconds until it does. Confirmed via a failed manual send right
+ * after a session restore (sendMessage: "Cannot read properties of undefined
+ * (reading 'getChat')") and a failed initial sync right after 'ready'
+ * (getChats: opaque minified evaluate() error from the same unattached
+ * helper). Same race, two call sites — retry both, bounded.
  */
 const SEND_MESSAGE_RETRY_ATTEMPTS = 3
 const SEND_MESSAGE_RETRY_DELAY_MS = 1500;
+const GET_CHATS_RETRY_ATTEMPTS = 3;
+const GET_CHATS_RETRY_DELAY_MS = 1500;
 /**
  * WhatsApp rate-limits lid→phone lookups (confirmed by wwebjs maintainers:
  * github.com/pedroslopez/whatsapp-web.js/issues/3969#issuecomment-3564586446 —
@@ -54,16 +84,26 @@ interface LidCacheEntry {
   cachedAt: number;
 }
 
+interface HealthFailureState {
+  count: number;
+  /** True while every failure in the current streak was a getState timeout. */
+  timeoutsOnly: boolean;
+}
+
 export class WhatsAppSessionManager {
   private static instance: WhatsAppSessionManager;
   private clients: Map<string, Client> = new Map();
   private readonly authPath = path.join(process.cwd(), '.wwebjs_auth');
   private watchdogs: Map<string, NodeJS.Timeout> = new Map();
-  private healthFailures: Map<string, number> = new Map();
+  private healthFailures: Map<string, HealthFailureState> = new Map();
   private readySessions: Set<string> = new Set();
   private initStartedAt: Map<string, number> = new Map();
   private recycling: Set<string> = new Set();
   private lidCache: Map<string, LidCacheEntry> = new Map();
+  /** Consecutive recycles/failed inits since the last successful 'ready'. */
+  private recycleAttempts: Map<string, number> = new Map();
+  /** Earliest time the watchdog may re-initialize a vanished session. */
+  private nextInitAllowedAt: Map<string, number> = new Map();
 
   private constructor() {}
 
@@ -92,6 +132,7 @@ export class WhatsAppSessionManager {
         store: new PrismaWhatsAppStore(workspaceId, this.authPath),
         backupSyncIntervalMs: REMOTE_BACKUP_INTERVAL_MS
       }),
+      qrMaxRetries: QR_MAX_RETRIES,
       puppeteer: {
         headless: true,
         protocolTimeout: 120000,
@@ -135,6 +176,8 @@ export class WhatsAppSessionManager {
       console.log(`[WhatsApp] Client is ready for workspace: ${workspaceId}`);
       this.readySessions.add(workspaceId);
       this.healthFailures.delete(workspaceId);
+      this.recycleAttempts.delete(workspaceId);
+      this.nextInitAllowedAt.delete(workspaceId);
       io.to(`workspace:${workspaceId}`).emit('whatsapp:ready');
 
       // Upsert channel row — native QR never creates it via API setup.
@@ -181,6 +224,20 @@ export class WhatsAppSessionManager {
 
     client.on('auth_failure', (message) => {
       console.error(`[WhatsApp] Auth failure for ${workspaceId}: ${message}`);
+      // The stored session is corrupt or rejected — restoring the same blob
+      // in a loop hammers WhatsApp with failed logins. Stop, wipe it, and
+      // require a fresh QR scan from the UI.
+      this.stopWatchdog(workspaceId);
+      this.clients.delete(workspaceId);
+      this.readySessions.delete(workspaceId);
+      client.destroy().catch(() => {});
+      prisma.whatsAppSession.deleteMany({ where: { workspaceId } })
+        .catch(err => console.error(`[WhatsApp] Failed to wipe stored session for ${workspaceId}:`, err));
+      prisma.channel.updateMany({
+        where: { workspaceId, platform: 'WHATSAPP' },
+        data: { status: 'NEEDS_QR' }
+      }).catch(err => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, err));
+      io.to(`workspace:${workspaceId}`).emit('whatsapp:auth_failure', { message });
     });
 
     // Event: Disconnected
@@ -190,16 +247,21 @@ export class WhatsAppSessionManager {
       this.readySessions.delete(workspaceId);
       io.to(`workspace:${workspaceId}`).emit('whatsapp:disconnected', { reason });
 
-      // LOGOUT means the user unlinked the device — don't fight it. Any other
-      // reason is transient: the watchdog stays armed and re-initializes.
-      if (String(reason).toUpperCase() === 'LOGOUT') {
+      // LOGOUT means the user unlinked the device — don't fight it. QR
+      // exhaustion means nobody scanned after QR_MAX_RETRIES refreshes —
+      // stop asking WhatsApp for pairing codes; the user must reconnect
+      // explicitly from the UI. Any other reason is transient: the watchdog
+      // stays armed and re-initializes (with backoff).
+      const reasonStr = String(reason);
+      const isQrExhausted = reasonStr === QR_EXHAUSTED_REASON;
+      if (isQrExhausted || reasonStr.toUpperCase() === 'LOGOUT') {
         this.stopWatchdog(workspaceId);
       }
 
       // updateMany is safe even if no row exists yet
       prisma.channel.updateMany({
         where: { workspaceId, platform: 'WHATSAPP' },
-        data: { status: 'DISCONNECTED' }
+        data: { status: isQrExhausted ? 'NEEDS_QR' : 'DISCONNECTED' }
       }).catch(err => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, err));
     });
 
@@ -219,6 +281,10 @@ export class WhatsAppSessionManager {
         where: { workspaceId, platform: 'WHATSAPP' },
         data: { status: 'DISCONNECTED' }
       }).catch(dbErr => console.error(`[WhatsApp] DB Update Error (${workspaceId}):`, dbErr));
+
+      // Back off before the watchdog retries — immediate re-init loops on a
+      // persistent failure (e.g. Chromium crash) hammer WhatsApp with logins.
+      this.scheduleReinitBackoff(workspaceId);
     });
 
     this.clients.set(workspaceId, client);
@@ -255,7 +321,9 @@ export class WhatsAppSessionManager {
 
     const client = this.clients.get(workspaceId);
     if (!client) {
-      // Session vanished (failed init, transient disconnect) — self-heal.
+      // Session vanished (failed init, transient disconnect, recycle) —
+      // self-heal, but only once the re-init backoff window has elapsed.
+      if (Date.now() < (this.nextInitAllowedAt.get(workspaceId) ?? 0)) return;
       console.warn(`[WhatsApp][watchdog] No client for ${workspaceId}, re-initializing...`);
       await this.initSession(workspaceId);
       return;
@@ -273,6 +341,7 @@ export class WhatsAppSessionManager {
     }
 
     let healthy = false;
+    let timedOut = false;
     try {
       const state = await Promise.race([
         client.getState(),
@@ -283,6 +352,7 @@ export class WhatsAppSessionManager {
       healthy = state === 'CONNECTED';
       if (!healthy) console.warn(`[WhatsApp][watchdog] Unhealthy state "${state}" for ${workspaceId}`);
     } catch (err) {
+      timedOut = (err as Error).message === 'getState timeout';
       console.warn(`[WhatsApp][watchdog] Health check failed for ${workspaceId}:`, (err as Error).message);
     }
 
@@ -291,10 +361,36 @@ export class WhatsAppSessionManager {
       return;
     }
 
-    const failures = (this.healthFailures.get(workspaceId) ?? 0) + 1;
+    const prev = this.healthFailures.get(workspaceId) ?? { count: 0, timeoutsOnly: true };
+    const failures: HealthFailureState = {
+      count: prev.count + 1,
+      timeoutsOnly: prev.timeoutsOnly && timedOut
+    };
     this.healthFailures.set(workspaceId, failures);
-    if (failures >= MAX_HEALTH_FAILURES) {
+    const limit = failures.timeoutsOnly ? MAX_TIMEOUT_ONLY_FAILURES : MAX_HEALTH_FAILURES;
+    if (failures.count >= limit) {
       await this.recycleSession(workspaceId);
+    }
+  }
+
+  /** Delay before the watchdog may re-init after `attempts` consecutive recycles. */
+  private reinitDelayMs(attempts: number): number {
+    if (attempts >= MAX_RECYCLE_ATTEMPTS) return RECYCLE_COOLDOWN_MS;
+    return REINIT_BACKOFF_BASE_MS * 2 ** (attempts - 1);
+  }
+
+  private scheduleReinitBackoff(workspaceId: string): void {
+    const attempts = (this.recycleAttempts.get(workspaceId) ?? 0) + 1;
+    this.recycleAttempts.set(workspaceId, attempts);
+    const delay = this.reinitDelayMs(attempts);
+    this.nextInitAllowedAt.set(workspaceId, Date.now() + delay);
+    if (attempts === MAX_RECYCLE_ATTEMPTS) {
+      console.error(
+        `[WhatsApp] ${workspaceId} hit ${attempts} consecutive recycles — cooling down ${RECYCLE_COOLDOWN_MS / 60_000}min`
+      );
+      getIO().to(`workspace:${workspaceId}`).emit('whatsapp:recycle_limit', {
+        cooldownMs: RECYCLE_COOLDOWN_MS
+      });
     }
   }
 
@@ -323,7 +419,10 @@ export class WhatsAppSessionManager {
     }
 
     this.recycling.delete(workspaceId);
-    await this.initSession(workspaceId);
+    // Deferred re-init: an immediate fresh login after every recycle is
+    // itself a ban signal. The watchdog re-initializes once the backoff
+    // window elapses (checkHealth's no-client path).
+    this.scheduleReinitBackoff(workspaceId);
   }
 
   /**
@@ -344,9 +443,19 @@ export class WhatsAppSessionManager {
       return;
     }
 
-    const chats = await client.getChats();
+    let chats: Awaited<ReturnType<typeof client.getChats>> | undefined;
+    for (let attempt = 1; attempt <= GET_CHATS_RETRY_ATTEMPTS; attempt++) {
+      try {
+        chats = await client.getChats();
+        break;
+      } catch (err) {
+        if (attempt === GET_CHATS_RETRY_ATTEMPTS) throw err;
+        console.warn(`[WhatsApp] getChats race (attempt ${attempt}/${GET_CHATS_RETRY_ATTEMPTS}) for ${workspaceId}, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, GET_CHATS_RETRY_DELAY_MS));
+      }
+    }
     // Skip groups and WhatsApp internal addresses
-    const recentChats = chats
+    const recentChats = chats!
       .filter(c => !c.isGroup && !c.id._serialized.includes('broadcast'))
       .slice(0, 20);
 
@@ -393,8 +502,10 @@ export class WhatsAppSessionManager {
   public async autoRestoreSessions(): Promise<void> {
     console.log('[WhatsApp] Auto-restoring sessions...');
     try {
+      // Only CONNECTED channels: restoring a dead/unlinked (DISCONNECTED or
+      // NEEDS_QR) session re-enters the endless-QR loop on every boot.
       const channels = await prisma.channel.findMany({
-        where: { platform: 'WHATSAPP', status: { in: ['CONNECTED', 'DISCONNECTED'] } },
+        where: { platform: 'WHATSAPP', status: 'CONNECTED' },
         select: { workspaceId: true, config: true }
       });
 
@@ -428,6 +539,8 @@ export class WhatsAppSessionManager {
     const client = this.clients.get(workspaceId);
     if (!client) throw new Error('WhatsApp session not active');
 
+    await this.simulateTyping(client, to, content);
+
     for (let attempt = 1; attempt <= SEND_MESSAGE_RETRY_ATTEMPTS; attempt++) {
       try {
         await client.sendMessage(to, content);
@@ -439,6 +552,27 @@ export class WhatsAppSessionManager {
         await new Promise(resolve => setTimeout(resolve, SEND_MESSAGE_RETRY_DELAY_MS));
       }
     }
+  }
+
+  /**
+   * Shows "typing…" and waits a length-proportional, jittered delay before a
+   * send. Replying instantly and uniformly to every message is one of the
+   * behavioral signals WhatsApp's anti-automation uses — this softens it.
+   * Best-effort: a failure here must never block the actual send.
+   */
+  private async simulateTyping(client: Client, to: string, content: string): Promise<void> {
+    let chat: Awaited<ReturnType<Client['getChatById']>> | undefined;
+    try {
+      chat = await client.getChatById(to);
+      await chat.sendStateTyping();
+    } catch {
+      chat = undefined;
+    }
+    const typingMs =
+      Math.min(TYPING_BASE_MS + content.length * TYPING_PER_CHAR_MS, TYPING_MAX_MS) +
+      Math.floor(Math.random() * TYPING_JITTER_MAX_MS);
+    await new Promise(resolve => setTimeout(resolve, typingMs));
+    if (chat) await chat.clearState().catch(() => {});
   }
 
   /**
@@ -535,6 +669,8 @@ export class WhatsAppSessionManager {
     this.stopWatchdog(workspaceId);
     this.readySessions.delete(workspaceId);
     this.initStartedAt.delete(workspaceId);
+    this.recycleAttempts.delete(workspaceId);
+    this.nextInitAllowedAt.delete(workspaceId);
     const client = this.clients.get(workspaceId);
     if (client) {
       await client.logout();
