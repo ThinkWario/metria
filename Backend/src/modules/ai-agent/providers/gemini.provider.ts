@@ -25,7 +25,13 @@ export const geminiProvider: LLMProvider = {
       model: CHAT_MODEL,
       tools: [{ functionDeclarations: tools }] as any
     })
-    const history = messages.slice(0, -1).map(m => ({
+    // Gemini requires the first history turn to be 'user'. A conversation whose
+    // logged messages start with a bot-initiated turn (e.g. a proactive greeting
+    // with no preceding customer message) would otherwise produce a 'model'-first
+    // history and hard-fail with "First content should be with role 'user'".
+    const historySource = messages.slice(0, -1)
+    const firstUserIndex = historySource.findIndex(m => m.role === 'user')
+    const history = (firstUserIndex === -1 ? [] : historySource.slice(firstUserIndex)).map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content }]
     }))
