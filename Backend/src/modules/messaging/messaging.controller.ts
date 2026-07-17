@@ -148,7 +148,10 @@ export async function whatsappWebhook(req: Request, res: Response): Promise<void
     }
     res.status(200).json({ ok: true })
     const body = req.body instanceof Buffer ? JSON.parse(rawBody) : req.body
-    parseWhatsAppUpdate(workspaceId, channel.id, body).catch(err => console.error('[WhatsApp webhook]', err))
+    parseWhatsAppUpdate(workspaceId, channel.id, body, {
+      accessToken: config.accessToken,
+      phoneNumberId: config.phoneNumberId
+    }).catch(err => console.error('[WhatsApp webhook]', err))
   } catch (err) {
     console.error('[WhatsApp webhook error]', err)
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' })

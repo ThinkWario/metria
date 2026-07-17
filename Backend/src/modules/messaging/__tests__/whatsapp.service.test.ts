@@ -5,8 +5,13 @@ vi.mock('../message.service', () => ({
   processInboundMessage: vi.fn().mockResolvedValue({ conversationId: 'c1', messageId: 'm1', contactId: 'ct1', isNewConversation: false })
 }))
 
+vi.mock('../../ai-agent/providers/gemini.provider', () => ({
+  transcribeAudio: vi.fn(async () => 'hola necesito cotizar')
+}))
+
 import { verifyWhatsAppSignature, parseWhatsAppUpdate } from '../channels/whatsapp.service'
 import { processInboundMessage } from '../message.service'
+import { transcribeAudio } from '../../ai-agent/providers/gemini.provider'
 
 const APP_SECRET = 'test-secret'
 
@@ -78,6 +83,65 @@ describe('parseWhatsAppUpdate', () => {
   it('skips non-message webhooks silently', async () => {
     const body = { entry: [{ changes: [{ value: { statuses: [{ id: '1', status: 'delivered' }] } }] }] }
     await parseWhatsAppUpdate('ws-1', 'ch-1', body)
+    expect(processInboundMessage).not.toHaveBeenCalled()
+  })
+})
+
+const CREDS = { accessToken: 'test-token', phoneNumberId: 'pn-1' }
+
+describe('parseWhatsAppUpdate — audio messages', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).endsWith('/media-id-1')) {
+        return { ok: true, json: async () => ({ url: 'https://graph-media/file', mime_type: 'audio/ogg' }) } as any
+      }
+      if (String(url) === 'https://graph-media/file') {
+        return { ok: true, arrayBuffer: async () => new TextEncoder().encode('fake-audio-bytes').buffer } as any
+      }
+      return { ok: true, json: async () => ({}) } as any
+    }) as any
+  })
+
+  function audioBody() {
+    return {
+      entry: [{
+        changes: [{
+          value: {
+            messaging_product: 'whatsapp',
+            contacts: [{ profile: { name: 'Ana' }, wa_id: '56911112222' }],
+            messages: [{
+              id: 'wamid.audio1',
+              from: '56911112222',
+              timestamp: '1700000000',
+              type: 'audio',
+              audio: { id: 'media-id-1', mime_type: 'audio/ogg' }
+            }]
+          }
+        }]
+      }]
+    }
+  }
+
+  it('downloads, transcribes, and processes an inbound audio message', async () => {
+    await parseWhatsAppUpdate('ws-1', 'ch-1', audioBody() as any, CREDS)
+
+    expect(transcribeAudio).toHaveBeenCalledWith(expect.any(String), 'audio/ogg')
+    expect(processInboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'ws-1',
+        channelId: 'ch-1',
+        externalConversationId: '56911112222',
+        content: 'hola necesito cotizar',
+        mediaType: 'audio'
+      })
+    )
+  })
+
+  it('skips the audio message without crashing when no credentials are configured', async () => {
+    await parseWhatsAppUpdate('ws-1', 'ch-1', audioBody() as any)
+
+    expect(transcribeAudio).not.toHaveBeenCalled()
     expect(processInboundMessage).not.toHaveBeenCalled()
   })
 })
