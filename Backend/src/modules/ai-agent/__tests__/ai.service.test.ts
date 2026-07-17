@@ -128,4 +128,16 @@ describe('processAiResponse (rewired)', () => {
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue({ id: CONV, isHandledByBot: false } as any)
     expect(await processAiResponse(WS, CONV, 'x')).toBeNull()
   })
+
+  it('applies the agent profile languageGuard to the final response', async () => {
+    vi.mocked(prisma.botAgent.findFirst).mockResolvedValue({
+      id: 'bot-1', name: 'Sol', tone: 'casual', promptBase: null, provider: 'gemini',
+      config: { profile: { languageGuard: { stripMarkdownEmphasis: true } } }
+    } as any)
+    chatMock.mockResolvedValue({ text: '¡Hola *Ana*!', toolCalls: [], submitToolResults: vi.fn() })
+
+    const result = await processAiResponse(WS, CONV, 'Hola')
+
+    expect(result).toBe('¡Hola Ana!')
+  })
 })

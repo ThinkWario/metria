@@ -1,9 +1,12 @@
+import type { LanguageGuard } from './responseSanitizer'
+
 export interface AgentProfile {
   business?: { description?: string; coverage?: string }
   offer?: { name: string; price?: string }[]
   qualificationQuestions?: { key: string; question: string }[]
   objections?: { objection: string; response: string }[]
   scheduling?: { enabled: boolean; types: string[] }
+  languageGuard?: LanguageGuard
 }
 
 interface CompileInput {

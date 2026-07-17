@@ -6,6 +6,7 @@ import { getProvider } from './providers/provider.factory'
 import { compileSystemPrompt, type AgentProfile } from './promptCompiler'
 import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
 import { getAvailableSlots, scheduleAppointment } from '../scheduling/scheduling.service'
+import { sanitizeResponse } from './responseSanitizer'
 
 /**
  * Tools available for the AI Agent
@@ -208,7 +209,7 @@ export async function processAiResponse(
   }
   // Handover already wrote a system message — suppress AI text reply to avoid duplicate
   if (handoverCalled) return null
-  return result.text
+  return result.text ? sanitizeResponse(result.text, profile?.languageGuard) : result.text
 }
 
 async function handleToolCall(workspaceId: string, conversationId: string, call: any) {
