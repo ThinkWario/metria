@@ -12,7 +12,7 @@ vi.mock('@google/generative-ai', () => ({
   }
 }))
 
-import { geminiProvider } from '../providers/gemini.provider'
+import { geminiProvider, transcribeAudio } from '../providers/gemini.provider'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -76,5 +76,31 @@ describe('geminiProvider.chat', () => {
         { role: 'model', parts: [{ text: 'siguiente' }] }
       ]
     }))
+  })
+})
+
+describe('transcribeAudio', () => {
+  it('sends inline audio data to Gemini and returns the trimmed transcript', async () => {
+    const generateContentMock = vi.fn().mockResolvedValue({
+      response: { text: () => '  hola quiero cotizar  ' }
+    })
+    getGenerativeModelMock.mockReturnValue({ startChat: startChatMock, generateContent: generateContentMock })
+
+    const result = await transcribeAudio('QUJDRA==', 'audio/ogg; codecs=opus')
+
+    expect(result).toBe('hola quiero cotizar')
+    expect(generateContentMock).toHaveBeenCalledWith([
+      expect.objectContaining({ text: expect.any(String) }),
+      { inlineData: { mimeType: 'audio/ogg; codecs=opus', data: 'QUJDRA==' } }
+    ])
+  })
+
+  it('returns empty string instead of throwing when Gemini fails', async () => {
+    const generateContentMock = vi.fn().mockRejectedValue(new Error('quota exceeded'))
+    getGenerativeModelMock.mockReturnValue({ startChat: startChatMock, generateContent: generateContentMock })
+
+    const result = await transcribeAudio('QUJDRA==', 'audio/ogg')
+
+    expect(result).toBe('')
   })
 })

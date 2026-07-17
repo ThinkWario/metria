@@ -6,6 +6,10 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '')
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-2.5-flash'
 const EMBED_MODEL = process.env.GEMINI_EMBED_MODEL || 'gemini-embedding-001'
 
+const TRANSCRIBE_PROMPT =
+  'Transcribe este audio exactamente a texto. Devuelve SOLO la transcripción, sin comillas, ' +
+  'sin prefijos como "Transcripción:" y sin explicaciones adicionales.'
+
 function wrapResult(chat: any, response: any): ChatResult {
   const calls = response.functionCalls() || []
   return {
@@ -50,5 +54,19 @@ export const geminiProvider: LLMProvider = {
       requests: texts.map(t => ({ content: { role: 'user', parts: [{ text: t }] } }))
     })
     return res.embeddings.map(e => e.values)
+  }
+}
+
+export async function transcribeAudio(data: string, mimeType: string): Promise<string> {
+  try {
+    const model = genAI.getGenerativeModel({ model: CHAT_MODEL })
+    const result = await model.generateContent([
+      { text: TRANSCRIBE_PROMPT },
+      { inlineData: { mimeType, data } }
+    ])
+    return result.response.text().trim()
+  } catch (err) {
+    console.error('[Gemini] Audio transcription failed:', err)
+    return ''
   }
 }
