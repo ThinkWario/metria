@@ -140,4 +140,16 @@ describe('processAiResponse (rewired)', () => {
 
     expect(result).toBe('¡Hola Ana!')
   })
+
+  it('blocks a hallucinated URL that no tool call returned this turn', async () => {
+    chatMock.mockResolvedValue({
+      text: 'Aquí tienes tu link de pago: https://fake-pay.example.com/xyz',
+      toolCalls: [],
+      submitToolResults: vi.fn()
+    })
+
+    const result = await processAiResponse(WS, CONV, 'Hola')
+
+    expect(result).not.toContain('https://')
+  })
 })

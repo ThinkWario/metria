@@ -7,6 +7,7 @@ import { compileSystemPrompt, type AgentProfile } from './promptCompiler'
 import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
 import { getAvailableSlots, scheduleAppointment } from '../scheduling/scheduling.service'
 import { sanitizeResponse } from './responseSanitizer'
+import { stripUnknownUrls, collectUrls } from './urlGuard'
 
 /**
  * Tools available for the AI Agent
@@ -197,11 +198,13 @@ export async function processAiResponse(
   // tool loop (max 5 rounds to avoid infinite loops)
   let rounds = 0
   let handoverCalled = false
+  const toolResultUrls = new Set<string>()
   while (result.toolCalls.length > 0 && rounds < 5) {
     const responses: { name: string; response: object }[] = []
     for (const call of result.toolCalls) {
       if (call.name === 'handover_to_human') handoverCalled = true
       const toolResult = await handleToolCall(workspaceId, conversationId, call)
+      for (const url of collectUrls(toolResult)) toolResultUrls.add(url)
       responses.push({ name: call.name, response: toolResult })
     }
     result = await result.submitToolResults(responses)
@@ -209,7 +212,8 @@ export async function processAiResponse(
   }
   // Handover already wrote a system message — suppress AI text reply to avoid duplicate
   if (handoverCalled) return null
-  return result.text ? sanitizeResponse(result.text, profile?.languageGuard) : result.text
+  if (!result.text) return result.text
+  return sanitizeResponse(stripUnknownUrls(result.text, toolResultUrls), profile?.languageGuard)
 }
 
 async function handleToolCall(workspaceId: string, conversationId: string, call: any) {
