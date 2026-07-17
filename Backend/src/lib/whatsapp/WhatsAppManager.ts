@@ -77,6 +77,16 @@ const GET_CHATS_RETRY_DELAY_MS = 1500;
  * same contact, which is exactly the kind of hammering that trips it.
  */
 const LID_NEGATIVE_CACHE_TTL_MS = 15 * 60_000;
+/**
+ * getContactLidAndPhone() is a page.evaluate() call with no default timeout.
+ * When the injected WWebJS helper is unattached (the same race that makes
+ * getChats() fail right after a session restore — see SEND_MESSAGE_RETRY
+ * above), this call can hang indefinitely instead of rejecting. Without a
+ * bound, handleInboundMessage() never resolves for that message: it's never
+ * persisted and never gets a bot reply, with no error logged either — the
+ * bot silently stops responding to every @lid contact from that point on.
+ */
+const RESOLVE_PHONE_TIMEOUT_MS = 15_000;
 
 interface LidCacheEntry {
   /** Resolved phone, or null if WhatsApp had nothing for us as of cachedAt. */
@@ -604,7 +614,12 @@ export class WhatsAppSessionManager {
     if (!client) return fallback;
 
     try {
-      const result = await client.getContactLidAndPhone([chatId]);
+      const result = await Promise.race([
+        client.getContactLidAndPhone([chatId]),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('getContactLidAndPhone timeout')), RESOLVE_PHONE_TIMEOUT_MS)
+        )
+      ]);
       const pn = result?.[0]?.pn;
       if (pn) {
         const resolved = pn.split('@')[0];
