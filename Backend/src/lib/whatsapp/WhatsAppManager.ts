@@ -641,11 +641,13 @@ export class WhatsAppSessionManager {
   private async handleInboundMessage(workspaceId: string, msg: WWebMessage) {
     // Ignore WhatsApp internal broadcasts (status updates, etc.)
     if (msg.from === 'status@broadcast' || msg.from?.includes('broadcast')) return;
-    // Ignore empty messages
-    if (!msg.body) return;
     // Ignore echoes of messages sent by the connected device itself (prevents
     // outbound AI/agent replies from being re-ingested as inbound customer messages).
     if (msg.fromMe) return;
+
+    const isVoiceNote = msg.type === 'audio' || msg.type === 'ptt';
+    // Ignore empty messages — voice notes carry no body, so they're allowed through here.
+    if (!msg.body && !isVoiceNote) return;
 
     console.log(`[WhatsApp] New message from ${msg.from} in workspace ${workspaceId}`);
 
@@ -659,6 +661,16 @@ export class WhatsAppSessionManager {
         return;
       }
 
+      // Mark read before the (potentially slow) transcription step, not after.
+      const client = this.clients.get(workspaceId);
+      if (client) client.sendSeen(msg.from).catch(() => {});
+
+      let content = msg.body;
+      if (isVoiceNote) {
+        content = await this.transcribeVoiceNote(msg);
+        if (!content) return; // download or transcription failed — already logged
+      }
+
       const { processInboundMessage } = await import('../../modules/messaging/message.service');
 
       const senderPhone = await this.resolvePhone(workspaceId, msg.from);
@@ -670,11 +682,33 @@ export class WhatsAppSessionManager {
         externalMessageId: msg.id._serialized,
         senderExternalId: senderPhone,
         senderName: (msg as any)._data?.notifyName || msg.author || 'WhatsApp User',
-        content: msg.body
+        content,
+        mediaType: isVoiceNote ? 'audio' : undefined
       });
     } catch (err) {
       console.error(`[WhatsApp] Error processing inbound message for ${workspaceId}:`, err);
     }
+  }
+
+  /**
+   * Downloads a voice note and transcribes it with Gemini. whatsapp-web.js
+   * voice messages carry no msg.body — without this, the empty-body guard
+   * at the top of handleInboundMessage silently dropped every one.
+   */
+  private async transcribeVoiceNote(msg: WWebMessage): Promise<string> {
+    let media;
+    try {
+      media = await msg.downloadMedia();
+    } catch (err) {
+      console.error(`[WhatsApp] Failed to download voice note from ${msg.from}:`, err);
+      return '';
+    }
+    if (!media?.data) return '';
+
+    const { transcribeAudio } = await import('../../modules/ai-agent/providers/gemini.provider');
+    const transcript = await transcribeAudio(media.data, media.mimetype);
+    if (!transcript) console.warn(`[WhatsApp] Empty transcription for voice note from ${msg.from}`);
+    return transcript;
   }
 
   /**

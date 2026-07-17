@@ -20,6 +20,7 @@ class FakeClient extends EventEmitter {
   }))
   sendMessage = vi.fn(async () => undefined)
   getContactLidAndPhone = vi.fn(async (): Promise<Array<{ pn?: string; lid?: string }>> => [])
+  sendSeen = vi.fn(async () => true)
 }
 
 let lastCreatedClient: FakeClient | undefined
@@ -57,8 +58,18 @@ vi.mock('../../prisma', () => ({
   }
 }))
 
+vi.mock('../../../modules/messaging/message.service', () => ({
+  processInboundMessage: vi.fn(async () => ({ conversationId: 'c1', messageId: 'm1', contactId: 'ct1', isNewConversation: false }))
+}))
+
+vi.mock('../../../modules/ai-agent/providers/gemini.provider', () => ({
+  transcribeAudio: vi.fn(async () => 'hola quiero cotizar un panel solar')
+}))
+
 import { WhatsAppSessionManager } from '../WhatsAppManager'
 import { prisma } from '../../prisma'
+import { processInboundMessage } from '../../../modules/messaging/message.service'
+import { transcribeAudio } from '../../../modules/ai-agent/providers/gemini.provider'
 
 const manager = WhatsAppSessionManager.getInstance()
 
@@ -322,5 +333,61 @@ describe('resolvePhone lid resolution caching', () => {
     const third = await (manager as any).resolvePhone(workspaceId, lidChatId)
     expect(third).toBe('61645766283373')
     expect(client.getContactLidAndPhone).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('handleInboundMessage — voice notes', () => {
+  function makeVoiceMsg(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      from: '56912345678@c.us',
+      fromMe: false,
+      body: '',
+      type: 'ptt',
+      id: { _serialized: 'wa-msg-1' },
+      author: undefined,
+      _data: {},
+      downloadMedia: vi.fn(async () => ({ mimetype: 'audio/ogg; codecs=opus', data: 'QUJDRA==' })),
+      ...overrides
+    }
+  }
+
+  it('downloads and transcribes a voice note, then processes the transcript as content', async () => {
+    const client = await initAndGetReady()
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue({ id: 'ch-1' } as any)
+    const msg = makeVoiceMsg()
+
+    await (manager as any).handleInboundMessage(workspaceId, msg)
+
+    expect(msg.downloadMedia).toHaveBeenCalledTimes(1)
+    expect(transcribeAudio).toHaveBeenCalledWith('QUJDRA==', 'audio/ogg; codecs=opus')
+    expect(processInboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'hola quiero cotizar un panel solar',
+        mediaType: 'audio'
+      })
+    )
+    expect(client.sendSeen).toHaveBeenCalledWith('56912345678@c.us')
+  })
+
+  it('drops the message without calling processInboundMessage when transcription fails', async () => {
+    await initAndGetReady()
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue({ id: 'ch-1' } as any)
+    vi.mocked(transcribeAudio).mockResolvedValueOnce('')
+    const msg = makeVoiceMsg()
+
+    await (manager as any).handleInboundMessage(workspaceId, msg)
+
+    expect(processInboundMessage).not.toHaveBeenCalled()
+  })
+
+  it('still ignores a plain empty-body message that is not a voice note', async () => {
+    await initAndGetReady()
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue({ id: 'ch-1' } as any)
+    const msg = makeVoiceMsg({ type: 'chat', body: '' })
+
+    await (manager as any).handleInboundMessage(workspaceId, msg)
+
+    expect(msg.downloadMedia).not.toHaveBeenCalled()
+    expect(processInboundMessage).not.toHaveBeenCalled()
   })
 })
