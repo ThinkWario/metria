@@ -14,7 +14,11 @@ export function sanitizeResponse(text: string, guard?: LanguageGuard): string {
   }
 
   for (const { pattern, replacement } of guard?.bannedPhrases ?? []) {
-    result = result.replace(new RegExp(pattern, 'gi'), replacement)
+    try {
+      result = result.replace(new RegExp(pattern, 'gi'), replacement)
+    } catch (error) {
+      console.warn(`[responseSanitizer] skipping malformed bannedPhrases pattern "${pattern}":`, error)
+    }
   }
 
   return result.replace(/\n{3,}/g, '\n\n').trim()

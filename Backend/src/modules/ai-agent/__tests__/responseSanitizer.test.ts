@@ -19,4 +19,15 @@ describe('sanitizeResponse', () => {
   it('collapses excess blank lines and trims', () => {
     expect(sanitizeResponse('Hola\n\n\n\nChao  ')).toBe('Hola\n\nChao')
   })
+
+  it('skips a malformed bannedPhrases pattern without throwing and still applies valid rules', () => {
+    const guard = {
+      bannedPhrases: [
+        { pattern: '(', replacement: 'x' },
+        { pattern: '\\bte late\\b', replacement: 'te parece' }
+      ]
+    }
+    expect(() => sanitizeResponse('Te Late la oferta?', guard)).not.toThrow()
+    expect(sanitizeResponse('Te Late la oferta?', guard)).toBe('te parece la oferta?')
+  })
 })
