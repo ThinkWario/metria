@@ -167,4 +167,27 @@ describe('scheduleAiReply', () => {
     expect(sendOutboundPlatformMessage).not.toHaveBeenCalled()
     expect(prisma.message.create).not.toHaveBeenCalled()
   })
+
+  it('drops an identical consecutive duplicate message before combining', async () => {
+    vi.mocked(processAiResponse).mockResolvedValueOnce('Una respuesta')
+
+    schedule('Hola')
+    schedule('Hola') // WhatsApp redelivery of the same bubble
+    schedule('¿Tienen stock?')
+
+    await runToCompletion()
+
+    expect(processAiResponse).toHaveBeenCalledWith(
+      WORKSPACE_ID, conversationId, 'Hola\n¿Tienen stock?'
+    )
+  })
+
+  it('does not start a generation when every queued message was a duplicate or blank', async () => {
+    schedule('  ')
+    schedule('  ')
+
+    await runToCompletion()
+
+    expect(processAiResponse).not.toHaveBeenCalled()
+  })
 })

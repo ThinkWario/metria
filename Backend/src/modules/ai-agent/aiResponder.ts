@@ -41,6 +41,18 @@ const inFlightByConversation = new Map<string, Promise<void>>()
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+/** Collapses consecutive identical messages (e.g. WhatsApp re-delivering the same bubble) before joining. */
+function dedupeConsecutive(parts: string[]): string {
+  const cleaned: string[] = []
+  for (const raw of parts) {
+    const part = raw.trim()
+    if (!part) continue
+    if (cleaned.length && cleaned[cleaned.length - 1] === part) continue
+    cleaned.push(part)
+  }
+  return cleaned.join('\n')
+}
+
 export function scheduleAiReply(params: {
   workspaceId: string
   conversationId: string
@@ -67,9 +79,18 @@ async function flush(conversationId: string): Promise<void> {
   const state = pendingByConversation.get(conversationId)
   if (!state || state.processing || state.contents.length === 0) return
 
+  const combined = dedupeConsecutive(state.contents.splice(0))
+  if (!combined) {
+    if (state.contents.length > 0) {
+      state.timer = setTimeout(() => { void flush(conversationId) }, DRAIN_DELAY_MS)
+    } else {
+      pendingByConversation.delete(conversationId)
+    }
+    return
+  }
+
   state.processing = true
   state.timer = null
-  const combined = state.contents.splice(0).join('\n')
 
   const promise = generateAndSend(state.workspaceId, conversationId, state.channelId, combined)
   inFlightByConversation.set(conversationId, promise)
