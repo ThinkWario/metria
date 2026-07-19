@@ -311,6 +311,7 @@ async function applyDealAction(
     return
   }
 
+  if (!action.stageName) throw new Error('stageName required to move a deal')
   const deal = await prisma.deal.findFirst({ where: { contactId, workspaceId, status: 'OPEN' }, orderBy: { createdAt: 'desc' } })
   if (!deal) throw new Error('No active deal found for this contact')
   const stage = await prisma.pipelineStage.findFirst({
@@ -343,20 +344,24 @@ async function applyQualifierOutcome(
   }
 
   if (failures.length > 0) {
-    await prisma.auditLog.create({
-      data: {
-        workspaceId: ctx.workspaceId,
-        source: 'ai-qualifier',
-        event: 'partial_apply_failure',
-        status: 'error',
-        message: failures.map(f => f.field).join(', '),
-        payload: {
-          conversationId: ctx.conversationId,
-          contactId: ctx.contactId,
-          failures: failures.map(f => ({ field: f.field, error: String(f.error) }))
+    try {
+      await prisma.auditLog.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          source: 'ai-qualifier',
+          event: 'partial_apply_failure',
+          status: 'error',
+          message: failures.map(f => f.field).join(', '),
+          payload: {
+            conversationId: ctx.conversationId,
+            contactId: ctx.contactId,
+            failures: failures.map(f => ({ field: f.field, error: String(f.error) }))
+          }
         }
-      }
-    })
+      })
+    } catch (error) {
+      console.error('[AI Agent] Failed to write ai-qualifier AuditLog:', error)
+    }
   }
 }
 
@@ -424,20 +429,39 @@ async function processAiResponseSplit(
   let qualifierOutput: QualifierOutput | null = null
   if (qualifierSettled.status === 'fulfilled') qualifierOutput = qualifierSettled.value
 
-  if (contact && qualifierOutput) {
-    await applyQualifierOutcome({ workspaceId, conversationId, contactId: contact.id }, qualifierOutput)
-  } else if (!qualifierOutput) {
+  if (!qualifierOutput) {
     const reason = qualifierSettled.status === 'rejected' ? qualifierSettled.reason : 'extract() returned null'
-    await prisma.auditLog.create({
-      data: {
-        workspaceId,
-        source: 'ai-qualifier',
-        event: 'extract_failed',
-        status: 'error',
-        message: String(reason),
-        payload: { conversationId }
-      }
-    })
+    try {
+      await prisma.auditLog.create({
+        data: {
+          workspaceId,
+          source: 'ai-qualifier',
+          event: 'extract_failed',
+          status: 'error',
+          message: String(reason),
+          payload: { conversationId }
+        }
+      })
+    } catch (error) {
+      console.error('[AI Agent] Failed to write ai-qualifier AuditLog:', error)
+    }
+  } else if (contact) {
+    await applyQualifierOutcome({ workspaceId, conversationId, contactId: contact.id }, qualifierOutput)
+  } else {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          workspaceId,
+          source: 'ai-qualifier',
+          event: 'skipped_no_contact',
+          status: 'error',
+          message: 'Qualifier produced output but conversation has no linked contact',
+          payload: { conversationId }
+        }
+      })
+    } catch (error) {
+      console.error('[AI Agent] Failed to write ai-qualifier AuditLog:', error)
+    }
   }
 
   if (responderSettled.status === 'rejected') throw responderSettled.reason

@@ -61,6 +61,13 @@ describe('compileResponderPrompt', () => {
     expect(prompt).not.toContain('tag_contact')
     expect(prompt).not.toContain('handover_to_human')
   })
+
+  it('does not tell the responder to create/advance a deal when scheduling is disabled', () => {
+    const profileNoScheduling: AgentProfile = { ...baseProfile, scheduling: { enabled: false, types: [] } }
+    const prompt = compileResponderPrompt({ agent, profile: profileNoScheduling, knowledgeChunks: [], contact: null, deal: null })
+    expect(prompt).not.toContain('crea o avanza el deal')
+    expect(prompt).toContain('sigue avanzando la conversación')
+  })
 })
 
 describe('compileQualifierPrompt', () => {

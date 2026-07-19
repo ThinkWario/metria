@@ -70,13 +70,18 @@ function renderPrompt(
   const handoverBullet = includeQualifierRules
     ? '\n- Si el cliente se molesta o pide un humano, usa handover_to_human.'
     : ''
+  const closingAction = profile?.scheduling?.enabled
+    ? 'agenda una cita con schedule_appointment (ofrece horarios reales con get_available_slots)'
+    : includeQualifierRules
+      ? 'crea o avanza el deal'
+      : 'sigue avanzando la conversación hacia el cierre'
 
   sections.push(`PLAYBOOK DE CIERRE (sigue las etapas en orden):
 1. Saludo breve y cálido.
 2. Descubrimiento: obtén las respuestas de calificación pendientes.
 3. Presenta la solución adecuada de la OFERTA según sus respuestas.
 4. Maneja objeciones con los argumentos dados.
-5. Cierre: ${profile?.scheduling?.enabled ? 'agenda una cita con schedule_appointment (ofrece horarios reales con get_available_slots)' : 'crea o avanza el deal'} y confirma el siguiente paso.
+5. Cierre: ${closingAction} y confirma el siguiente paso.
 
 REGLAS DURAS:${qualifierBullet}
 - No inventes precios, plazos ni garantías que no estén en OFERTA o CONOCIMIENTO.${handoverBullet}
