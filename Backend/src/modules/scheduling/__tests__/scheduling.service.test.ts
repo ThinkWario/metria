@@ -5,12 +5,22 @@ vi.mock('../../../lib/prisma', () => ({
     availabilityRule: { findMany: vi.fn() },
     appointment: { findMany: vi.fn(), create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     contact: { findFirst: vi.fn() },
-    businessHours: { findUnique: vi.fn() }
+    businessHours: { findUnique: vi.fn() },
+    workspace: { findUnique: vi.fn() }
   }
 }))
 
+// scheduling.service.ts imports google-calendar.service statically, so this mock's
+// factory runs at hoist-time, before any non-hoisted const would be initialized —
+// vi.hoisted() is required here (unlike a plain `const x = vi.fn()` above vi.mock,
+// which only works when the mocked module is imported dynamically elsewhere).
+const { getFreeBusyMock } = vi.hoisted(() => ({ getFreeBusyMock: vi.fn() }))
+vi.mock('../google-calendar.service', () => ({
+  getFreeBusy: getFreeBusyMock
+}))
+
 import { afterEach } from 'vitest'
-import { getAvailableSlots, scheduleAppointment } from '../scheduling.service'
+import { getAvailableSlots, scheduleAppointment, filterSlotsByCalendarBusy } from '../scheduling.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
@@ -161,5 +171,33 @@ describe('scheduleAppointment', () => {
     await expect(scheduleAppointment(WS, {
       contactId: 'evil', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-15T10:00:00'), createdBy: 'BOT'
     })).rejects.toThrow('Contact not found')
+  })
+})
+
+describe('filterSlotsByCalendarBusy', () => {
+  const slots = [new Date('2026-06-15T10:00:00Z'), new Date('2026-06-15T11:00:00Z')]
+
+  it('returns slots unchanged when no Calendar is connected', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ googleCalRefreshToken: null } as any)
+    const result = await filterSlotsByCalendarBusy(WS, 'SITE_VISIT', slots)
+    expect(result).toEqual(slots)
+    expect(getFreeBusyMock).not.toHaveBeenCalled()
+  })
+
+  it('drops a slot that overlaps a busy interval from the connected Calendar', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ googleCalRefreshToken: 'tok' } as any)
+    vi.mocked(prisma.availabilityRule.findMany).mockResolvedValue([
+      { dayOfWeek: 1, startTime: '09:00', endTime: '18:00', slotMinutes: 60, apptType: 'SITE_VISIT' }
+    ] as any)
+    getFreeBusyMock.mockResolvedValue([{ start: '2026-06-15T10:15:00Z', end: '2026-06-15T10:45:00Z' }])
+
+    const result = await filterSlotsByCalendarBusy(WS, 'SITE_VISIT', slots)
+    expect(result).toEqual([slots[1]])
+  })
+
+  it('never throws and falls back to the unfiltered slots when the Calendar lookup fails', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockRejectedValue(new Error('db down'))
+    const result = await filterSlotsByCalendarBusy(WS, 'SITE_VISIT', slots)
+    expect(result).toEqual(slots)
   })
 })

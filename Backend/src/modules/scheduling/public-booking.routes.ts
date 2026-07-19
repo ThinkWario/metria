@@ -178,26 +178,15 @@ router.post('/booking/:slug/book', simpleRateLimit(10 * 60 * 1000, 10), async (r
   const tz = bh?.timezone ?? 'America/Santiago'
 
   // Google Calendar event creation
-  if (ws.googleCalRefreshToken) {
-    try {
-      const { createCalendarEvent } = await import('./google-calendar.service')
-      const googleEventId = await createCalendarEvent(ws.id, {
-        title: ws.bookingTitle ?? 'Cita agendada',
-        startAt: appt.scheduledAt,
-        durationMin: appt.durationMin,
-        bookerName: name,
-        bookerEmail: email,
-        workspaceEmail: ws.googleCalEmail ?? null
-      })
-      if (googleEventId) {
-        await prisma.appointment.update({
-          where: { id: appt.id },
-          data: { googleEventId }
-        })
-      }
-    } catch (gcalErr) {
-      console.error('[booking] Google Calendar event creation failed:', gcalErr)
-    }
+  {
+    const { syncAppointmentToCalendar } = await import('./google-calendar.service')
+    await syncAppointmentToCalendar(ws.id, appt.id, {
+      title: ws.bookingTitle ?? 'Cita agendada',
+      startAt: appt.scheduledAt,
+      durationMin: appt.durationMin,
+      bookerName: name,
+      bookerEmail: email
+    })
   }
 
   // Invitations are handled automatically by Google Calendar (sendUpdates: 'all')

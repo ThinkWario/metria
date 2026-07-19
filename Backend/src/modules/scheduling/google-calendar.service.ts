@@ -139,6 +139,41 @@ export async function createCalendarEvent(
   }
 }
 
+/**
+ * Creates a Google Calendar event for an already-created Appointment and persists
+ * the returned event ID on it. No-op when the workspace has no Calendar connected.
+ * Never throws — a Calendar failure must not undo the appointment itself.
+ */
+export async function syncAppointmentToCalendar(
+  workspaceId: string,
+  appointmentId: string,
+  opts: {
+    title: string
+    startAt: Date
+    durationMin: number
+    bookerName: string
+    bookerEmail?: string | null
+  }
+): Promise<void> {
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { googleCalRefreshToken: true, googleCalEmail: true }
+    })
+    if (!ws?.googleCalRefreshToken) return
+
+    const googleEventId = await createCalendarEvent(workspaceId, {
+      ...opts,
+      workspaceEmail: ws.googleCalEmail ?? null
+    })
+    if (googleEventId) {
+      await prisma.appointment.update({ where: { id: appointmentId }, data: { googleEventId } })
+    }
+  } catch (err) {
+    console.error('[gcal] syncAppointmentToCalendar failed (non-blocking):', err)
+  }
+}
+
 /** Deletes a Google Calendar event (e.g. on appointment cancellation). */
 export async function cancelCalendarEvent(
   workspaceId: string,

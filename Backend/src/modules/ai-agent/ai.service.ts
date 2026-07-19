@@ -5,7 +5,7 @@ import { createDeal, moveDeal } from '../crm/pipeline.service'
 import { getProvider } from './providers/provider.factory'
 import { compileSystemPrompt, compileResponderPrompt, compileQualifierPrompt, type AgentProfile, type CompileInput } from './promptCompiler'
 import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
-import { getAvailableSlots, scheduleAppointment } from '../scheduling/scheduling.service'
+import { getAvailableSlots, filterSlotsByCalendarBusy, scheduleAppointment } from '../scheduling/scheduling.service'
 import { sanitizeResponse } from './responseSanitizer'
 import { stripUnknownUrls, collectUrls } from './urlGuard'
 import { blockLeakedInternals } from './codeLeakGuard'
@@ -566,17 +566,40 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         return { success: true }
 
       case 'get_available_slots': {
-        const slots = await getAvailableSlots(workspaceId, args.type ?? 'SITE_VISIT', new Date(), 14)
+        const type = args.type ?? 'SITE_VISIT'
+        const rawSlots = await getAvailableSlots(workspaceId, type, new Date(), 14)
+        const slots = await filterSlotsByCalendarBusy(workspaceId, type, rawSlots)
         return { slots: slots.slice(0, 6).map(s => s.toISOString()) }
       }
 
       case 'schedule_appointment': {
+        const type = args.type ?? 'SITE_VISIT'
         const appt = await scheduleAppointment(workspaceId, {
           contactId,
-          type: args.type ?? 'SITE_VISIT',
+          type,
           scheduledAt: new Date(args.isoDateTime),
           createdBy: 'BOT'
         })
+
+        // Best-effort: a Calendar sync problem must never make the agent report
+        // the booking itself as failed — the Appointment row above already exists.
+        try {
+          const bookerContact = await prisma.contact.findUnique({
+            where: { id: contactId },
+            select: { name: true, email: true }
+          })
+          const { syncAppointmentToCalendar } = await import('../scheduling/google-calendar.service')
+          await syncAppointmentToCalendar(workspaceId, appt.id, {
+            title: type === 'SITE_VISIT' ? `Visita técnica — ${bookerContact?.name ?? 'lead'}` : `Llamada — ${bookerContact?.name ?? 'lead'}`,
+            startAt: appt.scheduledAt,
+            durationMin: appt.durationMin,
+            bookerName: bookerContact?.name ?? 'lead',
+            bookerEmail: bookerContact?.email ?? null
+          })
+        } catch (err) {
+          console.error('[AI Agent] Calendar sync after schedule_appointment failed (non-blocking):', err)
+        }
+
         await logAiAction(workspaceId, conversationId, `Agendó cita ${args.type} para ${args.isoDateTime}`)
         return { success: true, appointmentId: appt.id, scheduledAt: appt.scheduledAt }
       }

@@ -9,8 +9,13 @@ vi.mock('../../../lib/prisma', () => ({
     pipeline: { findFirst: vi.fn() },
     pipelineStage: { findMany: vi.fn(), findFirst: vi.fn() },
     message: { create: vi.fn() },
-    auditLog: { create: vi.fn() }
+    auditLog: { create: vi.fn() },
+    contact: { findUnique: vi.fn(async () => ({ name: 'Ana', email: null })) }
   }
+}))
+const syncAppointmentToCalendarMock = vi.fn(async () => {})
+vi.mock('../../scheduling/google-calendar.service', () => ({
+  syncAppointmentToCalendar: syncAppointmentToCalendarMock
 }))
 const chatMock = vi.fn()
 const extractMock = vi.fn()
@@ -27,6 +32,7 @@ vi.mock('../../crm/contact.service', () => ({
 }))
 vi.mock('../../scheduling/scheduling.service', () => ({
   getAvailableSlots: vi.fn(async () => [new Date('2026-06-15T10:00:00')]),
+  filterSlotsByCalendarBusy: vi.fn(async (_ws, _type, slots) => slots),
   scheduleAppointment: vi.fn(async () => ({ id: 'a1', scheduledAt: new Date('2026-06-15T10:00:00') }))
 }))
 vi.mock('../../crm/pipeline.service', () => ({ createDeal: vi.fn(), moveDeal: vi.fn() }))
@@ -34,7 +40,7 @@ vi.mock('../../crm/pipeline.service', () => ({ createDeal: vi.fn(), moveDeal: vi
 import { processAiResponse } from '../ai.service'
 import { prisma } from '../../../lib/prisma'
 import { updateQualification, addTag } from '../../crm/contact.service'
-import { scheduleAppointment } from '../../scheduling/scheduling.service'
+import { scheduleAppointment, filterSlotsByCalendarBusy } from '../../scheduling/scheduling.service'
 
 const WS = 'ws-1'
 const CONV = 'conv-1'
@@ -84,7 +90,7 @@ describe('processAiResponse (rewired)', () => {
     expect(addTag).toHaveBeenCalledWith(WS, 'c1', 'lead-caliente', expect.anything())
   })
 
-  it('executes schedule_appointment tool', async () => {
+  it('executes schedule_appointment tool and syncs the booking to Google Calendar', async () => {
     const submit = vi.fn(async () => ({ text: 'Agendado', toolCalls: [], submitToolResults: vi.fn() }))
     chatMock.mockResolvedValue({
       text: null,
@@ -93,7 +99,41 @@ describe('processAiResponse (rewired)', () => {
     })
     const result = await processAiResponse(WS, CONV, 'el lunes a las 10')
     expect(scheduleAppointment).toHaveBeenCalled()
+    expect(syncAppointmentToCalendarMock).toHaveBeenCalledWith(WS, 'a1', expect.objectContaining({ bookerName: 'Ana' }))
+    expect(submit).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'schedule_appointment', response: expect.objectContaining({ success: true }) })
+    ])
     expect(result).toBe('Agendado')
+  })
+
+  it('still reports the booking as successful when the post-booking Calendar sync throws', async () => {
+    vi.mocked(prisma.contact.findUnique).mockRejectedValueOnce(new Error('db down'))
+    const submit = vi.fn(async () => ({ text: 'Agendado', toolCalls: [], submitToolResults: vi.fn() }))
+    chatMock.mockResolvedValue({
+      text: null,
+      toolCalls: [{ name: 'schedule_appointment', args: { contactId: 'c1', isoDateTime: '2026-06-15T10:00:00', type: 'SITE_VISIT' } }],
+      submitToolResults: submit
+    })
+    await processAiResponse(WS, CONV, 'el lunes a las 10')
+    expect(submit).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'schedule_appointment', response: expect.objectContaining({ success: true }) })
+    ])
+  })
+
+  it('executes get_available_slots and filters out slots busy on the connected Google Calendar', async () => {
+    const submit = vi.fn(async () => ({ text: 'Estos horarios tengo libres', toolCalls: [], submitToolResults: vi.fn() }))
+    chatMock.mockResolvedValue({
+      text: null,
+      toolCalls: [{ name: 'get_available_slots', args: { type: 'SITE_VISIT' } }],
+      submitToolResults: submit
+    })
+    vi.mocked(filterSlotsByCalendarBusy).mockResolvedValueOnce([])
+
+    await processAiResponse(WS, CONV, '¿qué horarios hay?')
+    expect(filterSlotsByCalendarBusy).toHaveBeenCalledWith(WS, 'SITE_VISIT', [new Date('2026-06-15T10:00:00')])
+    expect(submit).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'get_available_slots', response: { slots: [] } })
+    ])
   })
 
   it('fetches the LATEST messages and sends history chronologically without duplicating the inbound turn', async () => {

@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma'
+import { getFreeBusy } from './google-calendar.service'
 
 /**
  * Timezone handling: BusinessHours stores the workspace timezone. When configured,
@@ -90,6 +91,41 @@ export async function getAvailableSlots(
     }
   }
   return slots.sort((a, b) => a.getTime() - b.getTime())
+}
+
+/**
+ * Removes slots that overlap a busy interval on the workspace's connected Google
+ * Calendar (e.g. a personal event, or a meeting booked outside Metria). No-op when
+ * no Calendar is connected, and never throws — a Calendar lookup failure must not
+ * stop the agent from offering appointment times.
+ */
+export async function filterSlotsByCalendarBusy(workspaceId: string, type: string, slots: Date[]): Promise<Date[]> {
+  if (slots.length === 0) return slots
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { googleCalRefreshToken: true } })
+    if (!ws?.googleCalRefreshToken) return slots
+
+    const rules = await prisma.availabilityRule.findMany({ where: { workspaceId, apptType: type } })
+    const tz = await getWorkspaceTimezone(workspaceId)
+    const from = slots[0]
+    const to = new Date(slots[slots.length - 1].getTime() + 24 * 60 * 60_000) // generous upper bound
+    const busy = await getFreeBusy(workspaceId, from, to)
+    if (busy.length === 0) return slots
+    const busyIntervals = busy.map(b => ({ start: new Date(b.start), end: new Date(b.end) }))
+
+    return slots.filter(slot => {
+      const wall = toWallClock(slot, tz)
+      const day = wall.getDay()
+      const minutes = wall.getHours() * 60 + wall.getMinutes()
+      const rule = findRuleForTime(rules, day, minutes)
+      const durationMs = (rule?.slotMinutes ?? 60) * 60_000
+      const slotEnd = new Date(slot.getTime() + durationMs)
+      return !busyIntervals.some(b => slot < b.end && slotEnd > b.start)
+    })
+  } catch (err) {
+    console.error('[scheduling] filterSlotsByCalendarBusy failed (non-blocking):', err)
+    return slots
+  }
 }
 
 export async function scheduleAppointment(
