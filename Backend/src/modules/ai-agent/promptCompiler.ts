@@ -9,7 +9,7 @@ export interface AgentProfile {
   languageGuard?: LanguageGuard
 }
 
-interface CompileInput {
+export interface CompileInput {
   agent: { name: string; tone: string; promptBase?: string | null }
   profile: AgentProfile | null
   knowledgeChunks: string[]
@@ -21,7 +21,16 @@ interface CompileInput {
   deal: { title: string; status: string; stage?: { name: string } | null } | null
 }
 
-export function compileSystemPrompt({ agent, profile, knowledgeChunks, contact, deal }: CompileInput): string {
+function pendingQualificationQuestions(profile: AgentProfile | null, contact: CompileInput['contact']) {
+  if (!contact) return []
+  const qualified = (contact.qualificationData ?? {}) as Record<string, unknown>
+  return (profile?.qualificationQuestions ?? []).filter(q => qualified[q.key] === undefined)
+}
+
+function renderPrompt(
+  { agent, profile, knowledgeChunks, contact, deal }: CompileInput,
+  includeQualifierRules: boolean
+): string {
   const sections: string[] = []
 
   sections.push(`Eres ${agent.name}, agente de ventas experto. Tono: ${agent.tone}.`)
@@ -40,8 +49,7 @@ export function compileSystemPrompt({ agent, profile, knowledgeChunks, contact, 
   }
 
   if (contact) {
-    const qualified = (contact.qualificationData ?? {}) as Record<string, unknown>
-    const pending = (profile?.qualificationQuestions ?? []).filter(q => qualified[q.key] === undefined)
+    const pending = pendingQualificationQuestions(profile, contact)
     sections.push(`LEAD ACTUAL:\nNombre: ${contact.name}\nStatus: ${contact.status}\nTemperatura: ${contact.leadTemperature ?? 'sin calificar'} | Tipo: ${contact.leadType ?? 'sin calificar'} | Score: ${contact.leadScore ?? '-'}`)
     if (pending.length) {
       sections.push(`PREGUNTAS DE CALIFICACIÓN PENDIENTES (obtén estas respuestas de forma natural, máximo una por mensaje, nunca como interrogatorio):\n${pending.map(q => `- [${q.key}] ${q.question}`).join('\n')}`)
@@ -56,6 +64,13 @@ export function compileSystemPrompt({ agent, profile, knowledgeChunks, contact, 
     sections.push(`MANEJO DE OBJECIONES:\n${profile.objections.map(o => `- Si dice "${o.objection}" → responde en línea con: ${o.response}`).join('\n')}`)
   }
 
+  const qualifierBullet = includeQualifierRules
+    ? '\n- Cada vez que obtengas una respuesta de calificación o detectes cambio de intención, llama update_qualification y tag_contact.'
+    : ''
+  const handoverBullet = includeQualifierRules
+    ? '\n- Si el cliente se molesta o pide un humano, usa handover_to_human.'
+    : ''
+
   sections.push(`PLAYBOOK DE CIERRE (sigue las etapas en orden):
 1. Saludo breve y cálido.
 2. Descubrimiento: obtén las respuestas de calificación pendientes.
@@ -63,11 +78,47 @@ export function compileSystemPrompt({ agent, profile, knowledgeChunks, contact, 
 4. Maneja objeciones con los argumentos dados.
 5. Cierre: ${profile?.scheduling?.enabled ? 'agenda una cita con schedule_appointment (ofrece horarios reales con get_available_slots)' : 'crea o avanza el deal'} y confirma el siguiente paso.
 
-REGLAS DURAS:
-- Cada vez que obtengas una respuesta de calificación o detectes cambio de intención, llama update_qualification y tag_contact.
-- No inventes precios, plazos ni garantías que no estén en OFERTA o CONOCIMIENTO.
-- Si el cliente se molesta o pide un humano, usa handover_to_human.
+REGLAS DURAS:${qualifierBullet}
+- No inventes precios, plazos ni garantías que no estén en OFERTA o CONOCIMIENTO.${handoverBullet}
 - Sé conciso: mensajes cortos estilo WhatsApp.${!profile ? '\n- Ayuda al cliente y trata de cerrar una venta.' : ''}`)
+
+  return sections.join('\n\n')
+}
+
+export function compileSystemPrompt(input: CompileInput): string {
+  return renderPrompt(input, true)
+}
+
+/**
+ * Same prompt as compileSystemPrompt() minus the CRM-tool rules (moved to
+ * compileQualifierPrompt()) — used by the split-path responder, which no
+ * longer declares update_qualification / tag_contact / handover_to_human
+ * as tools.
+ */
+export function compileResponderPrompt(input: CompileInput): string {
+  return renderPrompt(input, false)
+}
+
+export function compileQualifierPrompt({ agent, profile, contact }: Pick<CompileInput, 'agent' | 'profile' | 'contact'>): string {
+  const sections: string[] = []
+
+  sections.push(`Eres el motor de calificación interno de ${agent.name}, un agente de ventas. No hablas con el cliente — tu única salida es un objeto JSON.`)
+
+  if (contact) {
+    sections.push(`LEAD ACTUAL:\nNombre: ${contact.name}\nStatus: ${contact.status}\nTemperatura: ${contact.leadTemperature ?? 'sin calificar'} | Tipo: ${contact.leadType ?? 'sin calificar'} | Score: ${contact.leadScore ?? '-'}`)
+    const pending = pendingQualificationQuestions(profile, contact)
+    if (pending.length) {
+      sections.push(`PREGUNTAS DE CALIFICACIÓN PENDIENTES:\n${pending.map(q => `- [${q.key}] ${q.question}`).join('\n')}`)
+    }
+  }
+
+  sections.push(`REGLAS:
+- Si el último mensaje del cliente responde una pregunta de calificación pendiente o revela su intención de compra, llena "qualification" (temperature, type, score, data) con lo que aprendiste.
+- Usa "tags" para etiquetas de segmentación (ej. "lead-caliente", "financiamiento", "postventa").
+- Usa "statusChange" solo cuando el status del contacto debe pasar de LEAD a PROSPECT o a CUSTOMER.
+- Usa "deal" solo si corresponde crear una oportunidad nueva o mover una existente a otra etapa del pipeline.
+- Usa "needsHuman" si el cliente pide hablar con un humano explícitamente o está molesto.
+- Si no hay señal nueva en este turno, devuelve un objeto vacío {}. No inventes datos que el cliente no dijo.`)
 
   return sections.join('\n\n')
 }
