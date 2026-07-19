@@ -152,4 +152,12 @@ describe('processAiResponse (rewired)', () => {
 
     expect(result).not.toContain('https://')
   })
+
+  it('uses the legacy single-call path by default (AI_QUALIFIER_SPLIT_ENABLED unset)', async () => {
+    chatMock.mockResolvedValue({ text: '¡Hola Ana!', toolCalls: [], submitToolResults: vi.fn() })
+    const result = await processAiResponse(WS, CONV, 'Hola')
+    expect(result).toBe('¡Hola Ana!')
+    // legacy path declares the full 9-tool set (qualifier + responder tools together)
+    expect(chatMock.mock.calls[0][0].tools).toHaveLength(9)
+  })
 })

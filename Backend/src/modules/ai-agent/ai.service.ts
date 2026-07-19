@@ -129,6 +129,17 @@ export async function processAiResponse(
   conversationId: string,
   userContent: string
 ): Promise<string | null> {
+  if (process.env.AI_QUALIFIER_SPLIT_ENABLED === 'true') {
+    return processAiResponseSplit(workspaceId, conversationId, userContent)
+  }
+  return processAiResponseLegacy(workspaceId, conversationId, userContent)
+}
+
+async function processAiResponseLegacy(
+  workspaceId: string,
+  conversationId: string,
+  userContent: string
+): Promise<string | null> {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId, workspaceId },
     include: {
@@ -214,6 +225,14 @@ export async function processAiResponse(
   if (handoverCalled) return null
   if (!result.text) return result.text
   return sanitizeResponse(stripUnknownUrls(result.text, toolResultUrls), profile?.languageGuard)
+}
+
+async function processAiResponseSplit(
+  workspaceId: string,
+  conversationId: string,
+  userContent: string
+): Promise<string | null> {
+  throw new Error('processAiResponseSplit not implemented yet')
 }
 
 async function handleToolCall(workspaceId: string, conversationId: string, call: any) {
