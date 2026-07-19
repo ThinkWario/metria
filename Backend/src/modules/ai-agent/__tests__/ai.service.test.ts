@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
@@ -8,12 +8,14 @@ vi.mock('../../../lib/prisma', () => ({
     deal: { findFirst: vi.fn(async () => null), update: vi.fn() },
     pipeline: { findFirst: vi.fn() },
     pipelineStage: { findMany: vi.fn(), findFirst: vi.fn() },
-    message: { create: vi.fn() }
+    message: { create: vi.fn() },
+    auditLog: { create: vi.fn() }
   }
 }))
 const chatMock = vi.fn()
+const extractMock = vi.fn()
 vi.mock('../providers/provider.factory', () => ({
-  getProvider: vi.fn(() => ({ chat: chatMock, embed: vi.fn(async () => [[0.1]]) }))
+  getProvider: vi.fn(() => ({ chat: chatMock, embed: vi.fn(async () => [[0.1]]), extract: extractMock }))
 }))
 vi.mock('../../knowledge/retrieval.service', () => ({
   retrieveRelevantChunks: vi.fn(async () => [{ content: 'Garantía 10 años', score: 0.9 }])
@@ -27,7 +29,7 @@ vi.mock('../../scheduling/scheduling.service', () => ({
   getAvailableSlots: vi.fn(async () => [new Date('2026-06-15T10:00:00')]),
   scheduleAppointment: vi.fn(async () => ({ id: 'a1', scheduledAt: new Date('2026-06-15T10:00:00') }))
 }))
-vi.mock('../../crm/pipeline.service', () => ({ createDeal: vi.fn() }))
+vi.mock('../../crm/pipeline.service', () => ({ createDeal: vi.fn(), moveDeal: vi.fn() }))
 
 import { processAiResponse } from '../ai.service'
 import { prisma } from '../../../lib/prisma'
@@ -159,5 +161,75 @@ describe('processAiResponse (rewired)', () => {
     expect(result).toBe('¡Hola Ana!')
     // legacy path declares the full 9-tool set (qualifier + responder tools together)
     expect(chatMock.mock.calls[0][0].tools).toHaveLength(9)
+  })
+})
+
+describe('processAiResponse (split path — AI_QUALIFIER_SPLIT_ENABLED=true)', () => {
+  beforeEach(() => {
+    process.env.AI_QUALIFIER_SPLIT_ENABLED = 'true'
+  })
+
+  afterEach(() => {
+    delete process.env.AI_QUALIFIER_SPLIT_ENABLED
+  })
+
+  it('applies the qualifier JSON output as CRM writes and returns the sanitized responder text', async () => {
+    extractMock.mockResolvedValue({ qualification: { temperature: 'HOT', type: 'READY_TO_BUY', score: 90 } })
+    chatMock.mockResolvedValue({ text: 'Perfecto, avancemos.', toolCalls: [], submitToolResults: vi.fn() })
+
+    const result = await processAiResponse(WS, CONV, 'Quiero comprar ya')
+
+    expect(updateQualification).toHaveBeenCalledWith(WS, 'c1', expect.objectContaining({ temperature: 'HOT' }))
+    expect(result).toBe('Perfecto, avancemos.')
+    // responder only ever sees the 3 scoped tools, not the full 9
+    expect(chatMock.mock.calls[0][0].tools.map((t: any) => t.name)).toEqual(['search_catalog', 'get_available_slots', 'schedule_appointment'])
+  })
+
+  it('logs a partial_apply_failure to AuditLog but keeps the fields that succeeded', async () => {
+    extractMock.mockResolvedValue({ qualification: { temperature: 'WARM' }, tags: ['lead-caliente'] })
+    vi.mocked(addTag).mockRejectedValueOnce(new Error('duplicate tag'))
+    chatMock.mockResolvedValue({ text: 'ok', toolCalls: [], submitToolResults: vi.fn() })
+
+    await processAiResponse(WS, CONV, 'x')
+
+    expect(updateQualification).toHaveBeenCalled()
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ event: 'partial_apply_failure', status: 'error' })
+    }))
+  })
+
+  it('logs extract_failed and still returns the responder text when the qualifier call fails', async () => {
+    extractMock.mockResolvedValue(null)
+    chatMock.mockResolvedValue({ text: 'Aquí tienes la info.', toolCalls: [], submitToolResults: vi.fn() })
+
+    const result = await processAiResponse(WS, CONV, 'x')
+
+    expect(result).toBe('Aquí tienes la info.')
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ event: 'extract_failed', status: 'error' })
+    }))
+  })
+
+  it('discards the responder text and hands over when the qualifier sets needsHuman', async () => {
+    extractMock.mockResolvedValue({ needsHuman: { value: true, reason: 'Cliente molesto' } })
+    chatMock.mockResolvedValue({ text: 'Este texto nunca debe salir.', toolCalls: [], submitToolResults: vi.fn() })
+
+    const result = await processAiResponse(WS, CONV, 'x')
+
+    expect(result).toBeNull()
+    expect(prisma.conversation.update).toHaveBeenCalledWith({ where: { id: CONV }, data: { isHandledByBot: false } })
+  })
+
+  it('blocks a leaked internal trace via codeLeakGuard before it reaches the customer', async () => {
+    extractMock.mockResolvedValue(null)
+    chatMock.mockResolvedValue({
+      text: 'tool_code\nprint(default_api.update_qualification(...))\nthought\nEl usuario quiere...',
+      toolCalls: [],
+      submitToolResults: vi.fn()
+    })
+
+    const result = await processAiResponse(WS, CONV, 'x')
+
+    expect(result).toBe('Dame un segundo, reviso eso y te confirmo.')
   })
 })

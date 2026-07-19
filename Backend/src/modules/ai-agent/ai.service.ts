@@ -1,13 +1,16 @@
 import { SchemaType } from '@google/generative-ai'
 import { prisma } from '../../lib/prisma'
 import { updateContact, updateQualification, addTag } from '../crm/contact.service'
-import { createDeal } from '../crm/pipeline.service'
+import { createDeal, moveDeal } from '../crm/pipeline.service'
 import { getProvider } from './providers/provider.factory'
-import { compileSystemPrompt, type AgentProfile } from './promptCompiler'
+import { compileSystemPrompt, compileResponderPrompt, compileQualifierPrompt, type AgentProfile, type CompileInput } from './promptCompiler'
 import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
 import { getAvailableSlots, scheduleAppointment } from '../scheduling/scheduling.service'
 import { sanitizeResponse } from './responseSanitizer'
 import { stripUnknownUrls, collectUrls } from './urlGuard'
+import { blockLeakedInternals } from './codeLeakGuard'
+import { QUALIFIER_SCHEMA, type QualifierOutput } from './qualifierSchema'
+import type { ChatMessage, LLMProvider } from './providers/types'
 
 /**
  * Tools available for the AI Agent
@@ -124,6 +127,16 @@ const toolDeclarations = [
   }
 ]
 
+const RESPONDER_TOOL_NAMES = new Set(['search_catalog', 'get_available_slots', 'schedule_appointment'])
+/**
+ * Split-path responder's tool surface — only tools whose results must be
+ * reflected verbatim in the customer-facing text. The other 6 tools
+ * (qualify_lead, create_deal, move_deal, update_qualification, tag_contact,
+ * handover_to_human) are qualifier-only in the split path — see
+ * qualifierSchema.ts and applyQualifierOutcome() below.
+ */
+const RESPONDER_TOOL_DECLARATIONS = toolDeclarations.filter(t => RESPONDER_TOOL_NAMES.has(t.name))
+
 export async function processAiResponse(
   workspaceId: string,
   conversationId: string,
@@ -227,12 +240,218 @@ async function processAiResponseLegacy(
   return sanitizeResponse(stripUnknownUrls(result.text, toolResultUrls), profile?.languageGuard)
 }
 
+async function loadAiContext(workspaceId: string, conversationId: string, userContent: string) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId, workspaceId },
+    include: {
+      contact: true,
+      messages: { orderBy: { sentAt: 'desc' }, take: 10 },
+      channel: { select: { platform: true } }
+    }
+  })
+  if (!conversation || !conversation.isHandledByBot) return null
+
+  const agent = await prisma.botAgent.findFirst({
+    where: { workspaceId, isActive: true },
+    orderBy: { createdAt: 'desc' }
+  })
+  if (!agent) return null
+
+  const profile = ((agent as any).config?.profile ?? null) as AgentProfile | null
+  const knowledge = await retrieveRelevantChunks(workspaceId, userContent).catch(() => [])
+
+  const deal = conversation.contact
+    ? await prisma.deal.findFirst({
+        where: { contactId: conversation.contact.id, workspaceId, status: 'OPEN' },
+        orderBy: { createdAt: 'desc' },
+        include: { stage: true }
+      })
+    : null
+
+  const rawHistory = [...conversation.messages]
+    .reverse()
+    .filter(m => !m.isInternal)
+    .map(m => ({ role: m.senderType === 'CONTACT' ? 'user' as const : 'assistant' as const, content: m.content }))
+
+  while (rawHistory.length > 0) {
+    const last = rawHistory[rawHistory.length - 1]
+    if (last.role === 'user' && userContent.includes(last.content)) rawHistory.pop()
+    else break
+  }
+
+  const history: ChatMessage[] = []
+  for (const turn of rawHistory) {
+    const prev = history[history.length - 1]
+    if (prev && prev.role === turn.role) prev.content = `${prev.content}\n${turn.content}`
+    else history.push({ ...turn })
+  }
+
+  return { conversation, agent, profile, knowledge, deal, history }
+}
+
+async function applyDealAction(
+  workspaceId: string,
+  contactId: string,
+  action: NonNullable<QualifierOutput['deal']>
+): Promise<void> {
+  const pipeline = await prisma.pipeline.findFirst({ where: { workspaceId, isDefault: true } })
+  if (!pipeline) throw new Error('No default pipeline found')
+
+  if (action.action === 'create') {
+    const stages = await prisma.pipelineStage.findMany({ where: { pipelineId: pipeline.id }, orderBy: { order: 'asc' } })
+    const firstStage = stages[0]
+    if (!firstStage) throw new Error('No pipeline stages found')
+    await createDeal(workspaceId, {
+      contactId,
+      pipelineId: pipeline.id,
+      stageId: firstStage.id,
+      title: action.title ?? 'Oportunidad',
+      value: action.value
+    })
+    return
+  }
+
+  const deal = await prisma.deal.findFirst({ where: { contactId, workspaceId, status: 'OPEN' }, orderBy: { createdAt: 'desc' } })
+  if (!deal) throw new Error('No active deal found for this contact')
+  const stage = await prisma.pipelineStage.findFirst({
+    where: { pipelineId: deal.pipelineId, name: { contains: action.stageName, mode: 'insensitive' } }
+  })
+  if (!stage) throw new Error(`Stage "${action.stageName}" not found`)
+  await moveDeal(workspaceId, deal.id, stage.id)
+}
+
+async function applyQualifierOutcome(
+  ctx: { workspaceId: string; conversationId: string; contactId: string },
+  output: QualifierOutput
+): Promise<void> {
+  const failures: { field: string; error: unknown }[] = []
+  const tryApply = async (field: string, fn: () => Promise<unknown>) => {
+    try { await fn() } catch (error) { failures.push({ field, error }) }
+  }
+
+  if (output.qualification) {
+    await tryApply('qualification', () => updateQualification(ctx.workspaceId, ctx.contactId, output.qualification!))
+  }
+  if (output.tags?.length) {
+    await Promise.all(output.tags.map(tag => tryApply(`tag:${tag}`, () => addTag(ctx.workspaceId, ctx.contactId, tag))))
+  }
+  if (output.statusChange) {
+    await tryApply('statusChange', () => updateContact(ctx.workspaceId, ctx.contactId, { status: output.statusChange }))
+  }
+  if (output.deal) {
+    await tryApply('deal', () => applyDealAction(ctx.workspaceId, ctx.contactId, output.deal!))
+  }
+
+  if (failures.length > 0) {
+    await prisma.auditLog.create({
+      data: {
+        workspaceId: ctx.workspaceId,
+        source: 'ai-qualifier',
+        event: 'partial_apply_failure',
+        status: 'error',
+        message: failures.map(f => f.field).join(', '),
+        payload: {
+          conversationId: ctx.conversationId,
+          contactId: ctx.contactId,
+          failures: failures.map(f => ({ field: f.field, error: String(f.error) }))
+        }
+      }
+    })
+  }
+}
+
+async function runResponder(params: {
+  workspaceId: string
+  conversationId: string
+  system: string
+  history: ChatMessage[]
+  userContent: string
+  provider: LLMProvider
+}): Promise<{ text: string | null; toolResultUrls: Set<string> }> {
+  let result = await params.provider.chat({
+    system: params.system,
+    messages: [...params.history, { role: 'user', content: params.userContent }],
+    tools: RESPONDER_TOOL_DECLARATIONS
+  })
+
+  let rounds = 0
+  const toolResultUrls = new Set<string>()
+  while (result.toolCalls.length > 0 && rounds < 5) {
+    const responses: { name: string; response: object }[] = []
+    for (const call of result.toolCalls) {
+      const toolResult = await handleToolCall(params.workspaceId, params.conversationId, call)
+      for (const url of collectUrls(toolResult)) toolResultUrls.add(url)
+      responses.push({ name: call.name, response: toolResult })
+    }
+    result = await result.submitToolResults(responses)
+    rounds++
+  }
+
+  return { text: result.text, toolResultUrls }
+}
+
 async function processAiResponseSplit(
   workspaceId: string,
   conversationId: string,
   userContent: string
 ): Promise<string | null> {
-  throw new Error('processAiResponseSplit not implemented yet')
+  const ctx = await loadAiContext(workspaceId, conversationId, userContent)
+  if (!ctx) return null
+  const { agent, profile, knowledge, deal, history } = ctx
+  const contact = ctx.conversation.contact as any
+
+  const provider = getProvider(agent.provider)
+  const promptAgent = { name: agent.name, tone: agent.tone, promptBase: agent.promptBase }
+
+  const qualifierSystem = compileQualifierPrompt({ agent: promptAgent, profile, contact })
+  const responderSystem = compileResponderPrompt({
+    agent: promptAgent,
+    profile,
+    knowledgeChunks: knowledge.map(k => k.content),
+    contact,
+    deal: deal as any
+  })
+
+  const [qualifierSettled, responderSettled] = await Promise.allSettled([
+    provider.extract<QualifierOutput>({
+      system: qualifierSystem,
+      messages: [...history, { role: 'user', content: userContent }],
+      schema: QUALIFIER_SCHEMA
+    }),
+    runResponder({ workspaceId, conversationId, system: responderSystem, history, userContent, provider })
+  ])
+
+  let qualifierOutput: QualifierOutput | null = null
+  if (qualifierSettled.status === 'fulfilled') qualifierOutput = qualifierSettled.value
+
+  if (contact && qualifierOutput) {
+    await applyQualifierOutcome({ workspaceId, conversationId, contactId: contact.id }, qualifierOutput)
+  } else if (!qualifierOutput) {
+    const reason = qualifierSettled.status === 'rejected' ? qualifierSettled.reason : 'extract() returned null'
+    await prisma.auditLog.create({
+      data: {
+        workspaceId,
+        source: 'ai-qualifier',
+        event: 'extract_failed',
+        status: 'error',
+        message: String(reason),
+        payload: { conversationId }
+      }
+    })
+  }
+
+  if (responderSettled.status === 'rejected') throw responderSettled.reason
+  const { text: responderText, toolResultUrls } = responderSettled.value
+
+  if (qualifierOutput?.needsHuman?.value === true) {
+    await prisma.conversation.update({ where: { id: conversationId }, data: { isHandledByBot: false } })
+    await logAiAction(workspaceId, conversationId, qualifierOutput.needsHuman.reason ?? 'Derivó la conversación a un agente humano')
+    return null
+  }
+
+  if (!responderText) return responderText
+  const guarded = blockLeakedInternals(responderText)
+  return sanitizeResponse(stripUnknownUrls(guarded, toolResultUrls), profile?.languageGuard)
 }
 
 async function handleToolCall(workspaceId: string, conversationId: string, call: any) {
