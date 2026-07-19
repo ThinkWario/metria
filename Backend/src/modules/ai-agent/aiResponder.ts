@@ -75,17 +75,22 @@ export function scheduleAiReply(params: {
   state.timer = setTimeout(() => { void flush(conversationId) }, DEBOUNCE_MS)
 }
 
+/** Re-arms the drain timer if messages queued up during processing, otherwise clears state. */
+function armDrainOrClear(conversationId: string, state: PendingReply): void {
+  if (state.contents.length > 0) {
+    state.timer = setTimeout(() => { void flush(conversationId) }, DRAIN_DELAY_MS)
+  } else {
+    pendingByConversation.delete(conversationId)
+  }
+}
+
 async function flush(conversationId: string): Promise<void> {
   const state = pendingByConversation.get(conversationId)
   if (!state || state.processing || state.contents.length === 0) return
 
   const combined = dedupeConsecutive(state.contents.splice(0))
   if (!combined) {
-    if (state.contents.length > 0) {
-      state.timer = setTimeout(() => { void flush(conversationId) }, DRAIN_DELAY_MS)
-    } else {
-      pendingByConversation.delete(conversationId)
-    }
+    armDrainOrClear(conversationId, state)
     return
   }
 
@@ -99,11 +104,7 @@ async function flush(conversationId: string): Promise<void> {
   } finally {
     inFlightByConversation.delete(conversationId)
     state.processing = false
-    if (state.contents.length > 0) {
-      state.timer = setTimeout(() => { void flush(conversationId) }, DRAIN_DELAY_MS)
-    } else {
-      pendingByConversation.delete(conversationId)
-    }
+    armDrainOrClear(conversationId, state)
   }
 }
 

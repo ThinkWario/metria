@@ -7,6 +7,7 @@ const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-2.5-flash'
 const EMBED_MODEL = process.env.GEMINI_EMBED_MODEL || 'gemini-embedding-001'
 
 const TRANSCRIBE_PROMPT =
+  process.env.GEMINI_TRANSCRIBE_PROMPT ||
   'Transcribe este audio exactamente a texto. Devuelve SOLO la transcripción, sin comillas, ' +
   'sin prefijos como "Transcripción:" y sin explicaciones adicionales.'
 

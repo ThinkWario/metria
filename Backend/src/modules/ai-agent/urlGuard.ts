@@ -1,4 +1,7 @@
 const URL_PATTERN = /https?:\/\/[^\s<>"')]+/gi
+const TRAILING_PUNCTUATION = /[.,;)]+$/
+
+const trimTrailingPunctuation = (url: string): string => url.replace(TRAILING_PUNCTUATION, '')
 
 /**
  * Strips any URL in `text` that wasn't actually returned by a tool call this
@@ -12,7 +15,7 @@ export function stripUnknownUrls(text: string, allowedUrls: Set<string>): string
   if (!found) return text
 
   for (const url of found) {
-    const clean = url.replace(/[.,;)]+$/, '')
+    const clean = trimTrailingPunctuation(url)
     if (!allowedUrls.has(clean)) {
       console.warn('[AI Agent] Blocked unverified URL in AI response:', clean)
       return 'Dame un segundo, reviso eso y te confirmo.'
@@ -23,5 +26,6 @@ export function stripUnknownUrls(text: string, allowedUrls: Set<string>): string
 
 /** Collects URL-shaped strings out of a tool call's JSON result so stripUnknownUrls can allow-list them. */
 export function collectUrls(toolResult: object): string[] {
-  return JSON.stringify(toolResult).match(URL_PATTERN) ?? []
+  const found = JSON.stringify(toolResult).match(URL_PATTERN) ?? []
+  return found.map(trimTrailingPunctuation)
 }
