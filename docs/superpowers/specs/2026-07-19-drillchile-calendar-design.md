@@ -3,6 +3,12 @@
 Fecha: 2026-07-19
 Workspace: DrillChile (producción, login drillchilecl@gmail.com — Roberto Morales)
 
+## Estado
+
+Parte B implementada y con tests (2026-07-19) — ver "Notas de implementación" al final.
+Parte A (reconectar Calendar / configurar slug de reservas) queda a cargo del usuario,
+que lo hará al finalizar el desarrollo.
+
 ## Contexto
 
 DrillChile ya tiene, en producción, la infraestructura completa para esto:
@@ -83,3 +89,41 @@ de drillchilecl@gmail.com y visible en "Citas" dentro de Metria.
   es exclusivo de leads solares — no aplica filtrado ni agente separado en esta iteración.
 - Editor visual de `qualificationKeyMappings` en el wizard de "Vincular planilla" — se
   configura vía API por ahora; se construye solo si se necesita editar seguido.
+- Reconexión real de Google Calendar (OAuth con drillchilecl@gmail.com) y configuración
+  de la página pública de reservas (slug `drillchile`) — el usuario las hará él mismo al
+  terminar el desarrollo.
+
+## Hallazgo adicional (durante la implementación)
+
+`scheduleAppointment()` (usado por la herramienta `schedule_appointment` del agente de
+WhatsApp) creaba la fila `Appointment` pero **nunca** sincronizaba con Google Calendar —
+solo el flujo de reserva pública (`/book/:slug`) lo hacía, inline en su propia ruta. Es
+decir: aunque se reconecte el Calendar real, ninguna visita agendada por el agente de
+WhatsApp iba a aparecer en él. Se corrigió como parte de esta iteración (ver abajo) porque
+sin esto "que el calendario funcione en paralelo" para el flujo que realmente importa acá
+(WhatsApp) no se habría cumplido.
+
+## Notas de implementación
+
+- `SheetIntegration.qualificationKeyMappings` (Json?) agregado al schema.
+  `npm run db:push` corrido contra la DB local de desarrollo (Docker Desktop se
+  arrancó en esta sesión). **Falta correrlo contra la DB de producción** (Easypanel) —
+  no tengo credenciales de esa DB desde acá; es parte del deploy normal del backend.
+- `sheets.service.ts::runSync()` ahora resuelve `qualificationKeyMappings` (header de
+  columna → key del agente) y las escribe en la raíz de `qualificationData` junto a
+  `rawFields`. Solo aplica en la creación del contacto (igual que el resto de
+  `qualificationData` hoy) — no se tocó el camino de actualización de contactos
+  existentes, es comportamiento preexistente fuera de esta iteración.
+- Extraído `syncAppointmentToCalendar()` en `google-calendar.service.ts` (antes esta
+  lógica vivía solo inline en `public-booking.routes.ts`). Ahora la usan tanto la reserva
+  pública como `schedule_appointment` del agente. Envuelto en try/catch en el call site
+  del agente para que un fallo de Calendar/lookup de contacto nunca haga que el agente
+  reporte la cita como fallida (la fila `Appointment` ya existe en ese punto).
+- **Cerrado también** el gap de free/busy: nuevo `filterSlotsByCalendarBusy()` en
+  `scheduling.service.ts`, usado por la herramienta `get_available_slots` del agente.
+  Ahora el agente no ofrece (ni por lo tanto agenda) una hora que choque con algo ya
+  puesto en el Google Calendar real conectado. No-op si no hay Calendar conectado;
+  nunca lanza — un fallo de Calendar no debe bloquear al agente de ofrecer horarios.
+- Tests: 8 nuevos/modificados (2 en `sheets.service.test.ts`, 3 en `ai.service.test.ts`,
+  3 en `scheduling.service.test.ts`). 323/323 tests del backend en verde, `tsc --noEmit`
+  limpio (4 errores preexistentes no relacionados), `npm run build` exitoso.
