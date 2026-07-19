@@ -238,6 +238,41 @@ describe('syncSheet column exclusion + custom field mapping', () => {
       data: { customFields: { rut: '11.111.111-1', display_name: 'Ana' } }
     })
   })
+
+  it('resolves qualificationKeyMappings onto the root of qualificationData (not just rawFields)', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        qualificationKeyMappings: { Nombre: 'contact_name_key' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678' } as any)
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    const createArg = vi.mocked(prisma.contact.create).mock.calls[0][0] as any
+    expect(createArg.data.qualificationData).toHaveProperty('contact_name_key', 'Ana')
+    expect(createArg.data.qualificationData.rawFields).toHaveProperty('Nombre', 'Ana')
+  })
+
+  it('skips a qualificationKeyMappings entry when the sheet cell is empty', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        qualificationKeyMappings: { Telefono: 'phone_key' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: null } as any)
+    mockSheetRows([['Ana', '']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    const createArg = vi.mocked(prisma.contact.create).mock.calls[0][0] as any
+    expect(createArg.data.qualificationData).not.toHaveProperty('phone_key')
+  })
 })
 
 describe('syncSheet incomplete-lead capture', () => {

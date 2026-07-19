@@ -170,6 +170,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
   const phoneCol = mappings.phone ? headers.indexOf(mappings.phone) : -1
   const excludedColumns = new Set(integration.excludedColumns ?? [])
   const customFieldMappings = (integration.customFieldMappings as Record<string, string> | null) ?? {}
+  const qualificationKeyMappings = (integration.qualificationKeyMappings as Record<string, string> | null) ?? {}
 
   let imported = 0
   let skipped = 0
@@ -202,6 +203,16 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
       const rowData: Record<string, string> = {}
       headers.forEach((h, i) => { if (!excludedColumns.has(h)) rowData[h] = row[i] ?? '' })
 
+      // Resolved onto the root of qualificationData (not nested under rawFields) so
+      // pendingQualificationQuestions() in promptCompiler.ts recognizes these as
+      // already answered and the WhatsApp agent doesn't re-ask them.
+      const resolvedQualificationAnswers: Record<string, string> = {}
+      for (const [sheetCol, agentKey] of Object.entries(qualificationKeyMappings)) {
+        const idx = headers.indexOf(sheetCol)
+        const val = idx >= 0 ? row[idx]?.trim() : ''
+        if (val) resolvedQualificationAnswers[agentKey] = val
+      }
+
       let qualResult: Awaited<ReturnType<typeof qualifyLead>> | null = null
       if (isComplete && qualFields.length > 0) {
         qualResult = await qualifyLead(rowData, qualFields, integration.qualificationRules ?? '')
@@ -220,6 +231,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
 
       const qualificationData = {
         ...(qualResult ?? {}),
+        ...resolvedQualificationAnswers,
         rawFields: rowData,
         importedAt: new Date().toISOString(),
         sourceSheet: integration.sheetName,

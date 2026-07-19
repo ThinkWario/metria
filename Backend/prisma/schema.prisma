@@ -513,6 +513,10 @@ model SheetIntegration {
   qualificationRules     String?       @map("qualification_rules")
   excludedColumns        String[]      @default([]) @map("excluded_columns")
   customFieldMappings    Json?         @map("custom_field_mappings")
+  // Sheet column header -> AI agent qualification key (AgentProfile.qualificationQuestions[].key).
+  // Lets imported leads that already answered a question in the sheet skip it in the
+  // WhatsApp conversation instead of the agent re-asking it.
+  qualificationKeyMappings Json?       @map("qualification_key_mappings")
   stageRouting           Json?         @map("stage_routing")
   importFilter           String        @default("ALL") @map("import_filter")
   importedSessionIds     String[]      @default([]) @map("imported_session_ids")

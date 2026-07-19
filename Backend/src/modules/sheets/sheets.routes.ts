@@ -30,7 +30,7 @@ router.post('/sheets', ...auth, async (req: AuthRequest, res: Response): Promise
       fieldMappings, qualificationFields, qualificationRules,
       importFilter, targetPipelineId, targetStageId,
       linkToWhatsapp, whatsappOpeningMessage,
-      excludedColumns, customFieldMappings, stageRouting,
+      excludedColumns, customFieldMappings, qualificationKeyMappings, stageRouting,
     } = req.body
 
     if (!sheetUrl || !sheetId || !sheetName || !fieldMappings || !targetPipelineId || !targetStageId) {
@@ -54,6 +54,7 @@ router.post('/sheets', ...auth, async (req: AuthRequest, res: Response): Promise
         whatsappOpeningMessage: whatsappOpeningMessage ?? null,
         excludedColumns: excludedColumns ?? [],
         customFieldMappings: customFieldMappings ?? null,
+        qualificationKeyMappings: qualificationKeyMappings ?? null,
         stageRouting: stageRouting ?? null,
       },
       include: { pipeline: { select: { name: true } }, stage: { select: { name: true } } },
@@ -96,7 +97,7 @@ router.patch('/sheets/:id', ...auth, async (req: AuthRequest, res: Response): Pr
       qualificationFields, qualificationRules,
       importFilter, targetPipelineId, targetStageId,
       linkToWhatsapp, whatsappOpeningMessage,
-      excludedColumns, customFieldMappings, stageRouting,
+      excludedColumns, customFieldMappings, qualificationKeyMappings, stageRouting,
     } = req.body
 
     const updated = await prisma.sheetIntegration.update({
@@ -114,6 +115,7 @@ router.patch('/sheets/:id', ...auth, async (req: AuthRequest, res: Response): Pr
         ...(whatsappOpeningMessage !== undefined && { whatsappOpeningMessage }),
         ...(excludedColumns !== undefined && { excludedColumns }),
         ...(customFieldMappings !== undefined && { customFieldMappings }),
+        ...(qualificationKeyMappings !== undefined && { qualificationKeyMappings }),
         ...(stageRouting !== undefined && { stageRouting }),
       },
       include: { pipeline: { select: { name: true } }, stage: { select: { name: true, color: true } } },
