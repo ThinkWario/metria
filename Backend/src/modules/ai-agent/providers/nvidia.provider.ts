@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatResult, LLMProvider, ToolCall, ToolDeclaration } from './types'
+import type { ChatMessage, ChatResult, JSONSchemaObject, LLMProvider, ToolCall, ToolDeclaration } from './types'
 import { geminiProvider } from './gemini.provider'
 
 const BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1'
@@ -88,5 +88,43 @@ export const nvidiaProvider: LLMProvider = {
   // NVIDIA's catalog doesn't carry a pinned embedding model for this project's
   // RAG index — reuse Gemini's embeddings regardless of chat provider so the
   // knowledge base stays on one consistent vector space across tests.
-  embed: geminiProvider.embed
+  embed: geminiProvider.embed,
+
+  async extract<T>({ system, messages, schema }: { system: string; messages: ChatMessage[]; schema: JSONSchemaObject }): Promise<T | null> {
+    // json_object mode only guarantees syntactically valid JSON, not the
+    // schema's shape — unlike Gemini's enforced responseSchema. Rendering the
+    // schema into the system prompt is best-effort; applyQualifierOutcome()
+    // must tolerate missing/unexpected fields as a result.
+    try {
+      const openAiMessages: OpenAiMessage[] = [
+        {
+          role: 'system',
+          content: `${system}\n\nResponde ÚNICAMENTE con un objeto JSON que cumpla este schema (sin texto adicional, sin markdown):\n${JSON.stringify(schema)}`
+        },
+        ...messages.map(m => ({ role: m.role, content: m.content }) as OpenAiMessage)
+      ]
+      const res = await fetch(`${BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.NVIDIA_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages: openAiMessages,
+          response_format: { type: 'json_object' },
+          max_tokens: 2048,
+          temperature: 0.3
+        })
+      })
+      if (!res.ok) throw new Error(`NVIDIA API error ${res.status}: ${await res.text()}`)
+      const data = await res.json()
+      const content = data.choices?.[0]?.message?.content
+      if (!content) return null
+      return JSON.parse(content) as T
+    } catch (err) {
+      console.error('[NVIDIA] extract() failed:', err)
+      return null
+    }
+  }
 }

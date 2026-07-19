@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import type { ChatMessage, ChatResult, LLMProvider, ToolDeclaration } from './types'
+import type { ChatMessage, ChatResult, JSONSchemaObject, LLMProvider, ToolDeclaration } from './types'
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY || '')
 
@@ -24,22 +24,26 @@ function wrapResult(chat: any, response: any): ChatResult {
   }
 }
 
+// Gemini requires the first history turn to be 'user'. A conversation whose
+// logged messages start with a bot-initiated turn (e.g. a proactive greeting
+// with no preceding customer message) would otherwise produce a 'model'-first
+// history and hard-fail with "First content should be with role 'user'".
+function buildGeminiHistory(messages: ChatMessage[]) {
+  const historySource = messages.slice(0, -1)
+  const firstUserIndex = historySource.findIndex(m => m.role === 'user')
+  return (firstUserIndex === -1 ? [] : historySource.slice(firstUserIndex)).map(m => ({
+    role: m.role === 'user' ? 'user' : 'model',
+    parts: [{ text: m.content }]
+  }))
+}
+
 export const geminiProvider: LLMProvider = {
   async chat({ system, messages, tools }) {
     const model = genAI.getGenerativeModel({
       model: CHAT_MODEL,
       tools: [{ functionDeclarations: tools }] as any
     })
-    // Gemini requires the first history turn to be 'user'. A conversation whose
-    // logged messages start with a bot-initiated turn (e.g. a proactive greeting
-    // with no preceding customer message) would otherwise produce a 'model'-first
-    // history and hard-fail with "First content should be with role 'user'".
-    const historySource = messages.slice(0, -1)
-    const firstUserIndex = historySource.findIndex(m => m.role === 'user')
-    const history = (firstUserIndex === -1 ? [] : historySource.slice(firstUserIndex)).map(m => ({
-      role: m.role === 'user' ? 'user' : 'model',
-      parts: [{ text: m.content }]
-    }))
+    const history = buildGeminiHistory(messages)
     const last = messages[messages.length - 1]
     const chat = model.startChat({
       history: history as any,
@@ -55,6 +59,26 @@ export const geminiProvider: LLMProvider = {
       requests: texts.map(t => ({ content: { role: 'user', parts: [{ text: t }] } }))
     })
     return res.embeddings.map(e => e.values)
+  },
+
+  async extract<T>({ system, messages, schema }: { system: string; messages: ChatMessage[]; schema: JSONSchemaObject }): Promise<T | null> {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: CHAT_MODEL,
+        generationConfig: { responseMimeType: 'application/json', responseSchema: schema as any }
+      })
+      const history = buildGeminiHistory(messages)
+      const last = messages[messages.length - 1]
+      const chat = model.startChat({
+        history: history as any,
+        systemInstruction: { role: 'system', parts: [{ text: system }] }
+      })
+      const result = await chat.sendMessage(last?.content ?? '')
+      return JSON.parse(result.response.text()) as T
+    } catch (err) {
+      console.error('[Gemini] extract() failed:', err)
+      return null
+    }
   }
 }
 

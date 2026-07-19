@@ -79,6 +79,54 @@ describe('geminiProvider.chat', () => {
   })
 })
 
+describe('geminiProvider.extract', () => {
+  it('parses the JSON response into the requested shape', async () => {
+    sendMessageMock.mockResolvedValue({ response: { text: () => '{"temperature":"HOT"}' } })
+
+    const result = await geminiProvider.extract<{ temperature: string }>({
+      system: 'sys',
+      messages: [{ role: 'user', content: 'Quiero comprar ya' }],
+      schema: { type: 'object', properties: { temperature: { type: 'string' } } }
+    })
+
+    expect(result).toEqual({ temperature: 'HOT' })
+    expect(getGenerativeModelMock).toHaveBeenCalledWith(expect.objectContaining({
+      generationConfig: expect.objectContaining({ responseMimeType: 'application/json' })
+    }))
+  })
+
+  it('returns null instead of throwing on malformed JSON', async () => {
+    sendMessageMock.mockResolvedValue({ response: { text: () => 'not json' } })
+
+    const result = await geminiProvider.extract({ system: 'sys', messages: [], schema: {} })
+
+    expect(result).toBeNull()
+  })
+
+  it('returns null instead of throwing when the API call rejects', async () => {
+    sendMessageMock.mockRejectedValue(new Error('quota exceeded'))
+
+    const result = await geminiProvider.extract({ system: 'sys', messages: [], schema: {} })
+
+    expect(result).toBeNull()
+  })
+
+  it('drops leading assistant-only turns in history, same as chat()', async () => {
+    sendMessageMock.mockResolvedValue({ response: { text: () => '{}' } })
+
+    await geminiProvider.extract({
+      system: 'sys',
+      messages: [
+        { role: 'assistant', content: '¡Hola! Soy el Asistente DrillChile.' },
+        { role: 'user', content: 'Super' }
+      ],
+      schema: {}
+    })
+
+    expect(startChatMock).toHaveBeenCalledWith(expect.objectContaining({ history: [] }))
+  })
+})
+
 describe('transcribeAudio', () => {
   it('sends inline audio data to Gemini and returns the trimmed transcript', async () => {
     const generateContentMock = vi.fn().mockResolvedValue({
