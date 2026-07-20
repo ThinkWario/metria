@@ -15,6 +15,7 @@ interface BookingConfig {
   bookingSlug: string | null
   bookingTitle: string | null
   bookingDurationMin: number
+  notifyPhone: string | null
 }
 
 const DURATIONS = [15, 30, 45, 60, 90, 120]
@@ -38,6 +39,7 @@ export function BookingConfigCard() {
   const [slug, setSlug] = useState('')
   const [title, setTitle] = useState('')
   const [duration, setDuration] = useState(30)
+  const [notifyPhone, setNotifyPhone] = useState('')
 
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -53,6 +55,7 @@ export function BookingConfigCard() {
         setSavedSlug(data.bookingSlug ?? null)
         setTitle(data.bookingTitle ?? '')
         setDuration(data.bookingDurationMin ?? 30)
+        setNotifyPhone(data.notifyPhone ?? '')
       })
       .catch(err => { if (active) setError(err instanceof Error ? err.message : 'Error al cargar la configuración') })
       .finally(() => { if (active) setLoading(false) })
@@ -78,12 +81,14 @@ export function BookingConfigCard() {
           bookingSlug: slug,
           bookingTitle: title.trim() || null,
           bookingDurationMin: duration,
+          notifyPhone: notifyPhone.trim() || null,
         }),
       })
       setSlug(saved.bookingSlug ?? '')
       setSavedSlug(saved.bookingSlug ?? null)
       setTitle(saved.bookingTitle ?? '')
       setDuration(saved.bookingDurationMin ?? 30)
+      setNotifyPhone(saved.notifyPhone ?? '')
       toast.success('Configuración de reservas guardada')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'No se pudo guardar'
@@ -95,7 +100,7 @@ export function BookingConfigCard() {
     } finally {
       setSaving(false)
     }
-  }, [slug, title, duration, previewSlug])
+  }, [slug, title, duration, notifyPhone, previewSlug])
 
   const handleCopy = useCallback(async () => {
     if (!liveUrl) return
@@ -207,6 +212,23 @@ export function BookingConfigCard() {
             className="rounded-xl"
             maxLength={120}
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="booking-notify-phone" className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            Número interno a notificar
+          </Label>
+          <Input
+            id="booking-notify-phone"
+            value={notifyPhone}
+            onChange={e => setNotifyPhone(e.target.value)}
+            placeholder="+56 9 1234 5678"
+            className="rounded-xl"
+            maxLength={40}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Recibe un WhatsApp cada vez que se agenda o reagenda una cita.
+          </p>
         </div>
 
         {/* Public URL + copy */}
