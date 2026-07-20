@@ -10,12 +10,19 @@ vi.mock('../../../lib/prisma', () => ({
     pipelineStage: { findMany: vi.fn(), findFirst: vi.fn() },
     message: { create: vi.fn() },
     auditLog: { create: vi.fn() },
-    contact: { findUnique: vi.fn(async () => ({ name: 'Ana', email: null })) }
+    contact: { findUnique: vi.fn(async () => ({ name: 'Ana', email: null })) },
+    appointment: { findFirst: vi.fn() }
   }
 }))
 const syncAppointmentToCalendarMock = vi.fn(async () => {})
+const updateCalendarEventMock = vi.fn(async () => {})
 vi.mock('../../scheduling/google-calendar.service', () => ({
-  syncAppointmentToCalendar: syncAppointmentToCalendarMock
+  syncAppointmentToCalendar: syncAppointmentToCalendarMock,
+  updateCalendarEvent: updateCalendarEventMock
+}))
+const notifyAppointmentEventMock = vi.fn(async () => {})
+vi.mock('../../scheduling/appointment-notifications.service', () => ({
+  notifyAppointmentEvent: notifyAppointmentEventMock
 }))
 const chatMock = vi.fn()
 const extractMock = vi.fn()
@@ -33,14 +40,18 @@ vi.mock('../../crm/contact.service', () => ({
 vi.mock('../../scheduling/scheduling.service', () => ({
   getAvailableSlots: vi.fn(async () => [new Date('2026-06-15T10:00:00')]),
   filterSlotsByCalendarBusy: vi.fn(async (_ws, _type, slots) => slots),
-  scheduleAppointment: vi.fn(async () => ({ id: 'a1', scheduledAt: new Date('2026-06-15T10:00:00') }))
+  scheduleAppointment: vi.fn(async () => ({ id: 'a1', scheduledAt: new Date('2026-06-15T10:00:00') })),
+  rescheduleAppointment: vi.fn(async () => ({
+    id: 'a1', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-16T10:00:00'),
+    durationMin: 60, googleEventId: null, oldScheduledAt: new Date('2026-06-15T10:00:00')
+  }))
 }))
 vi.mock('../../crm/pipeline.service', () => ({ createDeal: vi.fn(), moveDeal: vi.fn() }))
 
 import { processAiResponse } from '../ai.service'
 import { prisma } from '../../../lib/prisma'
 import { updateQualification, addTag } from '../../crm/contact.service'
-import { scheduleAppointment, filterSlotsByCalendarBusy } from '../../scheduling/scheduling.service'
+import { scheduleAppointment, filterSlotsByCalendarBusy, rescheduleAppointment } from '../../scheduling/scheduling.service'
 
 const WS = 'ws-1'
 const CONV = 'conv-1'
@@ -136,6 +147,54 @@ describe('processAiResponse (rewired)', () => {
     ])
   })
 
+  it('notifies on schedule_appointment (new booking)', async () => {
+    const submit = vi.fn(async () => ({ text: 'Agendado', toolCalls: [], submitToolResults: vi.fn() }))
+    chatMock.mockResolvedValue({
+      text: null,
+      toolCalls: [{ name: 'schedule_appointment', args: { contactId: 'c1', isoDateTime: '2026-06-15T10:00:00', type: 'SITE_VISIT' } }],
+      submitToolResults: submit
+    })
+
+    await processAiResponse(WS, CONV, 'el lunes a las 10')
+
+    expect(notifyAppointmentEventMock).toHaveBeenCalledWith(WS, expect.objectContaining({ kind: 'created', conversationId: CONV }))
+  })
+
+  it('executes reschedule_appointment: updates the active appointment and notifies both sides', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'a1' } as any)
+    const submit = vi.fn(async () => ({ text: 'Reagendado', toolCalls: [], submitToolResults: vi.fn() }))
+    chatMock.mockResolvedValue({
+      text: null,
+      toolCalls: [{ name: 'reschedule_appointment', args: { newIsoDateTime: '2026-06-16T10:00:00' } }],
+      submitToolResults: submit
+    })
+
+    const result = await processAiResponse(WS, CONV, 'mejor el martes a las 10')
+
+    expect(rescheduleAppointment).toHaveBeenCalledWith(WS, 'a1', new Date('2026-06-16T10:00:00'))
+    expect(notifyAppointmentEventMock).toHaveBeenCalledWith(WS, expect.objectContaining({ kind: 'rescheduled', conversationId: CONV }))
+    expect(submit).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'reschedule_appointment', response: expect.objectContaining({ success: true }) })
+    ])
+    expect(result).toBe('Reagendado')
+  })
+
+  it('reschedule_appointment returns an error when the contact has no active appointment', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue(null)
+    const submit = vi.fn(async () => ({ text: 'No encontré tu cita', toolCalls: [], submitToolResults: vi.fn() }))
+    chatMock.mockResolvedValue({
+      text: null,
+      toolCalls: [{ name: 'reschedule_appointment', args: { newIsoDateTime: '2026-06-16T10:00:00' } }],
+      submitToolResults: submit
+    })
+
+    await processAiResponse(WS, CONV, 'quiero cambiar mi hora')
+
+    expect(submit).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'reschedule_appointment', response: { success: false, error: 'No hay cita activa para reagendar' } })
+    ])
+  })
+
   it('fetches the LATEST messages and sends history chronologically without duplicating the inbound turn', async () => {
     vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
       id: CONV, workspaceId: WS, isHandledByBot: true,
@@ -199,8 +258,8 @@ describe('processAiResponse (rewired)', () => {
     chatMock.mockResolvedValue({ text: '¡Hola Ana!', toolCalls: [], submitToolResults: vi.fn() })
     const result = await processAiResponse(WS, CONV, 'Hola')
     expect(result).toBe('¡Hola Ana!')
-    // legacy path declares the full 9-tool set (qualifier + responder tools together)
-    expect(chatMock.mock.calls[0][0].tools).toHaveLength(9)
+    // legacy path declares the full 10-tool set (qualifier + responder tools together)
+    expect(chatMock.mock.calls[0][0].tools).toHaveLength(10)
   })
 })
 
@@ -221,8 +280,8 @@ describe('processAiResponse (split path — AI_QUALIFIER_SPLIT_ENABLED=true)', (
 
     expect(updateQualification).toHaveBeenCalledWith(WS, 'c1', expect.objectContaining({ temperature: 'HOT' }))
     expect(result).toBe('Perfecto, avancemos.')
-    // responder only ever sees the 3 scoped tools, not the full 9
-    expect(chatMock.mock.calls[0][0].tools.map((t: any) => t.name)).toEqual(['search_catalog', 'get_available_slots', 'schedule_appointment'])
+    // responder only ever sees the 4 scoped tools, not the full 10
+    expect(chatMock.mock.calls[0][0].tools.map((t: any) => t.name)).toEqual(['search_catalog', 'get_available_slots', 'schedule_appointment', 'reschedule_appointment'])
   })
 
   it('logs a partial_apply_failure to AuditLog but keeps the fields that succeeded', async () => {

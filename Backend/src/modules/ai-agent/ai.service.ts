@@ -5,7 +5,7 @@ import { createDeal, moveDeal } from '../crm/pipeline.service'
 import { getProvider } from './providers/provider.factory'
 import { compileSystemPrompt, compileResponderPrompt, compileQualifierPrompt, type AgentProfile, type CompileInput } from './promptCompiler'
 import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
-import { getAvailableSlots, filterSlotsByCalendarBusy, scheduleAppointment } from '../scheduling/scheduling.service'
+import { getAvailableSlots, filterSlotsByCalendarBusy, scheduleAppointment, rescheduleAppointment } from '../scheduling/scheduling.service'
 import { sanitizeResponse } from './responseSanitizer'
 import { stripUnknownUrls, collectUrls } from './urlGuard'
 import { blockLeakedInternals } from './codeLeakGuard'
@@ -124,10 +124,21 @@ const toolDeclarations = [
       },
       required: ['contactId', 'isoDateTime', 'type']
     }
+  },
+  {
+    name: 'reschedule_appointment',
+    description: "Reschedules the customer's existing appointment to a new confirmed time. Only use times returned by get_available_slots.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        newIsoDateTime: { type: SchemaType.STRING, description: 'ISO 8601 datetime for the new time' }
+      },
+      required: ['newIsoDateTime']
+    }
   }
 ]
 
-const RESPONDER_TOOL_NAMES = new Set(['search_catalog', 'get_available_slots', 'schedule_appointment'])
+const RESPONDER_TOOL_NAMES = new Set(['search_catalog', 'get_available_slots', 'schedule_appointment', 'reschedule_appointment'])
 /**
  * Split-path responder's tool surface — only tools whose results must be
  * reflected verbatim in the customer-facing text. The other 6 tools
@@ -581,12 +592,13 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
           createdBy: 'BOT'
         })
 
-        // Best-effort: a Calendar sync problem must never make the agent report
-        // the booking itself as failed — the Appointment row above already exists.
+        // Best-effort: a Calendar sync / notification problem must never make the
+        // agent report the booking itself as failed — the Appointment row above
+        // already exists.
         try {
           const bookerContact = await prisma.contact.findUnique({
             where: { id: contactId },
-            select: { name: true, email: true }
+            select: { name: true, email: true, phone: true }
           })
           const { syncAppointmentToCalendar } = await import('../scheduling/google-calendar.service')
           await syncAppointmentToCalendar(workspaceId, appt.id, {
@@ -596,12 +608,60 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
             bookerName: bookerContact?.name ?? 'lead',
             bookerEmail: bookerContact?.email ?? null
           })
+
+          const { notifyAppointmentEvent } = await import('../scheduling/appointment-notifications.service')
+          await notifyAppointmentEvent(workspaceId, {
+            contact: { id: contactId, name: bookerContact?.name ?? 'lead', phone: bookerContact?.phone ?? null },
+            appointment: { type, scheduledAt: appt.scheduledAt, durationMin: appt.durationMin },
+            kind: 'created',
+            conversationId
+          })
         } catch (err) {
-          console.error('[AI Agent] Calendar sync after schedule_appointment failed (non-blocking):', err)
+          console.error('[AI Agent] Calendar sync / notify after schedule_appointment failed (non-blocking):', err)
         }
 
         await logAiAction(workspaceId, conversationId, `Agendó cita ${args.type} para ${args.isoDateTime}`)
         return { success: true, appointmentId: appt.id, scheduledAt: appt.scheduledAt }
+      }
+
+      case 'reschedule_appointment': {
+        const active = await prisma.appointment.findFirst({
+          where: { workspaceId, contactId, status: { in: ['SCHEDULED', 'CONFIRMED'] } },
+          orderBy: { scheduledAt: 'asc' }
+        })
+        if (!active) return { success: false, error: 'No hay cita activa para reagendar' }
+
+        const rescheduled = await rescheduleAppointment(workspaceId, active.id, new Date(args.newIsoDateTime))
+
+        // Best-effort: a Calendar sync / notification problem must never make the
+        // agent report the reschedule itself as failed — the update above already happened.
+        try {
+          const bookerContact = await prisma.contact.findUnique({
+            where: { id: contactId },
+            select: { name: true, phone: true }
+          })
+          if (rescheduled.googleEventId) {
+            const { updateCalendarEvent } = await import('../scheduling/google-calendar.service')
+            await updateCalendarEvent(workspaceId, rescheduled.googleEventId, {
+              startAt: rescheduled.scheduledAt,
+              durationMin: rescheduled.durationMin
+            })
+          }
+
+          const { notifyAppointmentEvent } = await import('../scheduling/appointment-notifications.service')
+          await notifyAppointmentEvent(workspaceId, {
+            contact: { id: contactId, name: bookerContact?.name ?? 'lead', phone: bookerContact?.phone ?? null },
+            appointment: { type: rescheduled.type, scheduledAt: rescheduled.scheduledAt, durationMin: rescheduled.durationMin },
+            kind: 'rescheduled',
+            oldScheduledAt: rescheduled.oldScheduledAt,
+            conversationId
+          })
+        } catch (err) {
+          console.error('[AI Agent] Calendar sync / notify after reschedule_appointment failed (non-blocking):', err)
+        }
+
+        await logAiAction(workspaceId, conversationId, `Reagendó cita ${rescheduled.type} para ${args.newIsoDateTime}`)
+        return { success: true, appointmentId: rescheduled.id, scheduledAt: rescheduled.scheduledAt }
       }
 
       default:

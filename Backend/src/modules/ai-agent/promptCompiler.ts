@@ -71,7 +71,7 @@ function renderPrompt(
     ? '\n- Si el cliente se molesta o pide un humano, usa handover_to_human.'
     : ''
   const closingAction = profile?.scheduling?.enabled
-    ? 'agenda una cita con schedule_appointment (ofrece horarios reales con get_available_slots)'
+    ? 'agenda una cita con schedule_appointment (ofrece horarios reales con get_available_slots); si el cliente ya tiene una cita y quiere cambiar la hora, usa reschedule_appointment'
     : includeQualifierRules
       ? 'crea o avanza el deal'
       : 'sigue avanzando la conversación hacia el cierre'
