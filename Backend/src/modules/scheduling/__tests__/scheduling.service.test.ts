@@ -20,7 +20,7 @@ vi.mock('../google-calendar.service', () => ({
 }))
 
 import { afterEach } from 'vitest'
-import { getAvailableSlots, scheduleAppointment, filterSlotsByCalendarBusy } from '../scheduling.service'
+import { getAvailableSlots, scheduleAppointment, filterSlotsByCalendarBusy, rescheduleAppointment } from '../scheduling.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS = 'ws-1'
@@ -199,5 +199,68 @@ describe('filterSlotsByCalendarBusy', () => {
     vi.mocked(prisma.workspace.findUnique).mockRejectedValue(new Error('db down'))
     const result = await filterSlotsByCalendarBusy(WS, 'SITE_VISIT', slots)
     expect(result).toEqual(slots)
+  })
+})
+
+describe('rescheduleAppointment', () => {
+  beforeEach(() => {
+    vi.mocked(prisma.availabilityRule.findMany).mockResolvedValue([
+      { dayOfWeek: 1, startTime: '09:00', endTime: '18:00', slotMinutes: 60, apptType: 'SITE_VISIT' }
+    ] as any)
+  })
+
+  it('updates scheduledAt/durationMin and returns the old time', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({
+      id: 'a1', workspaceId: WS, type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-15T10:00:00')
+    } as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+    vi.mocked(prisma.appointment.update).mockResolvedValue({
+      id: 'a1', scheduledAt: new Date('2026-06-15T14:00:00'), durationMin: 60
+    } as any)
+
+    const result = await rescheduleAppointment(WS, 'a1', new Date('2026-06-15T14:00:00'))
+
+    expect(result.oldScheduledAt).toEqual(new Date('2026-06-15T10:00:00'))
+    expect(prisma.appointment.update).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+      data: { scheduledAt: new Date('2026-06-15T14:00:00'), durationMin: 60 }
+    })
+  })
+
+  it('rejects rescheduling a CANCELLED appointment', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({
+      id: 'a1', workspaceId: WS, type: 'SITE_VISIT', status: 'CANCELLED', scheduledAt: new Date('2026-06-15T10:00:00')
+    } as any)
+
+    await expect(rescheduleAppointment(WS, 'a1', new Date('2026-06-15T14:00:00')))
+      .rejects.toThrow('Cannot reschedule appointment with status CANCELLED')
+  })
+
+  it('rejects a new time outside availability', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({
+      id: 'a1', workspaceId: WS, type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-15T10:00:00')
+    } as any)
+
+    await expect(rescheduleAppointment(WS, 'a1', new Date('2026-06-15T22:00:00')))
+      .rejects.toThrow('outside availability')
+  })
+
+  it('rejects a new time colliding with another appointment, ignoring the appointment being moved', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({
+      id: 'a1', workspaceId: WS, type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-15T10:00:00')
+    } as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([
+      { scheduledAt: new Date('2026-06-15T14:00:00'), durationMin: 60 }
+    ] as any)
+
+    await expect(rescheduleAppointment(WS, 'a1', new Date('2026-06-15T14:00:00')))
+      .rejects.toThrow('already taken')
+  })
+
+  it('throws when the appointment does not exist in this workspace', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue(null)
+
+    await expect(rescheduleAppointment(WS, 'ghost', new Date('2026-06-15T14:00:00')))
+      .rejects.toThrow('Appointment not found')
   })
 })

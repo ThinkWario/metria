@@ -128,6 +128,44 @@ export async function filterSlotsByCalendarBusy(workspaceId: string, type: strin
   }
 }
 
+/** Resolves the AvailabilityRule matching `scheduledAt` and returns its slot duration in ms. Throws if outside availability. */
+async function resolveSlotDuration(workspaceId: string, type: string, scheduledAt: Date): Promise<number> {
+  const rules = await prisma.availabilityRule.findMany({ where: { workspaceId, apptType: type } })
+  const tz = await getWorkspaceTimezone(workspaceId)
+  const wall = toWallClock(scheduledAt, tz)
+  const day = wall.getDay()
+  const minutes = wall.getHours() * 60 + wall.getMinutes()
+  const matchedRule = findRuleForTime(rules, day, minutes)
+  if (!matchedRule) throw new Error('Requested time is outside availability')
+  return matchedRule.slotMinutes * 60_000
+}
+
+/** Throws 'Slot already taken' if [scheduledAt, scheduledAt+duration) collides with another SCHEDULED/CONFIRMED appointment that day. */
+async function assertNoCollision(
+  workspaceId: string,
+  scheduledAt: Date,
+  duration: number,
+  excludeAppointmentId?: string
+): Promise<void> {
+  const dayStart = new Date(scheduledAt); dayStart.setHours(0, 0, 0, 0)
+  const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1)
+  const sameDay = await prisma.appointment.findMany({
+    where: {
+      workspaceId,
+      status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      scheduledAt: { gte: dayStart, lt: dayEnd },
+      ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {})
+    },
+    select: { scheduledAt: true, durationMin: true }
+  })
+  const requested = scheduledAt.getTime()
+  const collision = sameDay.some(a => {
+    const start = a.scheduledAt.getTime()
+    return requested < start + a.durationMin * 60_000 && start < requested + duration
+  })
+  if (collision) throw new Error('Slot already taken')
+}
+
 export async function scheduleAppointment(
   workspaceId: string,
   input: { contactId: string; type: string; scheduledAt: Date; dealId?: string; createdBy: string; notes?: string }
@@ -135,29 +173,8 @@ export async function scheduleAppointment(
   const contact = await prisma.contact.findFirst({ where: { id: input.contactId, workspaceId } })
   if (!contact) throw new Error('Contact not found')
 
-  const rules = await prisma.availabilityRule.findMany({ where: { workspaceId, apptType: input.type } })
-  const tz = await getWorkspaceTimezone(workspaceId)
-  const wall = toWallClock(input.scheduledAt, tz)
-  const day = wall.getDay()
-  const minutes = wall.getHours() * 60 + wall.getMinutes()
-  // duration comes from the rule whose window actually contains the requested time
-  // (not just any rule on the same day — there can be several windows/types per day)
-  const matchedRule = findRuleForTime(rules, day, minutes)
-  if (!matchedRule) throw new Error('Requested time is outside availability')
-
-  const dayStart = new Date(input.scheduledAt); dayStart.setHours(0, 0, 0, 0)
-  const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1)
-  const sameDay = await prisma.appointment.findMany({
-    where: { workspaceId, status: { in: ['SCHEDULED', 'CONFIRMED'] }, scheduledAt: { gte: dayStart, lt: dayEnd } },
-    select: { scheduledAt: true, durationMin: true }
-  })
-  const requested = input.scheduledAt.getTime()
-  const duration = matchedRule.slotMinutes * 60_000
-  const collision = sameDay.some(a => {
-    const start = a.scheduledAt.getTime()
-    return requested < start + a.durationMin * 60_000 && start < requested + duration
-  })
-  if (collision) throw new Error('Slot already taken')
+  const duration = await resolveSlotDuration(workspaceId, input.type, input.scheduledAt)
+  await assertNoCollision(workspaceId, input.scheduledAt, duration)
 
   return prisma.appointment.create({
     data: {
@@ -171,6 +188,34 @@ export async function scheduleAppointment(
       notes: input.notes ?? null
     }
   })
+}
+
+/**
+ * Moves an existing appointment to a new time (in place — same row, no history kept).
+ * Only SCHEDULED/CONFIRMED appointments can be moved. Reuses the same availability
+ * and collision rules as scheduleAppointment, excluding the appointment itself from
+ * the collision check.
+ */
+export async function rescheduleAppointment(
+  workspaceId: string,
+  appointmentId: string,
+  newScheduledAt: Date
+) {
+  const appt = await prisma.appointment.findFirst({ where: { id: appointmentId, workspaceId } })
+  if (!appt) throw new Error('Appointment not found')
+  if (!['SCHEDULED', 'CONFIRMED'].includes(appt.status)) {
+    throw new Error(`Cannot reschedule appointment with status ${appt.status}`)
+  }
+
+  const duration = await resolveSlotDuration(workspaceId, appt.type, newScheduledAt)
+  await assertNoCollision(workspaceId, newScheduledAt, duration, appointmentId)
+
+  const oldScheduledAt = appt.scheduledAt
+  const updated = await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: { scheduledAt: newScheduledAt, durationMin: duration / 60_000 }
+  })
+  return { ...updated, oldScheduledAt }
 }
 
 export async function listAppointments(workspaceId: string, from?: Date, to?: Date) {
