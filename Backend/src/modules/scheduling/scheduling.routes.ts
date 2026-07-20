@@ -115,13 +115,14 @@ router.get('/scheduling/booking-config', ...auth, async (req: any, res) => {
     if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
     const ws = await prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true }
+      select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true, notifyPhone: true }
     })
     if (!ws) return res.status(404).json({ error: 'Workspace not found' })
     res.json({
       bookingSlug: ws.bookingSlug,
       bookingTitle: ws.bookingTitle,
-      bookingDurationMin: ws.bookingDurationMin
+      bookingDurationMin: ws.bookingDurationMin,
+      notifyPhone: ws.notifyPhone
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -133,8 +134,8 @@ router.patch('/scheduling/booking-config', ...auth, async (req: any, res) => {
     const workspaceId = req.user?.workspaceId
     if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
 
-    const { bookingSlug, bookingTitle, bookingDurationMin } = req.body ?? {}
-    const data: { bookingSlug?: string; bookingTitle?: string | null; bookingDurationMin?: number } = {}
+    const { bookingSlug, bookingTitle, bookingDurationMin, notifyPhone } = req.body ?? {}
+    const data: { bookingSlug?: string; bookingTitle?: string | null; bookingDurationMin?: number; notifyPhone?: string | null } = {}
 
     if (bookingSlug !== undefined) {
       const slug = slugify(String(bookingSlug))
@@ -151,17 +152,22 @@ router.patch('/scheduling/booking-config', ...auth, async (req: any, res) => {
       }
       data.bookingDurationMin = Math.round(dur)
     }
+    if (notifyPhone !== undefined) {
+      const trimmed = notifyPhone === null ? '' : String(notifyPhone).trim().slice(0, 40)
+      data.notifyPhone = trimmed || null
+    }
 
     try {
       const ws = await prisma.workspace.update({
         where: { id: workspaceId },
         data,
-        select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true }
+        select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true, notifyPhone: true }
       })
       res.json({
         bookingSlug: ws.bookingSlug,
         bookingTitle: ws.bookingTitle,
-        bookingDurationMin: ws.bookingDurationMin
+        bookingDurationMin: ws.bookingDurationMin,
+        notifyPhone: ws.notifyPhone
       })
     } catch (e: any) {
       // Prisma unique-constraint violation on bookingSlug
