@@ -17,7 +17,7 @@ const PLATFORM_TO_SOURCE: Record<string, string> = {
   MESSENGER: 'MESSENGER'
 }
 
-async function sendPlatformMessage(
+export async function sendPlatformMessage(
   platform: string,
   config: any,
   to: string,
