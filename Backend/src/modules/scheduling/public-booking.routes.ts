@@ -192,6 +192,16 @@ router.post('/booking/:slug/book', simpleRateLimit(10 * 60 * 1000, 10), async (r
   // Invitations are handled automatically by Google Calendar (sendUpdates: 'all')
   // when the workspace has a connected Google account. No separate email needed.
 
+  // WhatsApp confirmation to the lead + internal alert (best-effort, never throws)
+  try {
+    const { notifyAppointmentEvent } = await import('./appointment-notifications.service')
+    await notifyAppointmentEvent(ws.id, {
+      contact: { id: contact.id, name, phone: phoneRaw },
+      appointment: { type: appt.type, scheduledAt: appt.scheduledAt, durationMin: appt.durationMin },
+      kind: 'created'
+    })
+  } catch (_) { /* notification is best-effort, do not interrupt booking flow */ }
+
   // Socket notification so dashboard and AI agent react in real time
   try {
     const { getIO } = await import('../../lib/socket')
