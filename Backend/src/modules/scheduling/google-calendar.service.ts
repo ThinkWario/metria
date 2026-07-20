@@ -199,6 +199,44 @@ export async function cancelCalendarEvent(
   }
 }
 
+/** Updates an existing Google Calendar event's time (e.g. on appointment reschedule). Never throws. */
+export async function updateCalendarEvent(
+  workspaceId: string,
+  googleEventId: string,
+  opts: { startAt: Date; durationMin: number }
+): Promise<void> {
+  try {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { googleCalendarId: true }
+    })
+    const calId = ws?.googleCalendarId ?? 'primary'
+    const accessToken = await getAccessToken(workspaceId)
+
+    const endAt = new Date(opts.startAt.getTime() + opts.durationMin * 60_000)
+
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${googleEventId}?sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          start: { dateTime: opts.startAt.toISOString() },
+          end: { dateTime: endAt.toISOString() }
+        })
+      }
+    )
+    if (!res.ok) {
+      console.error('[gcal] updateEvent error', await res.text())
+    }
+  } catch (err) {
+    console.error('[gcal] updateCalendarEvent failed (non-blocking):', err)
+  }
+}
+
 /** Lists all calendars in the connected Google account (for the picker UI). */
 export async function listWorkspaceCalendars(
   workspaceId: string
