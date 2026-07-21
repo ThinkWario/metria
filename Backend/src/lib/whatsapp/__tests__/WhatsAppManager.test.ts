@@ -20,6 +20,7 @@ class FakeClient extends EventEmitter {
   }))
   sendMessage = vi.fn(async () => undefined)
   getContactLidAndPhone = vi.fn(async (): Promise<Array<{ pn?: string; lid?: string }>> => [])
+  getNumberId = vi.fn(async (to: string): Promise<{ _serialized: string } | null> => ({ _serialized: to }))
   sendSeen = vi.fn(async () => true)
 }
 
@@ -262,6 +263,41 @@ describe('sendMessage typing simulation', () => {
     const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
     await vi.advanceTimersByTimeAsync(10_000)
     await sendPromise
+    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola')
+  })
+})
+
+describe('sendMessage — number registration lookup', () => {
+  it('sends to the resolved WhatsApp id from getNumberId, not the raw phone-derived id', async () => {
+    const client = await initAndGetReady()
+    client.getNumberId.mockResolvedValue({ _serialized: '999@c.us' })
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise
+
+    expect(client.getNumberId).toHaveBeenCalledWith('123@c.us')
+    expect(client.sendMessage).toHaveBeenCalledWith('999@c.us', 'hola')
+  })
+
+  it('throws a clear error instead of silently no-op sending when the number is not on WhatsApp', async () => {
+    const client = await initAndGetReady()
+    client.getNumberId.mockResolvedValue(null)
+
+    await expect(manager.sendMessage(workspaceId, '123@c.us', 'hola')).rejects.toThrow(
+      'Number not registered on WhatsApp'
+    )
+    expect(client.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the raw id and still sends if the lookup itself errors', async () => {
+    const client = await initAndGetReady()
+    client.getNumberId.mockRejectedValue(new Error('evaluate failed'))
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise
+
     expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola')
   })
 })

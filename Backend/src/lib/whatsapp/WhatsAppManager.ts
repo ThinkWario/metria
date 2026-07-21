@@ -549,11 +549,29 @@ export class WhatsAppSessionManager {
     const client = this.clients.get(workspaceId);
     if (!client) throw new Error('WhatsApp session not active');
 
-    await this.simulateTyping(client, to, content);
+    // First-ever message to a number: WhatsApp doesn't expose the routing
+    // info (lid) for a chat that's never existed on its side, so a raw
+    // sendMessage(`${phone}@c.us`) can resolve "successfully" here while
+    // never actually reaching the recipient. getNumberId() runs WhatsApp's
+    // own registration query (the same one "New chat" does), which both
+    // validates the number is real AND makes WhatsApp expose the chat that
+    // sendMessage needs. Best-effort: if this fails, fall back to the raw
+    // `to` id rather than blocking the send outright.
+    let target = to;
+    try {
+      const numberId = await client.getNumberId(to);
+      if (!numberId) throw new Error(`Number not registered on WhatsApp: ${to}`);
+      target = numberId._serialized;
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Number not registered')) throw err;
+      console.warn(`[WhatsApp] getNumberId lookup failed for ${to}, sending to raw id:`, (err as Error).message);
+    }
+
+    await this.simulateTyping(client, target, content);
 
     for (let attempt = 1; attempt <= SEND_MESSAGE_RETRY_ATTEMPTS; attempt++) {
       try {
-        await client.sendMessage(to, content);
+        await client.sendMessage(target, content);
         return;
       } catch (err) {
         const isInjectedHelperRace = err instanceof Error && /getChat/.test(err.message);
