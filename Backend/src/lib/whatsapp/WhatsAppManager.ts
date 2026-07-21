@@ -1,4 +1,5 @@
 import { Client, RemoteAuth, Message as WWebMessage } from 'whatsapp-web.js';
+import puppeteer from 'puppeteer';
 import qrcode from 'qrcode';
 import { getIO } from '../socket';
 import { prisma } from '../prisma';
@@ -100,6 +101,21 @@ interface HealthFailureState {
   timeoutsOnly: boolean;
 }
 
+/**
+ * Resolves the Chrome for Testing binary downloaded for the `puppeteer`
+ * package at Docker build time. Never throws — returns undefined so
+ * puppeteer-core falls back to its own (possibly incorrect) resolution
+ * rather than crashing session init.
+ */
+function resolveExecutablePath(): string | undefined {
+  try {
+    return puppeteer.executablePath();
+  } catch (err) {
+    console.warn('[WhatsApp] Could not resolve puppeteer executablePath, falling back to default resolution:', (err as Error).message);
+    return undefined;
+  }
+}
+
 export class WhatsAppSessionManager {
   private static instance: WhatsAppSessionManager;
   private clients: Map<string, Client> = new Map();
@@ -146,10 +162,14 @@ export class WhatsAppSessionManager {
       puppeteer: {
         headless: true,
         protocolTimeout: 120000,
-        // In containers, point to system Chromium (e.g. /usr/bin/chromium)
-        ...(process.env.PUPPETEER_EXECUTABLE_PATH
-          ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
-          : {}),
+        // In containers, point to system Chromium (e.g. /usr/bin/chromium). Falls
+        // back to the `puppeteer` package's own downloaded Chrome for Testing
+        // binary — whatsapp-web.js only depends on the lighter puppeteer-core,
+        // whose bundled browser-resolution logic looks for a pinned revision
+        // that may not match what the Docker build actually fetched (e.g. when
+        // whatsapp-web.js's own puppeteer-core version differs from the one
+        // this project depends on directly and downloads at build time).
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? resolveExecutablePath(),
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
