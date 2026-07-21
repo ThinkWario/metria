@@ -99,6 +99,8 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   const [mounted, setMounted] = useState(false)
   const [contact, setContact] = useState<Contact | null>(null)
   const [loading, setLoading] = useState(true)
+  const [contactError, setContactError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [tab, setTab] = useState<Tab>('resumen')
   const [noteContent, setNoteContent] = useState('')
   const [savingNote, setSavingNote] = useState(false)
@@ -125,11 +127,16 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
 
   useEffect(() => {
     if (!mounted) return
+    setLoading(true)
+    setContactError(null)
     fetchAPI(`/crm/contacts/${contactId}`)
       .then(setContact)
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err)
+        setContactError(err instanceof Error ? err.message : 'Error desconocido')
+      })
       .finally(() => setLoading(false))
-  }, [mounted, contactId])
+  }, [mounted, contactId, reloadKey])
 
   useEffect(() => {
     if (!mounted) return
@@ -303,10 +310,16 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   }
 
   if (!contact) {
+    const isNotFound = contactError === 'Contact not found'
     return (
-      <div className="text-center py-16 text-muted-foreground">
-        Contacto no encontrado.{' '}
-        <button className="underline" onClick={() => router.back()}>Volver</button>
+      <div className="text-center py-16 text-muted-foreground space-y-2">
+        <p>{isNotFound ? 'Contacto no encontrado.' : `Error al cargar el contacto: ${contactError ?? 'desconocido'}`}</p>
+        <div className="flex justify-center gap-4">
+          {!isNotFound && (
+            <button className="underline" onClick={() => setReloadKey(k => k + 1)}>Reintentar</button>
+          )}
+          <button className="underline" onClick={() => router.back()}>Volver</button>
+        </div>
       </div>
     )
   }

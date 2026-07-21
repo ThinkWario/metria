@@ -9,6 +9,8 @@ import { Breadcrumbs } from "@/components/layout/breadcrumbs"
 import { TrialBanner } from "@/components/layout/trial-banner"
 import { useUserStore } from "@/store/useUserStore"
 import { useEffect } from "react"
+import { getSocket } from "@/lib/socket"
+import { toast } from "sonner"
 
 export default function DashboardLayout({
     children,
@@ -20,6 +22,27 @@ export default function DashboardLayout({
     useEffect(() => {
         fetchMe()
     }, [fetchMe])
+
+    // Global alert: the native WhatsApp session watchdog gave up recycling
+    // and entered its cooldown window — surface it everywhere, not just on
+    // the inbox/QR dialog, since the bot goes silent for the whole workspace.
+    useEffect(() => {
+        const socket = getSocket()
+        if (!socket) return
+
+        const onRecycleLimit = (data: { cooldownMs: number }) => {
+            const minutes = Math.round((data?.cooldownMs ?? 0) / 60000)
+            toast.error("WhatsApp se desconectó y no logró reconectar solo", {
+                description: `Reintentará en ~${minutes} min. Si sigue fallando, ve a Canales y reescanea el código QR.`,
+                duration: 20000
+            })
+        }
+
+        socket.on("whatsapp:recycle_limit", onRecycleLimit)
+        return () => {
+            socket.off("whatsapp:recycle_limit", onRecycleLimit)
+        }
+    }, [])
 
     return (
         <SidebarProvider>
