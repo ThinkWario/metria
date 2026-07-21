@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma'
 import { getIO } from '../../lib/socket'
 import { normalizePhone } from '../../lib/phoneFormat'
 import { suggestFieldMappings, qualifyLead } from './sheets.agent'
+import { sendOutboundPlatformMessage } from '../messaging/message.service'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 const API_KEY = process.env.GOOGLE_SHEETS_API_KEY
@@ -57,12 +58,16 @@ export async function analyzeSheet(url: string): Promise<{
 }
 
 /**
- * Prepares (never auto-sends) a WhatsApp conversation for a newly-qualified
- * lead: creates the Conversation if one doesn't already exist, and leaves a
- * suggested opening message as an internal note. A human reviews it in the
- * inbox and sends it manually via the existing compose flow — this never
- * dispatches anything to WhatsApp itself, avoiding the unsolicited-bulk-
- * message pattern that gets numbers banned.
+ * Starts a WhatsApp conversation for a newly-qualified lead: creates the
+ * Conversation if one doesn't already exist, and — when the channel has the
+ * AI closing agent enabled — sends the opening message immediately and hands
+ * the conversation to the bot (isHandledByBot: true), so the same agent that
+ * handles inbound WhatsApp leads (qualification, objection handling,
+ * schedule_appointment tool) takes the lead from the first message through
+ * booking the visita técnica. If the send fails (channel disconnected) or
+ * the channel has no AI agent configured, it falls back to leaving the
+ * suggested opener as an internal note for a human to send manually — the
+ * lead is never silently dropped.
  *
  * externalId is built ONLY from the lead's own formatted phone number
  * (contact.phone, already validated by normalizePhone) — this is a fresh
@@ -71,11 +76,12 @@ export async function analyzeSheet(url: string): Promise<{
  */
 async function prepareWhatsappConversation(
   workspaceId: string,
-  channelId: string,
+  channel: { id: string; config: unknown },
   contact: { id: string; name: string; phone: string | null },
   openingMessageTemplate: string | null
 ): Promise<void> {
   if (!contact.phone) return
+  const channelId = channel.id
   const externalId = `${contact.phone}@c.us`
 
   const existing = await prisma.conversation.findUnique({
@@ -83,19 +89,40 @@ async function prepareWhatsappConversation(
   })
   if (existing) return
 
+  const openingMessage = (openingMessageTemplate?.trim() || 'Hola {nombre}, vimos tu interés y nos encantaría ayudarte 🙌')
+    .replace(/\{nombre\}/gi, contact.name)
+
+  const isAiEnabled = !!(channel.config as any)?.isAiEnabled
+
   const conversation = await prisma.conversation.create({
     data: {
       workspaceId,
       channelId,
       contactId: contact.id,
       externalId,
-      status: 'PENDING',
-      isHandledByBot: false
+      status: isAiEnabled ? 'OPEN' : 'PENDING',
+      isHandledByBot: isAiEnabled
     }
   })
 
-  const openingMessage = (openingMessageTemplate?.trim() || 'Hola {nombre}, vimos tu interés y nos encantaría ayudarte 🙌')
-    .replace(/\{nombre\}/gi, contact.name)
+  getIO().to(`workspace:${workspaceId}`).emit('conversation:new', {
+    id: conversation.id,
+    channelId,
+    externalId,
+    status: conversation.status,
+    contact: { id: contact.id, name: contact.name },
+    createdAt: conversation.createdAt
+  })
+
+  if (isAiEnabled) {
+    try {
+      await sendOutboundPlatformMessage(workspaceId, conversation.id, openingMessage, 'BOT')
+      return
+    } catch (err) {
+      console.error(`[SheetsSync] Failed to send opening WhatsApp message to contact ${contact.id}, falling back to manual note:`, err)
+      await prisma.conversation.update({ where: { id: conversation.id }, data: { status: 'PENDING', isHandledByBot: false } })
+    }
+  }
 
   const note = await prisma.message.create({
     data: {
@@ -108,14 +135,6 @@ async function prepareWhatsappConversation(
     }
   })
 
-  getIO().to(`workspace:${workspaceId}`).emit('conversation:new', {
-    id: conversation.id,
-    channelId,
-    externalId,
-    status: conversation.status,
-    contact: { id: contact.id, name: contact.name },
-    createdAt: conversation.createdAt
-  })
   getIO().to(`workspace:${workspaceId}`).emit('message:new', {
     id: note.id,
     conversationId: conversation.id,
@@ -158,7 +177,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
   const whatsappChannel = integration.linkToWhatsapp
     ? await prisma.channel.findFirst({
         where: { workspaceId: integration.workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' },
-        select: { id: true }
+        select: { id: true, config: true }
       })
     : null
 
@@ -313,7 +332,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
 
       if (whatsappChannel && phone && isComplete) {
         try {
-          await prepareWhatsappConversation(integration.workspaceId, whatsappChannel.id, contact, integration.whatsappOpeningMessage)
+          await prepareWhatsappConversation(integration.workspaceId, whatsappChannel, contact, integration.whatsappOpeningMessage)
         } catch (err) {
           // Never let a WhatsApp-linking failure undo the CRM import for this row.
           console.error(`[SheetsSync] Failed to prepare WhatsApp conversation for contact ${contact.id}:`, err)

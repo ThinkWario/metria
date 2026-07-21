@@ -7,7 +7,7 @@ vi.mock('../../../lib/prisma', () => ({
     contact: { findUnique: vi.fn(async () => null), create: vi.fn(), update: vi.fn(async () => ({})) },
     contactTag: { upsert: vi.fn(), deleteMany: vi.fn() },
     deal: { findFirst: vi.fn(async () => null), create: vi.fn(async () => ({})) },
-    conversation: { findUnique: vi.fn(async () => null), create: vi.fn() },
+    conversation: { findUnique: vi.fn(async () => null), create: vi.fn(), update: vi.fn(async () => ({})) },
     message: { create: vi.fn(async () => ({ id: 'note-1', content: '', sentAt: new Date() })) }
   }
 }))
@@ -21,9 +21,14 @@ vi.mock('../sheets.agent', () => ({
   qualifyLead: vi.fn()
 }))
 
+vi.mock('../../messaging/message.service', () => ({
+  sendOutboundPlatformMessage: vi.fn(async () => ({ id: 'msg-1', sentAt: new Date() }))
+}))
+
 import { syncSheet, analyzeSheet } from '../sheets.service'
 import { prisma } from '../../../lib/prisma'
 import { suggestFieldMappings, qualifyLead } from '../sheets.agent'
+import { sendOutboundPlatformMessage } from '../../messaging/message.service'
 
 const WS_ID = 'ws-1'
 const INTEGRATION_ID = 'integ-1'
@@ -113,6 +118,48 @@ describe('syncSheet WhatsApp-linking', () => {
         })
       })
     )
+  })
+
+  it('sends the opening message immediately through the AI closing agent when the channel has isAiEnabled', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({ linkToWhatsapp: true, whatsappOpeningMessage: 'Hola {nombre}, ¿agendamos tu visita técnica?' }) as any
+    )
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue({ id: 'ch-whatsapp', config: { isAiEnabled: true } } as any)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678' } as any)
+    vi.mocked(prisma.conversation.create).mockResolvedValue({ id: 'conv-1', status: 'OPEN', createdAt: new Date() } as any)
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.conversation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'OPEN', isHandledByBot: true })
+      })
+    )
+    expect(sendOutboundPlatformMessage).toHaveBeenCalledWith(WS_ID, 'conv-1', 'Hola Ana, ¿agendamos tu visita técnica?', 'BOT')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('falls back to an internal note (and reverts isHandledByBot) when the AI agent send fails', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({ linkToWhatsapp: true, whatsappOpeningMessage: 'Hola {nombre}!' }) as any
+    )
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue({ id: 'ch-whatsapp', config: { isAiEnabled: true } } as any)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678' } as any)
+    vi.mocked(prisma.conversation.create).mockResolvedValue({ id: 'conv-1', status: 'OPEN', createdAt: new Date() } as any)
+    vi.mocked(sendOutboundPlatformMessage).mockRejectedValueOnce(new Error('WhatsApp session down'))
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    const result = await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith({
+      where: { id: 'conv-1' },
+      data: { status: 'PENDING', isHandledByBot: false }
+    })
+    expect(prisma.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ isInternal: true, senderType: 'SYSTEM' }) })
+    )
+    expect(result.errors).toBe(0)
   })
 
   it('skips WhatsApp-linking (but still imports the contact) when the phone does not validate', async () => {
