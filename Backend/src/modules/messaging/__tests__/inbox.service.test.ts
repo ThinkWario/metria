@@ -76,6 +76,24 @@ describe('getMessages', () => {
     )
     expect(result).toEqual(mockMsgs)
   })
+
+  it('queries the newest messages first, then returns them oldest-to-newest', async () => {
+    // Prisma is mocked to return them as the desc-ordered query would (newest first) —
+    // a conversation with more than 50 messages must still surface its latest ones.
+    const newestFirst = [
+      { id: 'm3', content: 'Tercero', sentAt: new Date('2026-01-03') },
+      { id: 'm2', content: 'Segundo', sentAt: new Date('2026-01-02') },
+      { id: 'm1', content: 'Primero', sentAt: new Date('2026-01-01') }
+    ]
+    vi.mocked(prisma.message.findMany).mockResolvedValue(newestFirst as any)
+
+    const result = await getMessages(WS_ID, 'conv-1', undefined)
+
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { sentAt: 'desc' }, take: 50 })
+    )
+    expect(result.map(m => m.id)).toEqual(['m1', 'm2', 'm3'])
+  })
 })
 
 describe('sendMessage', () => {

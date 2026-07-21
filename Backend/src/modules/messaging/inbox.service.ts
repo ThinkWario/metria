@@ -161,15 +161,22 @@ export async function assignConversation(
 }
 
 export async function getMessages(workspaceId: string, conversationId: string, cursor: string | undefined) {
-  return prisma.message.findMany({
+  // Fetch the most recent page (newest first) so a conversation with 50+
+  // messages still shows its latest activity, then reverse to the ascending
+  // order the inbox renders top-to-bottom. Sorting `desc` here was previously
+  // `asc`, which returned the OLDEST 50 messages instead — any conversation
+  // past that threshold silently lost its newest messages (including ones
+  // just sent) on every refetch, e.g. switching chats and back.
+  const messages = await prisma.message.findMany({
     where: {
       workspaceId,
       conversationId,
       ...(cursor && { id: { lt: cursor } })
     },
-    orderBy: { sentAt: 'asc' },
+    orderBy: { sentAt: 'desc' },
     take: 50
   })
+  return messages.reverse()
 }
 
 export async function sendMessage(
