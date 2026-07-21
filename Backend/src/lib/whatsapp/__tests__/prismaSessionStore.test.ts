@@ -4,7 +4,8 @@ import { promises as fs } from 'fs'
 vi.mock('fs', () => ({
   promises: {
     readFile: vi.fn(),
-    writeFile: vi.fn()
+    writeFile: vi.fn(),
+    mkdir: vi.fn()
   }
 }))
 

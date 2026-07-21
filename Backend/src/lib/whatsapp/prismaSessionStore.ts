@@ -35,6 +35,7 @@ export class PrismaWhatsAppStore {
   async extract({ session, path }: { session: string; path: string }): Promise<void> {
     const row = await prisma.whatsAppSession.findUnique({ where: { session }, select: { data: true } });
     if (!row) throw new Error(`No stored WhatsApp session found for ${session}`);
+    await fs.mkdir(this.dataPath, { recursive: true });
     await fs.writeFile(path, row.data);
   }
 
