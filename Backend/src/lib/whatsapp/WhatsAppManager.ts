@@ -53,6 +53,13 @@ const DESTROY_TIMEOUT_MS = 30_000;
 const REMOTE_BACKUP_INTERVAL_MS = 5 * 60_000;
 /** Delay between launching each restored session's Chromium on server boot. */
 const RESTORE_STAGGER_MS = 20_000;
+/**
+ * Pins the WhatsApp Web frontend build instead of always loading whatever is
+ * currently live (see webVersionCache usage in initSession). Unset by
+ * default — this is an experiment, not a default behavior change. Set via
+ * env var so a different pinned version can be tried without a redeploy.
+ */
+const WEB_VERSION = process.env.WHATSAPP_WEB_VERSION;
 /** Missed messages younger than this get an AI reply after a reconnect. */
 const RECOVERY_WINDOW_S = 30 * 60
 /**
@@ -143,6 +150,25 @@ export class WhatsAppSessionManager {
         backupSyncIntervalMs: REMOTE_BACKUP_INTERVAL_MS
       }),
       qrMaxRetries: QR_MAX_RETRIES,
+      // Without webVersion pinned, webVersionCache does nothing — resolve()
+      // is called with `undefined`, always misses, and falls through to
+      // whatever WhatsApp Web build is live right now. That's the confirmed
+      // cause of the getChats/getNumberId/sendSeen failures we've been
+      // chasing: WhatsApp is actively A/B-testing new frontend builds, and
+      // the live one right now doesn't match what this library's injected
+      // helpers expect. strict:false means an unfetchable/missing pinned
+      // version just falls back to today's (broken) behavior — this can't
+      // make things worse than they already are.
+      ...(WEB_VERSION
+        ? {
+            webVersion: WEB_VERSION,
+            webVersionCache: {
+              type: 'remote' as const,
+              remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/{version}.html',
+              strict: false
+            }
+          }
+        : {}),
       puppeteer: {
         headless: true,
         protocolTimeout: 120000,
