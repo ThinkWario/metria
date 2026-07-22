@@ -186,7 +186,7 @@ export async function instagramWebhook(req: Request, res: Response): Promise<voi
     }
     res.status(200).json({ ok: true })
     const body = req.body instanceof Buffer ? JSON.parse(rawBody) : req.body
-    parseInstagramUpdate(workspaceId, channel.id, body).catch(err => console.error('[Instagram webhook]', err))
+    parseInstagramUpdate(workspaceId, channel.id, body, config).catch(err => console.error('[Instagram webhook]', err))
   } catch (err) {
     console.error('[Instagram webhook error]', err)
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' })
@@ -221,7 +221,7 @@ export async function messengerWebhook(req: Request, res: Response): Promise<voi
     }
     res.status(200).json({ ok: true })
     const body = req.body instanceof Buffer ? JSON.parse(rawBody) : req.body
-    parseMessengerUpdate(workspaceId, channel.id, body).catch(err => console.error('[Messenger webhook]', err))
+    parseMessengerUpdate(workspaceId, channel.id, body, config).catch(err => console.error('[Messenger webhook]', err))
   } catch (err) {
     console.error('[Messenger webhook error]', err)
     if (!res.headersSent) res.status(500).json({ error: 'Internal error' })

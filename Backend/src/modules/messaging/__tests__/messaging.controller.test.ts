@@ -110,7 +110,7 @@ describe('MessagingController - Messenger Webhooks', () => {
 
       expect(res.status).toHaveBeenCalledWith(200)
       expect(res.json).toHaveBeenCalledWith({ ok: true })
-      expect(messengerService.parseMessengerUpdate).toHaveBeenCalledWith('ws-1', 'ch-1', req.body)
+      expect(messengerService.parseMessengerUpdate).toHaveBeenCalledWith('ws-1', 'ch-1', req.body, { appSecret: 'secret' })
     })
 
     it('should return 401 when signature is invalid', async () => {

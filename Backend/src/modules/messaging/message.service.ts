@@ -118,7 +118,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
   } else if (conversation) {
     // Existing conversation → update its contact's phone to the clean version
     contact = await prisma.contact.update({
-      where: { id: conversation.contactId },
+      where: { id: conversation.contactId! },
       data: {
         phone: senderExternalId,
         name: senderName ?? undefined,
