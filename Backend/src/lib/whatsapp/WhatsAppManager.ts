@@ -695,17 +695,17 @@ export class WhatsAppSessionManager {
             )
           )
         ]);
-        // whatsapp-web.js resolves undefined (not a throw) when its internal
-        // getChat() comes back empty — the same unattached-helper race the
-        // catch block below retries, just surfaced as a falsy return instead
-        // of a rejection here. Treat it the same way: retry, then give up.
+        // whatsapp-web.js resolves undefined (not a throw) both when its
+        // internal getChat() comes back empty (nothing sent) AND when the
+        // message was already queued/dispatched but the later server-ack
+        // step failed (something WAS sent) -- Client.js collapses both into
+        // the same falsy return, so this side cannot tell them apart. NEVER
+        // retry here: retrying an already-dispatched send means WhatsApp
+        // delivers the same message a second (or third) time. Fail once,
+        // immediately -- confirmed live: the retry this replaced caused a
+        // real contact to receive one message 3 times.
         if (!sentMessage) {
-          if (attempt === SEND_MESSAGE_RETRY_ATTEMPTS) {
-            throw new Error(`sendMessage returned no result for ${workspaceId} (chat not found)`);
-          }
-          console.warn(`[WhatsApp] sendMessage returned no result (attempt ${attempt}/${SEND_MESSAGE_RETRY_ATTEMPTS}) for ${workspaceId}, retrying...`);
-          await new Promise(resolve => setTimeout(resolve, SEND_MESSAGE_RETRY_DELAY_MS));
-          continue;
+          throw new Error(`sendMessage returned no result for ${workspaceId} (chat not found, or send status unconfirmed -- do not retry)`);
         }
         return sentMessage.id._serialized;
       } catch (err) {

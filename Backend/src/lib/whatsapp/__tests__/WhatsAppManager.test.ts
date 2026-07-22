@@ -370,33 +370,28 @@ describe('sendMessage — @lid target resolution', () => {
   })
 })
 
-describe('sendMessage — chat-not-found race (sendMessage resolves undefined, not a throw)', () => {
-  it('retries and succeeds once the chat becomes available', async () => {
-    const client = await initAndGetReady()
-    client.sendMessage
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({ id: { _serialized: 'wa-out-2' } })
-
-    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
-    await vi.advanceTimersByTimeAsync(10_000) // typing delay
-    await vi.advanceTimersByTimeAsync(1_500) // SEND_MESSAGE_RETRY_DELAY_MS
-    const externalId = await sendPromise
-
-    expect(externalId).toBe('wa-out-2')
-    expect(client.sendMessage).toHaveBeenCalledTimes(2)
-  })
-
-  it('throws a clear error after exhausting retries instead of crashing on undefined.id', async () => {
+describe('sendMessage — undefined result (chat not found, or an already-dispatched send whose ack failed)', () => {
+  it('throws a clear error instead of crashing on undefined.id', async () => {
     const client = await initAndGetReady()
     client.sendMessage.mockResolvedValue(undefined)
 
     const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
     sendPromise.catch(() => {}) // avoid unhandled rejection before the assertion below awaits it
     await vi.advanceTimersByTimeAsync(10_000) // typing delay
-    await vi.advanceTimersByTimeAsync(1_500 * 3) // SEND_MESSAGE_RETRY_DELAY_MS * SEND_MESSAGE_RETRY_ATTEMPTS
 
     await expect(sendPromise).rejects.toThrow('sendMessage returned no result')
-    expect(client.sendMessage).toHaveBeenCalledTimes(3) // SEND_MESSAGE_RETRY_ATTEMPTS
+  })
+
+  it('never retries an undefined result -- Client.js collapses "nothing sent" and "sent but unconfirmed" into the same falsy value, so retrying risks delivering the same message twice', async () => {
+    const client = await initAndGetReady()
+    client.sendMessage.mockResolvedValue(undefined)
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    sendPromise.catch(() => {})
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise.catch(() => {})
+
+    expect(client.sendMessage).toHaveBeenCalledTimes(1)
   })
 })
 
