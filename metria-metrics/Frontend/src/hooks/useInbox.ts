@@ -163,6 +163,11 @@ export function useInbox() {
         return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)]
       })
     }
+    // Real WhatsApp delivery/read confirmation — arrives after message:new,
+    // so it must patch the existing row in place rather than upsert one.
+    const onMsgStatus = (patch: { id: string; status: string; deliveredAt?: string | null; readAt?: string | null }) => {
+      setMessages(prev => prev.map(m => (m.id === patch.id ? { ...m, ...patch } : m)))
+    }
     const onConvUpdated = (patch: Partial<Conversation> & { id: string }) => {
       setConversations(prev => {
         const next = prev.map(c => (c.id === patch.id ? { ...c, ...patch } : c))
@@ -183,12 +188,14 @@ export function useInbox() {
 
     sock.on('conversation:new', onConvNew)
     sock.on('message:new', onMsgNew)
+    sock.on('message:status', onMsgStatus)
     sock.on('conversation:updated', onConvUpdated)
 
     return () => {
       sock.off('connect', onConnect)
       sock.off('conversation:new', onConvNew)
       sock.off('message:new', onMsgNew)
+      sock.off('message:status', onMsgStatus)
       sock.off('conversation:updated', onConvUpdated)
     }
   }, [statusFilter, platformFilter, workspaceId])

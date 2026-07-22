@@ -257,6 +257,8 @@ export async function sendMessage(
   }
 
   const config = channel.config as Record<string, string>
+  const isNativeWhatsApp = channel.platform === 'WHATSAPP' && !!config.isNative
+  let externalId: string | undefined
 
   try {
     switch (channel.platform) {
@@ -267,7 +269,7 @@ export async function sendMessage(
           // conversation.externalId is the exact chat ID whatsapp-web.js gave us
           // when the message came in (msg.from) — always the correct reply target.
           const { WhatsAppSessionManager } = await import('../../lib/whatsapp/WhatsAppManager')
-          await WhatsAppSessionManager.getInstance().sendMessage(workspaceId, conversation.externalId, content)
+          externalId = await WhatsAppSessionManager.getInstance().sendMessage(workspaceId, conversation.externalId, content)
         } else {
           const { sendWhatsAppMessage } = await import('./channels/whatsapp.service')
           await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, contact.phone!, content)
@@ -299,7 +301,14 @@ export async function sendMessage(
     throw dispatchError
   }
 
-  await prisma.message.update({ where: { id: message.id }, data: { status: 'SENT' } })
+  // Native WhatsApp: real status arrives later via message_ack — stay PENDING
+  // and stash externalId so that event can find this row. Every other
+  // channel has no ACK tracking (yet), so keep the old "SENT on dispatch" behavior.
+  const finalStatus = isNativeWhatsApp ? 'PENDING' : 'SENT'
+  await prisma.message.update({
+    where: { id: message.id },
+    data: { status: finalStatus, externalId }
+  })
 
   getIO()
     .to(`workspace:${workspaceId}`)
@@ -310,7 +319,7 @@ export async function sendMessage(
       senderType: message.senderType,
       content: message.content,
       isInternal: false,
-      status: 'SENT',
+      status: finalStatus,
       sentAt: message.sentAt
     })
 }

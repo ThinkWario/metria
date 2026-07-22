@@ -24,7 +24,7 @@ vi.mock('../channels/whatsapp.service', () => ({
 vi.mock('../channels/telegram.service', () => ({
   sendTelegramMessage: vi.fn().mockResolvedValue(undefined)
 }))
-const nativeSendMessage = vi.fn().mockResolvedValue(undefined)
+const nativeSendMessage = vi.fn().mockResolvedValue('wa-native-1')
 vi.mock('../../../lib/whatsapp/WhatsAppManager', () => ({
   WhatsAppSessionManager: { getInstance: () => ({ sendMessage: nativeSendMessage }) }
 }))
@@ -143,5 +143,45 @@ describe('sendMessage', () => {
     await sendMessage(WS_ID, 'conv-1', 'user-1', 'ok')
 
     expect(nativeSendMessage).toHaveBeenCalledWith(WS_ID, '61645766283373@lid', 'ok')
+  })
+
+  it('native WhatsApp keeps status PENDING and stores externalId — real status arrives later via message_ack', async () => {
+    const mockChannel = { id: 'ch-1', platform: 'WHATSAPP', config: { isNative: true } }
+    const mockContact = { id: 'ct-1', phone: '56912345678' }
+    const mockConv = { id: 'conv-1', workspaceId: WS_ID, channelId: 'ch-1', contactId: 'ct-1', externalId: '56912345678@c.us' }
+    const mockMsg = { id: 'msg-out', conversationId: 'conv-1', direction: 'OUTBOUND', senderType: 'AGENT', content: 'ok', sentAt: new Date() }
+
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(mockConv as any)
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.message.create).mockResolvedValue(mockMsg as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(mockConv as any)
+
+    await sendMessage(WS_ID, 'conv-1', 'user-1', 'ok')
+
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: 'msg-out' },
+      data: { status: 'PENDING', externalId: 'wa-native-1' }
+    })
+  })
+
+  it('non-native platforms still mark SENT immediately on dispatch (no ACK tracking there)', async () => {
+    const mockChannel = { id: 'ch-1', platform: 'WHATSAPP', config: { phoneNumberId: 'ph1', accessToken: 'tok' } }
+    const mockContact = { id: 'ct-1', phone: '+56912345678' }
+    const mockConv = { id: 'conv-1', workspaceId: WS_ID, channelId: 'ch-1', contactId: 'ct-1' }
+    const mockMsg = { id: 'msg-out', conversationId: 'conv-1', direction: 'OUTBOUND', senderType: 'AGENT', content: 'Hola', sentAt: new Date() }
+
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(mockConv as any)
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.message.create).mockResolvedValue(mockMsg as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(mockConv as any)
+
+    await sendMessage(WS_ID, 'conv-1', 'user-1', 'Hola')
+
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: 'msg-out' },
+      data: { status: 'SENT', externalId: undefined }
+    })
   })
 })

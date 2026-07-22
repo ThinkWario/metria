@@ -17,33 +17,38 @@ const PLATFORM_TO_SOURCE: Record<string, string> = {
   MESSENGER: 'MESSENGER'
 }
 
+/**
+ * Returns the WhatsApp-assigned externalId for native (whatsapp-web.js)
+ * sends, so callers can correlate later message_ack events. undefined for
+ * every other platform/path (no ACK tracking there).
+ */
 export async function sendPlatformMessage(
   platform: string,
   config: any,
   to: string,
   text: string,
   workspaceId?: string
-): Promise<void> {
+): Promise<string | undefined> {
   switch (platform) {
     case 'WHATSAPP':
       if ((config as any)?.isNative && workspaceId) {
         // QR-connected via whatsapp-web.js — bypass Cloud API (no OAuth token)
         const { WhatsAppSessionManager } = await import('../../lib/whatsapp/WhatsAppManager')
-        await WhatsAppSessionManager.getInstance().sendMessage(workspaceId, to, text)
-      } else {
-        await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, to, text)
+        return WhatsAppSessionManager.getInstance().sendMessage(workspaceId, to, text)
       }
-      break
+      await sendWhatsAppMessage(config.phoneNumberId, config.accessToken, to, text)
+      return undefined
     case 'INSTAGRAM':
       await sendInstagramMessage(config.pageAccessToken, to, text)
-      break
+      return undefined
     case 'MESSENGER':
       await sendMessengerMessage(config.pageAccessToken, to, text)
-      break
+      return undefined
     case 'TELEGRAM':
       await sendTelegramMessage(config.botToken, to, text)
-      break
+      return undefined
   }
+  return undefined
 }
 
 /**
@@ -62,13 +67,17 @@ export async function sendOutboundPlatformMessage(
   })
   if (!conv) throw new Error('Conversation not found')
 
-  await sendPlatformMessage(conv.channel.platform, conv.channel.config, conv.externalId, text, workspaceId)
+  const externalId = await sendPlatformMessage(conv.channel.platform, conv.channel.config, conv.externalId, text, workspaceId)
+  // Native WhatsApp: real status arrives later via message_ack — stay PENDING
+  // and stash externalId so that event can find this row.
+  const isNativeWhatsApp = conv.channel.platform === 'WHATSAPP' && !!(conv.channel.config as any)?.isNative
+  const status = isNativeWhatsApp ? 'PENDING' : 'SENT'
   const message = await prisma.message.create({
-    data: { workspaceId, conversationId, direction: 'OUTBOUND', senderType, content: text, status: 'SENT' }
+    data: { workspaceId, conversationId, direction: 'OUTBOUND', senderType, content: text, status, externalId }
   })
   await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } })
   getIO().to(`workspace:${workspaceId}`).emit('message:new', {
-    conversationId, direction: 'OUTBOUND', senderType, content: text, sentAt: message.sentAt
+    conversationId, direction: 'OUTBOUND', senderType, content: text, sentAt: message.sentAt, status
   })
   return message
 }

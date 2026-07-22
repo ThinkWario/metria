@@ -18,7 +18,7 @@ class FakeClient extends EventEmitter {
     sendStateTyping: vi.fn(async () => undefined),
     clearState: vi.fn(async () => undefined)
   }))
-  sendMessage = vi.fn(async () => undefined)
+  sendMessage = vi.fn(async () => ({ id: { _serialized: 'wa-out-1' } }))
   getContactLidAndPhone = vi.fn(async (): Promise<Array<{ pn?: string; lid?: string }>> => [])
   getNumberId = vi.fn(async (to: string): Promise<{ _serialized: string } | null> => ({ _serialized: to }))
   sendSeen = vi.fn(async () => true)
@@ -34,13 +34,15 @@ vi.mock('whatsapp-web.js', () => ({
     createdClients.push(instance)
     return instance
   }),
-  RemoteAuth: vi.fn()
+  RemoteAuth: vi.fn(),
+  MessageAck: { ACK_ERROR: -1, ACK_PENDING: 0, ACK_SERVER: 1, ACK_DEVICE: 2, ACK_READ: 3, ACK_PLAYED: 4 }
 }))
 
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/png;base64,x') } }))
 
+const ioMock = { to: vi.fn().mockReturnThis(), emit: vi.fn() }
 vi.mock('../../socket', () => ({
-  getIO: vi.fn(() => ({ to: vi.fn().mockReturnThis(), emit: vi.fn() }))
+  getIO: vi.fn(() => ioMock)
 }))
 
 vi.mock('../../prisma', () => ({
@@ -55,6 +57,10 @@ vi.mock('../../prisma', () => ({
       findUnique: vi.fn(async () => null),
       upsert: vi.fn(async () => ({})),
       deleteMany: vi.fn(async () => ({ count: 0 }))
+    },
+    message: {
+      findFirst: vi.fn(async () => ({ id: 'msg-row-1' })),
+      update: vi.fn(async () => ({}))
     }
   }
 }))
@@ -252,7 +258,7 @@ describe('sendMessage typing simulation', () => {
 
     await vi.advanceTimersByTimeAsync(10_000) // max typing delay comfortably covered
     await sendPromise
-    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola')
+    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola', { waitUntilMsgSent: true })
     expect(chat.clearState).toHaveBeenCalled()
   })
 
@@ -263,7 +269,17 @@ describe('sendMessage typing simulation', () => {
     const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
     await vi.advanceTimersByTimeAsync(10_000)
     await sendPromise
-    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola')
+    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola', { waitUntilMsgSent: true })
+  })
+
+  it('returns the WhatsApp-assigned message id so callers can correlate later message_ack events', async () => {
+    await initAndGetReady()
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    const externalId = await sendPromise
+
+    expect(externalId).toBe('wa-out-1')
   })
 })
 
@@ -277,7 +293,7 @@ describe('sendMessage — number registration lookup', () => {
     await sendPromise
 
     expect(client.getNumberId).toHaveBeenCalledWith('123@c.us')
-    expect(client.sendMessage).toHaveBeenCalledWith('999@c.us', 'hola')
+    expect(client.sendMessage).toHaveBeenCalledWith('999@c.us', 'hola', { waitUntilMsgSent: true })
   })
 
   it('throws a clear error instead of silently no-op sending when the number is not on WhatsApp', async () => {
@@ -298,7 +314,7 @@ describe('sendMessage — number registration lookup', () => {
     await vi.advanceTimersByTimeAsync(10_000)
     await sendPromise
 
-    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola')
+    expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola', { waitUntilMsgSent: true })
   })
 })
 
@@ -425,5 +441,101 @@ describe('handleInboundMessage — voice notes', () => {
 
     expect(msg.downloadMedia).not.toHaveBeenCalled()
     expect(processInboundMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('message_ack handling', () => {
+  const EXTERNAL_ID = 'wa-out-1'
+  const MESSAGE_ID = 'msg-row-1'
+  const ackMsg = { id: { _serialized: EXTERNAL_ID } }
+
+  it('maps ACK_SERVER to SENT', async () => {
+    const client = await initAndGetReady()
+
+    client.emit('message_ack', ackMsg, 1 /* ACK_SERVER */)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(prisma.message.findFirst).toHaveBeenCalledWith({
+      where: { workspaceId, externalId: EXTERNAL_ID },
+      select: { id: true }
+    })
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: MESSAGE_ID },
+      data: { status: 'SENT' }
+    })
+  })
+
+  it('maps ACK_DEVICE to DELIVERED and stamps deliveredAt', async () => {
+    const client = await initAndGetReady()
+
+    client.emit('message_ack', ackMsg, 2 /* ACK_DEVICE */)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: MESSAGE_ID },
+      data: { status: 'DELIVERED', deliveredAt: expect.any(Date) }
+    })
+  })
+
+  it('maps ACK_READ to READ and stamps readAt', async () => {
+    const client = await initAndGetReady()
+
+    client.emit('message_ack', ackMsg, 3 /* ACK_READ */)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: MESSAGE_ID },
+      data: { status: 'READ', readAt: expect.any(Date) }
+    })
+  })
+
+  it('maps ACK_PLAYED (voice note listened to) to READ as well', async () => {
+    const client = await initAndGetReady()
+
+    client.emit('message_ack', ackMsg, 4 /* ACK_PLAYED */)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: MESSAGE_ID },
+      data: { status: 'READ', readAt: expect.any(Date) }
+    })
+  })
+
+  it('maps ACK_ERROR to FAILED', async () => {
+    const client = await initAndGetReady()
+
+    client.emit('message_ack', ackMsg, -1 /* ACK_ERROR */)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: MESSAGE_ID },
+      data: { status: 'FAILED' }
+    })
+  })
+
+  it('broadcasts message:status (keyed by the Message row id) over the workspace room so the inbox updates live', async () => {
+    const client = await initAndGetReady()
+    ioMock.emit.mockClear()
+
+    client.emit('message_ack', ackMsg, 2 /* ACK_DEVICE */)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(ioMock.to).toHaveBeenCalledWith(`workspace:${workspaceId}`)
+    expect(ioMock.emit).toHaveBeenCalledWith('message:status', expect.objectContaining({
+      id: MESSAGE_ID,
+      status: 'DELIVERED'
+    }))
+  })
+
+  it('does not update or broadcast when no Message row matches the externalId (nothing to correlate to)', async () => {
+    const client = await initAndGetReady()
+    vi.mocked(prisma.message.findFirst).mockResolvedValueOnce(null)
+    ioMock.emit.mockClear()
+
+    client.emit('message_ack', ackMsg, 2 /* ACK_DEVICE */)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(prisma.message.update).not.toHaveBeenCalled()
+    expect(ioMock.emit).not.toHaveBeenCalledWith('message:status', expect.anything())
   })
 })

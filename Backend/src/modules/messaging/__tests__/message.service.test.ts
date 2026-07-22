@@ -34,8 +34,12 @@ vi.mock('../../crm/lifecycle.service', () => ({ LifecycleService: { handleSignal
 vi.mock('../channels/whatsapp.service', () => ({ sendWhatsAppMessage: vi.fn(async () => undefined) }))
 vi.mock('../channels/instagram.service', () => ({ sendInstagramMessage: vi.fn(async () => undefined) }))
 vi.mock('../channels/telegram.service', () => ({ sendTelegramMessage: vi.fn(async () => undefined) }))
+const nativeSendMessage = vi.fn(async () => 'wa-out-99')
+vi.mock('../../../lib/whatsapp/WhatsAppManager', () => ({
+  WhatsAppSessionManager: { getInstance: () => ({ sendMessage: nativeSendMessage }) }
+}))
 
-import { processInboundMessage } from '../message.service'
+import { processInboundMessage, sendOutboundPlatformMessage } from '../message.service'
 import { prisma } from '../../../lib/prisma'
 import { getIO } from '../../../lib/socket'
 import { scheduleAiReply } from '../../ai-agent/aiResponder'
@@ -225,5 +229,50 @@ describe('processInboundMessage', () => {
     expect(result.messageId).toBe('existing-msg')
     expect(prisma.message.create).not.toHaveBeenCalled()
     expect(prisma.conversation.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('sendOutboundPlatformMessage', () => {
+  it('keeps native WhatsApp sends PENDING and stores externalId for later message_ack correlation', async () => {
+    const mockConv = {
+      id: 'conv-1', workspaceId: WORKSPACE_ID, externalId: 'ext-1',
+      channel: { platform: 'WHATSAPP', config: { isNative: true } }
+    }
+    const mockMessage = { id: 'msg-out', conversationId: 'conv-1', direction: 'OUTBOUND', senderType: 'BOT', content: 'Hola', sentAt: new Date() }
+
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConv as any)
+    vi.mocked(prisma.message.create).mockResolvedValue(mockMessage as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(mockConv as any)
+
+    await sendOutboundPlatformMessage(WORKSPACE_ID, 'conv-1', 'Hola', 'BOT')
+
+    expect(nativeSendMessage).toHaveBeenCalledWith(WORKSPACE_ID, 'ext-1', 'Hola')
+    expect(prisma.message.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID, conversationId: 'conv-1', direction: 'OUTBOUND',
+        senderType: 'BOT', content: 'Hola', status: 'PENDING', externalId: 'wa-out-99'
+      }
+    })
+  })
+
+  it('marks non-native platforms SENT immediately (no ACK tracking there)', async () => {
+    const mockConv = {
+      id: 'conv-2', workspaceId: WORKSPACE_ID, externalId: 'ext-2',
+      channel: { platform: 'TELEGRAM', config: { botToken: 'tok' } }
+    }
+    const mockMessage = { id: 'msg-out-2', conversationId: 'conv-2', direction: 'OUTBOUND', senderType: 'BOT', content: 'Hola', sentAt: new Date() }
+
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConv as any)
+    vi.mocked(prisma.message.create).mockResolvedValue(mockMessage as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue(mockConv as any)
+
+    await sendOutboundPlatformMessage(WORKSPACE_ID, 'conv-2', 'Hola', 'BOT')
+
+    expect(prisma.message.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID, conversationId: 'conv-2', direction: 'OUTBOUND',
+        senderType: 'BOT', content: 'Hola', status: 'SENT', externalId: undefined
+      }
+    })
   })
 })

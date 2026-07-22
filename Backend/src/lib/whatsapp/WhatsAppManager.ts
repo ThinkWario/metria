@@ -1,4 +1,4 @@
-import { Client, RemoteAuth, Message as WWebMessage } from 'whatsapp-web.js';
+import { Client, RemoteAuth, Message as WWebMessage, MessageAck } from 'whatsapp-web.js';
 import qrcode from 'qrcode';
 import { getIO } from '../socket';
 import { prisma } from '../prisma';
@@ -105,6 +105,31 @@ interface HealthFailureState {
   count: number;
   /** True while every failure in the current streak was a getState timeout. */
   timeoutsOnly: boolean;
+}
+
+interface MessageAckUpdate {
+  status: string;
+  deliveredAt?: Date;
+  readAt?: Date;
+}
+
+/** Maps a WhatsApp message_ack value to the Message row update it implies. */
+function ackToMessageUpdate(ack: MessageAck): MessageAckUpdate | null {
+  switch (ack) {
+    case MessageAck.ACK_ERROR:
+      return { status: 'FAILED' };
+    case MessageAck.ACK_PENDING:
+      return { status: 'PENDING' };
+    case MessageAck.ACK_SERVER:
+      return { status: 'SENT' };
+    case MessageAck.ACK_DEVICE:
+      return { status: 'DELIVERED', deliveredAt: new Date() };
+    case MessageAck.ACK_READ:
+    case MessageAck.ACK_PLAYED:
+      return { status: 'READ', readAt: new Date() };
+    default:
+      return null;
+  }
 }
 
 export class WhatsAppSessionManager {
@@ -252,6 +277,35 @@ export class WhatsAppSessionManager {
     // Event: Incoming Message
     client.on('message', async (msg: WWebMessage) => {
       this.handleInboundMessage(workspaceId, msg);
+    });
+
+    // Event: outbound message ACK (real delivery/read confirmation, keyed by
+    // the WhatsApp-assigned message id saved as Message.externalId on send).
+    client.on('message_ack', async (msg, ack) => {
+      try {
+        const externalId = msg.id._serialized;
+        const update = ackToMessageUpdate(ack);
+        if (!update) return;
+
+        // findFirst + update (not updateMany) so we can emit the row's own id —
+        // the frontend keys its message list on id, not externalId.
+        const existing = await prisma.message.findFirst({
+          where: { workspaceId, externalId },
+          select: { id: true }
+        });
+        if (!existing) return;
+
+        await prisma.message.update({ where: { id: existing.id }, data: update });
+
+        io.to(`workspace:${workspaceId}`).emit('message:status', {
+          id: existing.id,
+          status: update.status,
+          deliveredAt: update.deliveredAt,
+          readAt: update.readAt
+        });
+      } catch (err) {
+        console.error(`[WhatsApp] Error handling message_ack for ${workspaceId}:`, err);
+      }
     });
 
     client.on('change_state', (state) => {
@@ -571,7 +625,7 @@ export class WhatsAppSessionManager {
   /**
    * Sends a message through the native client.
    */
-  public async sendMessage(workspaceId: string, to: string, content: string): Promise<void> {
+  public async sendMessage(workspaceId: string, to: string, content: string): Promise<string> {
     const client = this.clients.get(workspaceId);
     if (!client) throw new Error('WhatsApp session not active');
 
@@ -597,8 +651,11 @@ export class WhatsAppSessionManager {
 
     for (let attempt = 1; attempt <= SEND_MESSAGE_RETRY_ATTEMPTS; attempt++) {
       try {
-        await client.sendMessage(target, content);
-        return;
+        // waitUntilMsgSent: resolve only once WhatsApp's servers have
+        // accepted the message, not just on local injection — needed so the
+        // returned id is safe to correlate with the message_ack event below.
+        const sentMessage = await client.sendMessage(target, content, { waitUntilMsgSent: true });
+        return sentMessage.id._serialized;
       } catch (err) {
         const isInjectedHelperRace = err instanceof Error && /getChat/.test(err.message);
         if (!isInjectedHelperRace || attempt === SEND_MESSAGE_RETRY_ATTEMPTS) throw err;
@@ -606,6 +663,9 @@ export class WhatsAppSessionManager {
         await new Promise(resolve => setTimeout(resolve, SEND_MESSAGE_RETRY_DELAY_MS));
       }
     }
+    // Unreachable: every loop iteration either returns or throws (the last
+    // attempt always throws on failure) — this only satisfies TS control-flow analysis.
+    throw new Error('sendMessage: exhausted retries without a return or throw');
   }
 
   /**
