@@ -655,6 +655,18 @@ export class WhatsAppSessionManager {
         // accepted the message, not just on local injection — needed so the
         // returned id is safe to correlate with the message_ack event below.
         const sentMessage = await client.sendMessage(target, content, { waitUntilMsgSent: true });
+        // whatsapp-web.js resolves undefined (not a throw) when its internal
+        // getChat() comes back empty — the same unattached-helper race the
+        // catch block below retries, just surfaced as a falsy return instead
+        // of a rejection here. Treat it the same way: retry, then give up.
+        if (!sentMessage) {
+          if (attempt === SEND_MESSAGE_RETRY_ATTEMPTS) {
+            throw new Error(`sendMessage returned no result for ${workspaceId} (chat not found)`);
+          }
+          console.warn(`[WhatsApp] sendMessage returned no result (attempt ${attempt}/${SEND_MESSAGE_RETRY_ATTEMPTS}) for ${workspaceId}, retrying...`);
+          await new Promise(resolve => setTimeout(resolve, SEND_MESSAGE_RETRY_DELAY_MS));
+          continue;
+        }
         return sentMessage.id._serialized;
       } catch (err) {
         const isInjectedHelperRace = err instanceof Error && /getChat/.test(err.message);
