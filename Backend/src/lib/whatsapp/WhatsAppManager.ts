@@ -634,7 +634,7 @@ export class WhatsAppSessionManager {
   /**
    * Sends a message through the native client.
    */
-  public async sendMessage(workspaceId: string, to: string, content: string): Promise<string> {
+  public async sendMessage(workspaceId: string, to: string, content: string): Promise<string | undefined> {
     const client = this.clients.get(workspaceId);
     if (!client) throw new Error('WhatsApp session not active');
 
@@ -695,17 +695,28 @@ export class WhatsAppSessionManager {
             )
           )
         ]);
-        // whatsapp-web.js resolves undefined (not a throw) both when its
-        // internal getChat() comes back empty (nothing sent) AND when the
-        // message was already queued/dispatched but the later server-ack
-        // step failed (something WAS sent) -- Client.js collapses both into
-        // the same falsy return, so this side cannot tell them apart. NEVER
-        // retry here: retrying an already-dispatched send means WhatsApp
-        // delivers the same message a second (or third) time. Fail once,
-        // immediately -- confirmed live: the retry this replaced caused a
-        // real contact to receive one message 3 times.
+        // whatsapp-web.js resolves undefined both when its internal
+        // getChat() comes back empty (nothing sent) AND when the message
+        // was already dispatched (msgPromise -- and, with
+        // waitUntilMsgSent, the server ack -- already resolved) but the
+        // final local Msg.get() lookup came back empty (something WAS
+        // sent). Client.js's own source shows sendMsgResultPromise
+        // *rejecting* throws instead of returning undefined, so a falsy
+        // result here can only be one of those two cases, and they're
+        // distinguishable: getChatById() runs that exact same getChat()
+        // lookup on its own, so if it now finds the chat, the message was
+        // genuinely sent and this is a false failure, not a real one.
+        // NEVER retry either way: retrying an already-dispatched send
+        // means WhatsApp delivers the same message a second (or third)
+        // time -- confirmed live: the retry this replaced caused a real
+        // contact to receive one message 3 times.
         if (!sentMessage) {
-          throw new Error(`sendMessage returned no result for ${workspaceId} (chat not found, or send status unconfirmed -- do not retry)`);
+          const chat = await client.getChatById(target).catch(() => undefined);
+          if (!chat) {
+            throw new Error(`sendMessage returned no result for ${workspaceId} (chat not found)`);
+          }
+          console.warn(`[WhatsApp] sendMessage for ${workspaceId} returned no result but chat "${target}" exists -- message was likely already sent, treating as success without a trackable externalId.`);
+          return undefined;
         }
         return sentMessage.id._serialized;
       } catch (err) {

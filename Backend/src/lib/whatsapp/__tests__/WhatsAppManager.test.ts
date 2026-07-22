@@ -14,7 +14,7 @@ class FakeClient extends EventEmitter {
   destroy = vi.fn(async () => undefined)
   logout = vi.fn(async () => undefined)
   getChats = vi.fn(async () => [])
-  getChatById = vi.fn(async () => ({
+  getChatById = vi.fn(async (): Promise<{ sendStateTyping: () => Promise<void>; clearState: () => Promise<void> } | undefined> => ({
     sendStateTyping: vi.fn(async () => undefined),
     clearState: vi.fn(async () => undefined)
   }))
@@ -370,10 +370,22 @@ describe('sendMessage — @lid target resolution', () => {
   })
 })
 
-describe('sendMessage — undefined result (chat not found, or an already-dispatched send whose ack failed)', () => {
-  it('throws a clear error instead of crashing on undefined.id', async () => {
+describe('sendMessage — undefined result (chat not found, or an already-dispatched send whose ack lookup failed)', () => {
+  it('treats an undefined result as a false failure when the chat actually exists -- the message was already sent', async () => {
     const client = await initAndGetReady()
     client.sendMessage.mockResolvedValue(undefined)
+    client.getChatById.mockResolvedValue({ sendStateTyping: vi.fn(async () => undefined), clearState: vi.fn(async () => undefined) }) // chat exists
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    await vi.advanceTimersByTimeAsync(10_000) // typing delay
+
+    await expect(sendPromise).resolves.toBeUndefined()
+  })
+
+  it('throws a clear error only when the chat genuinely does not exist', async () => {
+    const client = await initAndGetReady()
+    client.sendMessage.mockResolvedValue(undefined)
+    client.getChatById.mockResolvedValue(undefined) // chat truly not found
 
     const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
     sendPromise.catch(() => {}) // avoid unhandled rejection before the assertion below awaits it
@@ -382,9 +394,10 @@ describe('sendMessage — undefined result (chat not found, or an already-dispat
     await expect(sendPromise).rejects.toThrow('sendMessage returned no result')
   })
 
-  it('never retries an undefined result -- Client.js collapses "nothing sent" and "sent but unconfirmed" into the same falsy value, so retrying risks delivering the same message twice', async () => {
+  it('never retries an undefined result either way -- Client.js collapses "nothing sent" and "sent but unconfirmed" into the same falsy value, so retrying risks delivering the same message twice', async () => {
     const client = await initAndGetReady()
     client.sendMessage.mockResolvedValue(undefined)
+    client.getChatById.mockResolvedValue(undefined)
 
     const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
     sendPromise.catch(() => {})
