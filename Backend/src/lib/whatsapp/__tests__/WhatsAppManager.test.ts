@@ -400,6 +400,33 @@ describe('sendMessage — chat-not-found race (sendMessage resolves undefined, n
   })
 })
 
+describe('sendMessage — confirmation timeout (waitUntilMsgSent has no timeout of its own)', () => {
+  it('rejects with a clear timeout instead of hanging forever when WhatsApp never confirms the send', async () => {
+    const client = await initAndGetReady()
+    client.sendMessage.mockImplementation(() => new Promise(() => {})) // never resolves, like a real unroutable chat
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    sendPromise.catch(() => {}) // avoid unhandled rejection before the assertion below awaits it
+    await vi.advanceTimersByTimeAsync(10_000) // typing delay
+    await vi.advanceTimersByTimeAsync(20_000) // SEND_MESSAGE_CONFIRM_TIMEOUT_MS
+
+    await expect(sendPromise).rejects.toThrow('sendMessage timed out waiting for WhatsApp confirmation')
+  })
+
+  it('does not retry after a confirmation timeout (a stuck send is treated as terminal, not the transient helper race)', async () => {
+    const client = await initAndGetReady()
+    client.sendMessage.mockImplementation(() => new Promise(() => {}))
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    sendPromise.catch(() => {})
+    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.advanceTimersByTimeAsync(20_000)
+    await sendPromise.catch(() => {})
+
+    expect(client.sendMessage).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('autoRestoreSessions', () => {
   it('only restores channels that were CONNECTED — dead sessions must not re-enter the QR loop on boot', async () => {
     vi.mocked(prisma.channel.findMany).mockResolvedValue([] as any)

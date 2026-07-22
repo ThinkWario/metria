@@ -74,6 +74,15 @@ const RECOVERY_WINDOW_S = 30 * 60
  */
 const SEND_MESSAGE_RETRY_ATTEMPTS = 3
 const SEND_MESSAGE_RETRY_DELAY_MS = 1500;
+/**
+ * waitUntilMsgSent (see sendMessage()) awaits WhatsApp's own server-side
+ * send-confirmation promise, which has no built-in timeout — if the target
+ * chat is genuinely unroutable (e.g. an unresolved lid), WhatsApp's servers
+ * never ack it and this promise hangs forever, wedging the request (and,
+ * across all SEND_MESSAGE_RETRY_ATTEMPTS, the whole retry loop) instead of
+ * failing. Bound each attempt so a bad send fails fast.
+ */
+const SEND_MESSAGE_CONFIRM_TIMEOUT_MS = 20_000;
 const GET_CHATS_RETRY_ATTEMPTS = 3;
 const GET_CHATS_RETRY_DELAY_MS = 1500;
 /**
@@ -674,7 +683,18 @@ export class WhatsAppSessionManager {
         // waitUntilMsgSent: resolve only once WhatsApp's servers have
         // accepted the message, not just on local injection — needed so the
         // returned id is safe to correlate with the message_ack event below.
-        const sentMessage = await client.sendMessage(target, content, { waitUntilMsgSent: true });
+        // Raced against a timeout: that confirmation promise has no bound of
+        // its own and hangs forever if WhatsApp's servers never ack (see
+        // SEND_MESSAGE_CONFIRM_TIMEOUT_MS).
+        const sentMessage = await Promise.race([
+          client.sendMessage(target, content, { waitUntilMsgSent: true }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`sendMessage timed out waiting for WhatsApp confirmation for ${workspaceId}`)),
+              SEND_MESSAGE_CONFIRM_TIMEOUT_MS
+            )
+          )
+        ]);
         // whatsapp-web.js resolves undefined (not a throw) when its internal
         // getChat() comes back empty — the same unattached-helper race the
         // catch block below retries, just surfaced as a falsy return instead
