@@ -629,22 +629,42 @@ export class WhatsAppSessionManager {
     const client = this.clients.get(workspaceId);
     if (!client) throw new Error('WhatsApp session not active');
 
+    // @lid pseudo-JIDs (WhatsApp's phone-number-privacy identifiers — e.g. a
+    // conversation whose externalId was captured from an inbound message
+    // from a lid contact) aren't routable like phone-based ids, and
+    // getNumberId() below can't parse them either — it blindly appends
+    // "@c.us" regardless of the existing suffix, corrupting "...@lid" into
+    // "...@lid@c.us", which then fails and falls back to the raw lid, which
+    // whatsapp-web.js's internal getChat() can't find (surfaces as
+    // sendMessage resolving no result, retried and eventually thrown below).
+    // Resolve to the real phone first via the same getContactLidAndPhone()
+    // lookup already used for inbound contacts, so the rest of this function
+    // operates on a normal phone-based id.
+    let target = to;
+    if (to.endsWith('@lid')) {
+      await this.resolvePhone(workspaceId, to);
+      const resolved = this.lidCache.get(`${workspaceId}:${to}`)?.phone;
+      if (resolved) target = `${resolved}@c.us`;
+      // else: no resolution available yet — fall through and let
+      // getNumberId/sendMessage try the raw lid as a last resort, same as
+      // before this resolution step existed.
+    }
+
     // First-ever message to a number: WhatsApp doesn't expose the routing
     // info (lid) for a chat that's never existed on its side, so a raw
     // sendMessage(`${phone}@c.us`) can resolve "successfully" here while
     // never actually reaching the recipient. getNumberId() runs WhatsApp's
     // own registration query (the same one "New chat" does), which both
     // validates the number is real AND makes WhatsApp expose the chat that
-    // sendMessage needs. Best-effort: if this fails, fall back to the raw
-    // `to` id rather than blocking the send outright.
-    let target = to;
+    // sendMessage needs. Best-effort: if this fails, fall back to the
+    // (possibly lid-resolved) target rather than blocking the send outright.
     try {
-      const numberId = await client.getNumberId(to);
-      if (!numberId) throw new Error(`Number not registered on WhatsApp: ${to}`);
+      const numberId = await client.getNumberId(target);
+      if (!numberId) throw new Error(`Number not registered on WhatsApp: ${target}`);
       target = numberId._serialized;
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Number not registered')) throw err;
-      console.warn(`[WhatsApp] getNumberId lookup failed for ${to}, sending to raw id:`, (err as Error).message);
+      console.warn(`[WhatsApp] getNumberId lookup failed for ${target}, sending to raw id:`, (err as Error).message);
     }
 
     await this.simulateTyping(client, target, content);

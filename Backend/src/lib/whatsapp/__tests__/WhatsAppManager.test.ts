@@ -316,6 +316,58 @@ describe('sendMessage — number registration lookup', () => {
 
     expect(client.sendMessage).toHaveBeenCalledWith('123@c.us', 'hola', { waitUntilMsgSent: true })
   })
+
+  it('never queries lid resolution for a plain phone-based target', async () => {
+    const client = await initAndGetReady()
+
+    const sendPromise = manager.sendMessage(workspaceId, '123@c.us', 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise
+
+    expect(client.getContactLidAndPhone).not.toHaveBeenCalled()
+  })
+})
+
+describe('sendMessage — @lid target resolution', () => {
+  const LID_TARGET = '61645766283373@lid'
+
+  it('resolves an @lid target to its real phone before getNumberId/sendMessage, instead of sending to the raw lid getChat() cannot find', async () => {
+    const client = await initAndGetReady()
+    client.getContactLidAndPhone.mockResolvedValue([{ pn: '56966992259@c.us' }])
+
+    const sendPromise = manager.sendMessage(workspaceId, LID_TARGET, 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise
+
+    expect(client.getContactLidAndPhone).toHaveBeenCalledWith([LID_TARGET])
+    expect(client.getNumberId).toHaveBeenCalledWith('56966992259@c.us')
+    expect(client.sendMessage).toHaveBeenCalledWith('56966992259@c.us', 'hola', { waitUntilMsgSent: true })
+  })
+
+  it('falls back to the raw lid id when WhatsApp has no phone number for it yet (same as before resolution existed)', async () => {
+    const client = await initAndGetReady()
+    client.getContactLidAndPhone.mockResolvedValue([]) // no pn available
+
+    const sendPromise = manager.sendMessage(workspaceId, LID_TARGET, 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise
+
+    expect(client.getContactLidAndPhone).toHaveBeenCalledWith([LID_TARGET])
+    expect(client.getNumberId).toHaveBeenCalledWith(LID_TARGET)
+  })
+
+  it('reuses the cached resolution from a prior inbound resolvePhone() call instead of re-querying', async () => {
+    const client = await initAndGetReady()
+    client.getContactLidAndPhone.mockResolvedValue([{ pn: '56966992259@c.us' }])
+    await (manager as any).resolvePhone(workspaceId, LID_TARGET) // e.g. already resolved while handling an inbound message
+
+    const sendPromise = manager.sendMessage(workspaceId, LID_TARGET, 'hola')
+    await vi.advanceTimersByTimeAsync(10_000)
+    await sendPromise
+
+    expect(client.getContactLidAndPhone).toHaveBeenCalledTimes(1) // not called again by sendMessage
+    expect(client.getNumberId).toHaveBeenCalledWith('56966992259@c.us')
+  })
 })
 
 describe('sendMessage — chat-not-found race (sendMessage resolves undefined, not a throw)', () => {
