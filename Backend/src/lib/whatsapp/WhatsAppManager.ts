@@ -702,20 +702,20 @@ export class WhatsAppSessionManager {
         // final local Msg.get() lookup came back empty (something WAS
         // sent). Client.js's own source shows sendMsgResultPromise
         // *rejecting* throws instead of returning undefined, so a falsy
-        // result here can only be one of those two cases, and they're
-        // distinguishable: getChatById() runs that exact same getChat()
-        // lookup on its own, so if it now finds the chat, the message was
-        // genuinely sent and this is a false failure, not a real one.
-        // NEVER retry either way: retrying an already-dispatched send
-        // means WhatsApp delivers the same message a second (or third)
-        // time -- confirmed live: the retry this replaced caused a real
-        // contact to receive one message 3 times.
+        // result here can only be one of those two cases -- and they
+        // cannot be told apart from this side. An earlier version of this
+        // code tried a post-hoc getChatById() check to disambiguate, but
+        // that check races WhatsApp's own chat-creation the same way the
+        // original lookup did: confirmed live, it reported "chat not
+        // found" for a message the contact had actually just received.
+        // Given that a false "failed" throw here (a) doesn't undo the
+        // send that already happened and (b) stops Metria from ever
+        // recording a message WhatsApp did deliver, treat every undefined
+        // result as sent-but-unconfirmed, never as a failure: no throw,
+        // no toast, no retry (retrying an already-dispatched send is what
+        // caused a real contact to receive one message 3 times).
         if (!sentMessage) {
-          const chat = await client.getChatById(target).catch(() => undefined);
-          if (!chat) {
-            throw new Error(`sendMessage returned no result for ${workspaceId} (chat not found)`);
-          }
-          console.warn(`[WhatsApp] sendMessage for ${workspaceId} returned no result but chat "${target}" exists -- message was likely already sent, treating as success without a trackable externalId.`);
+          console.warn(`[WhatsApp] sendMessage for ${workspaceId} returned no result -- treating as sent without a trackable externalId (message_ack won't be able to correlate to it).`);
           return undefined;
         }
         return sentMessage.id._serialized;
