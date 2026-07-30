@@ -52,13 +52,13 @@ export async function metaWebhook(req: Request, res: Response): Promise<void> {
 
   try {
     const rawBody: Buffer | undefined = (req as any).rawBody
-    if (!rawBody) return
+    if (!rawBody) { console.warn(`[${p} webhook] dropped: no rawBody captured`); return }
 
     const signature = (req.headers['x-hub-signature-256'] as string) ?? ''
 
     // Find the external ID from the payload to identify which workspace owns this channel
     const externalId = extractExternalId(p, req.body)
-    if (!externalId) return
+    if (!externalId) { console.warn(`[${p} webhook] dropped: could not extract externalId from payload`, JSON.stringify(req.body)); return }
 
     // Find all connected channels for this platform + external ID
     const channels = await prisma.channel.findMany({
@@ -71,13 +71,22 @@ export async function metaWebhook(req: Request, res: Response): Promise<void> {
       return cfg?.pageId === externalId || cfg?.instagramAccountId === externalId
     })
 
-    if (!channel) return
+    if (!channel) {
+      console.warn(
+        `[${p} webhook] dropped: no CONNECTED channel matches externalId "${externalId}". ` +
+        `Known CONNECTED ${p} channels: ${channels.map(ch => `${ch.workspaceId}:${(ch.config as any)?.phoneNumberId ?? (ch.config as any)?.pageId ?? (ch.config as any)?.instagramAccountId ?? 'no-id'}`).join(', ') || 'none'}`
+      )
+      return
+    }
 
     const config = channel.config as Record<string, string>
     const appSecret = config.appSecret ?? process.env.META_APP_SECRET
-    if (!appSecret) return
+    if (!appSecret) { console.warn(`[${p} webhook] dropped: no appSecret configured for channel ${channel.id}`); return }
 
-    if (!handler.verify(rawBody, signature, appSecret)) return
+    if (!handler.verify(rawBody, signature, appSecret)) {
+      console.warn(`[${p} webhook] dropped: signature verification failed for channel ${channel.id}`)
+      return
+    }
 
     handler.parse(channel.workspaceId, channel.id, req.body, config).catch(
       (err: any) => console.error(`[${p} webhook error]`, err)
