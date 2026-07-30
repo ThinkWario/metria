@@ -23,7 +23,8 @@ import {
   createTemplateHandler,
   syncTemplatesHandler,
   deleteTemplateHandler,
-  setOpeningTemplateHandler
+  setOpeningTemplateHandler,
+  setTemplateRoleHandler
 } from './templates.controller'
 
 const router = Router()
@@ -57,5 +58,6 @@ router.post('/messaging/whatsapp/templates', authenticate, requirePlan('PRO', 'S
 router.post('/messaging/whatsapp/templates/sync', authenticate, requirePlan('PRO', 'SCALE'), syncTemplatesHandler)
 router.delete('/messaging/whatsapp/templates/:id', authenticate, requirePlan('PRO', 'SCALE'), deleteTemplateHandler)
 router.patch('/messaging/whatsapp/templates/:id/opening', authenticate, requirePlan('PRO', 'SCALE'), setOpeningTemplateHandler)
+router.patch('/messaging/whatsapp/templates/role/:role', authenticate, requirePlan('PRO', 'SCALE'), setTemplateRoleHandler)
 
 export default router

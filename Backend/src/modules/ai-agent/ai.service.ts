@@ -481,6 +481,10 @@ async function processAiResponseSplit(
   if (qualifierOutput?.needsHuman?.value === true) {
     await prisma.conversation.update({ where: { id: conversationId }, data: { isHandledByBot: false } })
     await logAiAction(workspaceId, conversationId, qualifierOutput.needsHuman.reason ?? 'Derivó la conversación a un agente humano')
+    // The bot goes silent from here — without this the customer sees no reply at
+    // all until a human happens to open the inbox.
+    const { sendHandoffNotice } = await import('../messaging/message.service')
+    await sendHandoffNotice(workspaceId, conversationId)
     return null
   }
 

@@ -63,7 +63,19 @@ export async function notifyAppointmentEvent(
         const internalText = kind === 'created'
           ? `Nueva cita — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}, ${when}.`
           : `Cita reagendada — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}: de ${formatApptDateTime(oldScheduledAt!, tz)} a ${when}.`
-        await sendPlatformMessage('WHATSAPP', channel.config, ws.notifyPhone, internalText, workspaceId)
+
+        // The encargado's own phone rarely has an open 24h window with the business
+        // number — a plain-text alert gets silently rejected by Meta (error 131047)
+        // unless a template is configured for this specific case.
+        const config = channel.config as Record<string, any>
+        const technicalVisitTemplateId = appointment.type === 'SITE_VISIT' ? config?.technicalVisitTemplateId : undefined
+
+        if (technicalVisitTemplateId) {
+          const { sendWhatsAppTemplateToPhone } = await import('../messaging/message.service')
+          await sendWhatsAppTemplateToPhone(channel.id, ws.notifyPhone, technicalVisitTemplateId, [contact.name, when])
+        } else {
+          await sendPlatformMessage('WHATSAPP', channel.config, ws.notifyPhone, internalText, workspaceId)
+        }
       }
     } catch (err) {
       console.error('[appointment-notifications] internal alert failed (non-blocking):', err)

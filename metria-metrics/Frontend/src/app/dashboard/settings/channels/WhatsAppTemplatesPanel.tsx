@@ -38,6 +38,8 @@ const sanitizeName = (raw: string) => raw.trim().toLowerCase().replace(/[^a-z0-9
 export const WhatsAppTemplatesPanel = () => {
     const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
     const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null)
+    const [handoffTemplateId, setHandoffTemplateId] = useState<string | null>(null)
+    const [technicalVisitTemplateId, setTechnicalVisitTemplateId] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
     const [creating, setCreating] = useState(false)
@@ -53,6 +55,8 @@ export const WhatsAppTemplatesPanel = () => {
             const data = await fetchAPI('/messaging/whatsapp/templates')
             setTemplates(data.templates ?? [])
             setOpeningTemplateId(data.openingTemplateId ?? null)
+            setHandoffTemplateId(data.handoffTemplateId ?? null)
+            setTechnicalVisitTemplateId(data.technicalVisitTemplateId ?? null)
         } catch (err: any) {
             toast.error('No se pudieron cargar las plantillas', { description: err.message })
         } finally {
@@ -105,6 +109,8 @@ export const WhatsAppTemplatesPanel = () => {
             await fetchAPI(`/messaging/whatsapp/templates/${id}`, { method: 'DELETE' })
             setTemplates(prev => prev.filter(t => t.id !== id))
             if (openingTemplateId === id) setOpeningTemplateId(null)
+            if (handoffTemplateId === id) setHandoffTemplateId(null)
+            if (technicalVisitTemplateId === id) setTechnicalVisitTemplateId(null)
         } catch (err: any) {
             toast.error('No se pudo borrar la plantilla', { description: err.message })
         }
@@ -120,6 +126,24 @@ export const WhatsAppTemplatesPanel = () => {
         }
     }
 
+    const handleSetRole = async (
+        role: 'handoffTemplateId' | 'technicalVisitTemplateId',
+        id: string,
+        setter: (id: string | null) => void,
+        successMessage: string
+    ) => {
+        try {
+            const data = await fetchAPI(`/messaging/whatsapp/templates/role/${role}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ templateId: id })
+            })
+            setter(data[role] ?? id)
+            toast.success(successMessage)
+        } catch (err: any) {
+            toast.error('No se pudo asignar', { description: err.message })
+        }
+    }
+
     return (
         <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
             <CardHeader className="pb-3">
@@ -130,7 +154,7 @@ export const WhatsAppTemplatesPanel = () => {
                             Plantillas de WhatsApp (HSM)
                         </CardTitle>
                         <CardDescription className="text-xs mt-1">
-                            Deben ser aprobadas por Meta antes de poder usarse. La marcada como "saludo inicial" es la que se envía a leads nuevos importados desde Google Sheets.
+                            Deben ser aprobadas por Meta antes de poder usarse. "Saludo inicial" se envía a leads nuevos de Google Sheets, "Derivación a humano" al cliente cuando el agente IA deriva la conversación, y "Aviso visita técnica" al teléfono interno (notifyPhone) cuando se agenda una visita.
                         </CardDescription>
                     </div>
                     <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs" onClick={handleSync} disabled={syncing}>
@@ -202,6 +226,12 @@ export const WhatsAppTemplatesPanel = () => {
                                         {openingTemplateId === t.id && (
                                             <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Saludo activo</Badge>
                                         )}
+                                        {handoffTemplateId === t.id && (
+                                            <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Derivación a humano</Badge>
+                                        )}
+                                        {technicalVisitTemplateId === t.id && (
+                                            <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Aviso visita técnica</Badge>
+                                        )}
                                     </div>
                                     <p className="text-[11px] text-muted-foreground truncate">{t.bodyText}</p>
                                     {t.status === 'REJECTED' && t.rejectedReason && (
@@ -212,6 +242,22 @@ export const WhatsAppTemplatesPanel = () => {
                                     {t.status === 'APPROVED' && openingTemplateId !== t.id && (
                                         <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => handleSetOpening(t.id)}>
                                             Usar como saludo
+                                        </Button>
+                                    )}
+                                    {t.status === 'APPROVED' && handoffTemplateId !== t.id && (
+                                        <Button
+                                            size="sm" variant="outline" className="h-7 text-[10px]"
+                                            onClick={() => handleSetRole('handoffTemplateId', t.id, setHandoffTemplateId, 'Plantilla asignada para derivación a humano')}
+                                        >
+                                            Usar en derivación
+                                        </Button>
+                                    )}
+                                    {t.status === 'APPROVED' && technicalVisitTemplateId !== t.id && (
+                                        <Button
+                                            size="sm" variant="outline" className="h-7 text-[10px]"
+                                            onClick={() => handleSetRole('technicalVisitTemplateId', t.id, setTechnicalVisitTemplateId, 'Plantilla asignada para aviso de visita técnica')}
+                                        >
+                                            Usar en aviso técnico
                                         </Button>
                                     )}
                                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(t.id)}>

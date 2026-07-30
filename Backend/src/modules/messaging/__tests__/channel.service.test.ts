@@ -6,6 +6,7 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: {
     channel: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       upsert: vi.fn()
     }
   }

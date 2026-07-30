@@ -18,7 +18,12 @@ export async function listTemplatesHandler(req: Request, res: Response): Promise
       orderBy: { createdAt: 'desc' }
     })
     const config = channel.config as Record<string, string>
-    res.json({ templates, openingTemplateId: config.openingTemplateId ?? null })
+    res.json({
+      templates,
+      openingTemplateId: config.openingTemplateId ?? null,
+      handoffTemplateId: config.handoffTemplateId ?? null,
+      technicalVisitTemplateId: config.technicalVisitTemplateId ?? null
+    })
   } catch (err) {
     console.error('[Templates] list error:', err)
     res.status(500).json({ error: 'Error al listar plantillas' })
@@ -152,5 +157,46 @@ export async function setOpeningTemplateHandler(req: Request, res: Response): Pr
   } catch (err) {
     console.error('[Templates] set opening error:', err)
     res.status(500).json({ error: 'Error al asignar la plantilla de saludo' })
+  }
+}
+
+const ASSIGNABLE_TEMPLATE_ROLES = ['handoffTemplateId', 'technicalVisitTemplateId'] as const
+type AssignableTemplateRole = typeof ASSIGNABLE_TEMPLATE_ROLES[number]
+
+/**
+ * Assigns (or clears, when id is null) an APPROVED template to one of the
+ * fixed automation roles the platform sends without a live human typing:
+ * handoff-to-human notice to the customer, technical-visit alert to the
+ * workspace's internal notifyPhone. Mirrors setOpeningTemplateHandler's
+ * shape but generic over role since both are simple id-in-config swaps.
+ */
+export async function setTemplateRoleHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { role } = req.params
+    const { templateId } = req.body as { templateId?: string | null }
+
+    if (!ASSIGNABLE_TEMPLATE_ROLES.includes(role as AssignableTemplateRole)) {
+      res.status(400).json({ error: 'Rol de plantilla inválido' }); return
+    }
+
+    const channel = await getWhatsAppChannel(workspaceId)
+    if (!channel) { res.status(404).json({ error: 'No hay un canal WhatsApp conectado' }); return }
+
+    if (templateId) {
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, channelId: channel.id } })
+      if (!template) { res.status(404).json({ error: 'Plantilla no encontrada' }); return }
+      if (template.status !== 'APPROVED') { res.status(400).json({ error: 'Solo una plantilla APPROVED puede asignarse' }); return }
+    }
+
+    const config = channel.config as Record<string, string>
+    const updated = await prisma.channel.update({
+      where: { id: channel.id },
+      data: { config: { ...config, [role]: templateId ?? null } }
+    })
+    res.json({ [role]: (updated.config as Record<string, string>)[role] ?? null })
+  } catch (err) {
+    console.error('[Templates] set role error:', err)
+    res.status(500).json({ error: 'Error al asignar la plantilla' })
   }
 }

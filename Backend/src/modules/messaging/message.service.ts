@@ -127,6 +127,59 @@ export async function sendOutboundWhatsAppTemplate(
   return message
 }
 
+/**
+ * Sends an approved WhatsApp template to an arbitrary phone that has no
+ * Conversation of its own — internal ops alerts (e.g. workspace.notifyPhone)
+ * fall outside the 24h customer-service window and have no message history
+ * to persist against, unlike sendOutboundWhatsAppTemplate above.
+ */
+export async function sendWhatsAppTemplateToPhone(
+  channelId: string,
+  to: string,
+  templateId: string,
+  params: string[] = []
+): Promise<void> {
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } })
+  if (!channel || channel.platform !== 'WHATSAPP') throw new Error('WhatsApp channel not found')
+  const config = channel.config as Record<string, any>
+
+  const template = await prisma.whatsAppTemplate.findFirst({
+    where: { id: templateId, channelId, status: 'APPROVED' }
+  })
+  if (!template) throw new Error(`Template ${templateId} not found or not APPROVED for this channel`)
+
+  await sendWhatsAppTemplateMessage(config.phoneNumberId, config.accessToken, to, template.name, template.language, params)
+}
+
+/**
+ * Notifies the customer their conversation was handed off to a human agent.
+ * Uses the configured handoff template when set (works even if this reply
+ * happens to land outside the 24h window); falls back to a plain message
+ * otherwise so the customer is never left silently waiting.
+ */
+export async function sendHandoffNotice(workspaceId: string, conversationId: string): Promise<void> {
+  try {
+    const conv = await prisma.conversation.findUnique({
+      where: { id: conversationId, workspaceId },
+      include: { channel: true }
+    })
+    if (!conv || conv.channel.platform !== 'WHATSAPP') return
+    const config = conv.channel.config as Record<string, any>
+
+    if (config?.handoffTemplateId) {
+      await sendOutboundWhatsAppTemplate(workspaceId, conversationId, config.handoffTemplateId)
+    } else {
+      await sendOutboundPlatformMessage(
+        workspaceId, conversationId,
+        'En un momento un asesor de nuestro equipo continuará esta conversación contigo.',
+        'BOT'
+      )
+    }
+  } catch (err) {
+    console.error(`[Handoff] Failed to notify customer for conversation ${conversationId}:`, err)
+  }
+}
+
 export async function processInboundMessage(data: InboundMessageData): Promise<ProcessedMessage> {
   const {
     workspaceId, channelId, externalConversationId, externalMessageId,
