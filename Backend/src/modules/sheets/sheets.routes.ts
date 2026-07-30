@@ -98,6 +98,7 @@ router.patch('/sheets/:id', ...auth, async (req: AuthRequest, res: Response): Pr
       importFilter, targetPipelineId, targetStageId,
       linkToWhatsapp, whatsappOpeningMessage,
       excludedColumns, customFieldMappings, qualificationKeyMappings, stageRouting,
+      metaConsentVersion,
     } = req.body
 
     const updated = await prisma.sheetIntegration.update({
@@ -117,6 +118,7 @@ router.patch('/sheets/:id', ...auth, async (req: AuthRequest, res: Response): Pr
         ...(customFieldMappings !== undefined && { customFieldMappings }),
         ...(qualificationKeyMappings !== undefined && { qualificationKeyMappings }),
         ...(stageRouting !== undefined && { stageRouting }),
+        ...(metaConsentVersion !== undefined && { metaConsentVersion }),
       },
       include: { pipeline: { select: { name: true } }, stage: { select: { name: true, color: true } } },
     })
