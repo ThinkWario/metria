@@ -9,6 +9,12 @@ export async function listAgents(workspaceId: string) {
   })
 }
 
+export async function getAgent(workspaceId: string, agentId: string) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: agentId, workspaceId } })
+  if (!agent) throw new Error('Agent not found')
+  return agent
+}
+
 export async function createAgent(
   workspaceId: string,
   data: { name: string; description?: string; avatarUrl?: string }
@@ -24,6 +30,40 @@ export async function updateAgent(
   const agent = await prisma.botAgent.findFirst({ where: { id: agentId, workspaceId } })
   if (!agent) throw new Error('Agent not found')
   return prisma.botAgent.update({ where: { id: agentId, workspaceId }, data })
+}
+
+/**
+ * Sets who gets pinged (and with which approved template) when this agent
+ * hands a lead off to a human. Merges into agent.config instead of a raw
+ * overwrite — same reasoning as channel.service.ts's upsertChannelConfig:
+ * config also holds `profile`, which a blind overwrite would silently wipe.
+ */
+export async function updateAgentHandoffConfig(
+  workspaceId: string,
+  agentId: string,
+  data: { salesExecutivePhone?: string | null; executiveHandoffTemplateId?: string | null }
+) {
+  const agent = await prisma.botAgent.findFirst({ where: { id: agentId, workspaceId } })
+  if (!agent) throw new Error('Agent not found')
+
+  if (data.executiveHandoffTemplateId) {
+    const template = await prisma.whatsAppTemplate.findFirst({
+      where: { id: data.executiveHandoffTemplateId, workspaceId, status: 'APPROVED' }
+    })
+    if (!template) throw new Error('Template not found or not APPROVED for this workspace')
+  }
+
+  const existingConfig = (agent.config as Record<string, unknown>) ?? {}
+  return prisma.botAgent.update({
+    where: { id: agentId, workspaceId },
+    data: {
+      config: {
+        ...existingConfig,
+        ...(data.salesExecutivePhone !== undefined ? { salesExecutivePhone: data.salesExecutivePhone } : {}),
+        ...(data.executiveHandoffTemplateId !== undefined ? { executiveHandoffTemplateId: data.executiveHandoffTemplateId } : {})
+      }
+    }
+  })
 }
 
 export async function deleteAgent(workspaceId: string, agentId: string) {

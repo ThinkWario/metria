@@ -23,9 +23,25 @@ export async function createAgentHandler(req: AuthRequest, res: Response): Promi
   } catch (err: any) { res.status(500).json({ error: err.message }) }
 }
 
+export async function getAgentHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    res.json(await bs.getAgent(req.user!.workspaceId!, req.params.agentId))
+  } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
+}
+
 export async function updateAgentHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     res.json(await bs.updateAgent(req.user!.workspaceId!, req.params.agentId, req.body))
+  } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
+}
+
+export async function updateAgentHandoffConfigHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { salesExecutivePhone, executiveHandoffTemplateId } = req.body
+    const agent = await bs.updateAgentHandoffConfig(req.user!.workspaceId!, req.params.agentId, {
+      salesExecutivePhone, executiveHandoffTemplateId
+    })
+    res.json(agent)
   } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
 }
 

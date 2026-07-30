@@ -21,7 +21,6 @@ export async function listTemplatesHandler(req: Request, res: Response): Promise
     res.json({
       templates,
       openingTemplateId: config.openingTemplateId ?? null,
-      handoffTemplateId: config.handoffTemplateId ?? null,
       technicalVisitTemplateId: config.technicalVisitTemplateId ?? null
     })
   } catch (err) {
@@ -160,15 +159,15 @@ export async function setOpeningTemplateHandler(req: Request, res: Response): Pr
   }
 }
 
-const ASSIGNABLE_TEMPLATE_ROLES = ['handoffTemplateId', 'technicalVisitTemplateId'] as const
+const ASSIGNABLE_TEMPLATE_ROLES = ['technicalVisitTemplateId'] as const
 type AssignableTemplateRole = typeof ASSIGNABLE_TEMPLATE_ROLES[number]
 
 /**
- * Assigns (or clears, when id is null) an APPROVED template to one of the
- * fixed automation roles the platform sends without a live human typing:
- * handoff-to-human notice to the customer, technical-visit alert to the
- * workspace's internal notifyPhone. Mirrors setOpeningTemplateHandler's
- * shape but generic over role since both are simple id-in-config swaps.
+ * Assigns (or clears, when id is null) an APPROVED template to a channel-level
+ * automation role. Currently just the technical-visit alert sent to the
+ * workspace's internal notifyPhone (the handoff-to-executive template lives on
+ * the bot agent instead — see updateAgentHandoffConfig in bot.service.ts).
+ * Kept generic over role/config-key for whichever channel-level role comes next.
  */
 export async function setTemplateRoleHandler(req: Request, res: Response): Promise<void> {
   try {

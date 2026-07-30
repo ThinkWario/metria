@@ -152,31 +152,48 @@ export async function sendWhatsAppTemplateToPhone(
 }
 
 /**
- * Notifies the customer their conversation was handed off to a human agent.
- * Uses the configured handoff template when set (works even if this reply
- * happens to land outside the 24h window); falls back to a plain message
- * otherwise so the customer is never left silently waiting.
+ * Handles both sides of a handoff to a human: tells the customer (free text —
+ * this reply lands within the 24h window since they just messaged, so no
+ * template is needed there), and separately alerts the assigned bot agent's
+ * configured commercial executive (a different phone than the customer, whose
+ * own 24h window is almost never open — that side needs an approved template).
  */
 export async function sendHandoffNotice(workspaceId: string, conversationId: string): Promise<void> {
   try {
-    const conv = await prisma.conversation.findUnique({
-      where: { id: conversationId, workspaceId },
-      include: { channel: true }
-    })
-    if (!conv || conv.channel.platform !== 'WHATSAPP') return
-    const config = conv.channel.config as Record<string, any>
-
-    if (config?.handoffTemplateId) {
-      await sendOutboundWhatsAppTemplate(workspaceId, conversationId, config.handoffTemplateId)
-    } else {
-      await sendOutboundPlatformMessage(
-        workspaceId, conversationId,
-        'En un momento un asesor de nuestro equipo continuará esta conversación contigo.',
-        'BOT'
-      )
-    }
+    await sendOutboundPlatformMessage(
+      workspaceId, conversationId,
+      'En un momento un asesor de nuestro equipo continuará esta conversación contigo.',
+      'BOT'
+    )
   } catch (err) {
     console.error(`[Handoff] Failed to notify customer for conversation ${conversationId}:`, err)
+  }
+
+  try {
+    const conv = await prisma.conversation.findUnique({
+      where: { id: conversationId, workspaceId },
+      select: { assignedToBotId: true, contact: { select: { name: true } } }
+    })
+    if (!conv) return
+
+    const agent = conv.assignedToBotId
+      ? await prisma.botAgent.findUnique({ where: { id: conv.assignedToBotId }, select: { config: true } })
+      : await prisma.botAgent.findFirst({
+          where: { workspaceId, isActive: true },
+          orderBy: { createdAt: 'desc' },
+          select: { config: true }
+        })
+    const agentConfig = (agent?.config as Record<string, any>) ?? {}
+    const { salesExecutivePhone, executiveHandoffTemplateId } = agentConfig
+    if (!salesExecutivePhone || !executiveHandoffTemplateId) return
+
+    const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP' } })
+    if (!channel) return
+
+    const contactName = conv.contact?.name || 'Un lead'
+    await sendWhatsAppTemplateToPhone(channel.id, salesExecutivePhone, executiveHandoffTemplateId, [contactName])
+  } catch (err) {
+    console.error(`[Handoff] Failed to notify sales executive for conversation ${conversationId}:`, err)
   }
 }
 

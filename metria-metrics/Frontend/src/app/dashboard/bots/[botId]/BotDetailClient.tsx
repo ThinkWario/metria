@@ -63,6 +63,9 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
   const [newTemplateId, setNewTemplateId] = useState('')
   const [addingRule, setAddingRule] = useState(false)
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
+  const [salesExecutivePhone, setSalesExecutivePhone] = useState('')
+  const [executiveHandoffTemplateId, setExecutiveHandoffTemplateId] = useState('')
+  const [savingHandoffConfig, setSavingHandoffConfig] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -74,7 +77,39 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
     loadFlows()
     loadFollowUpRules()
     loadTemplates()
+    loadHandoffConfig()
   }, [mounted])
+
+  const loadHandoffConfig = async () => {
+    try {
+      const agent = await fetchAPI(`/bots/agents/${botId}`)
+      const config = agent?.config ?? {}
+      setSalesExecutivePhone(config.salesExecutivePhone ?? '')
+      setExecutiveHandoffTemplateId(config.executiveHandoffTemplateId ?? '')
+    } catch (error) {
+      console.error('Error loading handoff config:', error)
+    }
+  }
+
+  const handleSaveHandoffConfig = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSavingHandoffConfig(true)
+    try {
+      await fetchAPI(`/bots/agents/${botId}/handoff-config`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          salesExecutivePhone: salesExecutivePhone.trim() || null,
+          executiveHandoffTemplateId: executiveHandoffTemplateId || null
+        })
+      })
+      toast.success('Configuración de derivación guardada')
+    } catch (error) {
+      console.error('Error saving handoff config:', error)
+      toast.error('No se pudo guardar la configuración de derivación')
+    } finally {
+      setSavingHandoffConfig(false)
+    }
+  }
 
   const loadTemplates = async () => {
     try {
@@ -476,6 +511,50 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {addingRule ? 'Agregando...' : 'Agregar'}
+          </button>
+        </form>
+      </div>
+
+      <div className="border rounded-lg p-4 space-y-4">
+        <div>
+          <h2 className="text-lg font-bold">Derivación a ejecutivo comercial</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Cuando el agente IA deriva una conversación a un humano, este es el número que recibe el aviso —
+            distinto del cliente y del encargado de visitas técnicas. El cliente ya recibe una respuesta del
+            agente sin necesidad de plantilla; este aviso al ejecutivo sí la necesita porque su número normalmente
+            no tiene una ventana de 24h abierta con el negocio.
+          </p>
+        </div>
+        <form onSubmit={handleSaveHandoffConfig} className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="block text-sm font-medium mb-1">Teléfono del ejecutivo</label>
+            <input
+              type="text"
+              value={salesExecutivePhone}
+              onChange={e => setSalesExecutivePhone(e.target.value)}
+              placeholder="+56 9 1234 5678"
+              className="w-48 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Plantilla de aviso</label>
+            <select
+              value={executiveHandoffTemplateId}
+              onChange={e => setExecutiveHandoffTemplateId(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+            >
+              <option value="">Sin asignar</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={savingHandoffConfig}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {savingHandoffConfig ? 'Guardando...' : 'Guardar'}
           </button>
         </form>
       </div>
