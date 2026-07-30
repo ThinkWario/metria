@@ -31,7 +31,20 @@ export async function scheduleNextFollowUp(workspaceId: string, conversationId: 
     data: { status: 'CANCELLED' }
   })
 
-  const scheduledAt = new Date(Date.now() + nextRule.delayHours * 3600_000)
+  // Anchor every step's delay to the customer's actual last inbound message,
+  // not to "now" (which is really "whenever the previous bot message went
+  // out"). Chaining delays off each successive bot send compounds them —
+  // a rule meant to land at 23h (deliberately inside Meta's 24h free-text
+  // window) would actually fire at 2h+23h=25h, past the window, and get
+  // silently rejected. Every step now measures from the same fixed point.
+  const lastInbound = await prisma.message.findFirst({
+    where: { conversationId, direction: 'INBOUND' },
+    orderBy: { sentAt: 'desc' },
+    select: { sentAt: true }
+  })
+  const anchor = lastInbound?.sentAt ?? new Date()
+  const scheduledAt = new Date(anchor.getTime() + nextRule.delayHours * 3600_000)
+
   await prisma.followUpJob.create({
     data: { workspaceId, conversationId, ruleId: nextRule.id, scheduledAt }
   })

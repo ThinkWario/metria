@@ -5,7 +5,7 @@ vi.mock('../../../lib/prisma', () => ({
     followUpRule: { findMany: vi.fn(), findUnique: vi.fn() },
     followUpJob: { create: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     conversation: { findUnique: vi.fn(), update: vi.fn() },
-    message: { create: vi.fn() },
+    message: { create: vi.fn(), findFirst: vi.fn() },
     botAgent: { findFirst: vi.fn() }
   }
 }))
@@ -55,6 +55,27 @@ describe('scheduleNextFollowUp', () => {
     vi.mocked(prisma.followUpJob.count).mockResolvedValue(1)
     await scheduleNextFollowUp(WS, CONV, 'bot-1')
     expect(prisma.followUpJob.create).not.toHaveBeenCalled()
+  })
+
+  it('anchors delay to the last inbound message, not to now — so chained steps land inside the 24h window instead of compounding past it', async () => {
+    vi.mocked(prisma.followUpRule.findMany).mockResolvedValue([
+      { id: 'r1', delayHours: 2, order: 0, isActive: true },
+      { id: 'r2', delayHours: 23, order: 1, isActive: true }
+    ] as any)
+    vi.mocked(prisma.followUpJob.count).mockResolvedValue(1) // r1 already sent, scheduling r2
+
+    const lastInboundAt = new Date('2026-06-15T10:00:00.000Z')
+    vi.mocked(prisma.message.findFirst).mockResolvedValue({ sentAt: lastInboundAt } as any)
+
+    await scheduleNextFollowUp(WS, CONV, 'bot-1')
+
+    expect(prisma.message.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { conversationId: CONV, direction: 'INBOUND' } })
+    )
+    const expectedScheduledAt = new Date(lastInboundAt.getTime() + 23 * 3600_000) // 23h from the customer's message, not from r1's send
+    expect(prisma.followUpJob.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ ruleId: 'r2', scheduledAt: expectedScheduledAt }) })
+    )
   })
 })
 
