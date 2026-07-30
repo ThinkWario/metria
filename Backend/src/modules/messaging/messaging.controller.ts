@@ -241,7 +241,12 @@ export async function getChannelsHandler(req: Request, res: Response): Promise<v
 export async function upsertChannelConfigHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
-    const { platform } = req.params
+    // Every other lookup in this codebase (getActiveChannel, webhook.gateway's
+    // PLATFORM_MAP, sheets.service's whatsappChannel query) filters by the
+    // uppercase platform value. Without normalizing here, a save from this
+    // endpoint creates a second, uppercase-mismatched Channel row that none
+    // of those lookups ever find.
+    const platform = (req.params.platform ?? '').toUpperCase()
     const { name, config, status } = req.body
 
     if (!platform || !name || !config) {
