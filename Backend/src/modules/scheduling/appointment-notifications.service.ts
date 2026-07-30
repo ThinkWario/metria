@@ -72,7 +72,7 @@ export async function notifyAppointmentEvent(
 
         if (technicalVisitTemplateId) {
           const { sendWhatsAppTemplateToPhone } = await import('../messaging/message.service')
-          await sendWhatsAppTemplateToPhone(channel.id, ws.notifyPhone, technicalVisitTemplateId, [contact.name, when])
+          await sendWhatsAppTemplateToPhone(channel.id, ws.notifyPhone, technicalVisitTemplateId, [contact.name, contact.phone ?? 'sin teléfono', when])
         } else {
           await sendPlatformMessage('WHATSAPP', channel.config, ws.notifyPhone, internalText, workspaceId)
         }

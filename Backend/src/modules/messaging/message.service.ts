@@ -172,7 +172,7 @@ export async function sendHandoffNotice(workspaceId: string, conversationId: str
   try {
     const conv = await prisma.conversation.findUnique({
       where: { id: conversationId, workspaceId },
-      select: { assignedToBotId: true, contact: { select: { name: true } } }
+      select: { assignedToBotId: true, contact: { select: { name: true, phone: true } } }
     })
     if (!conv) return
 
@@ -191,7 +191,8 @@ export async function sendHandoffNotice(workspaceId: string, conversationId: str
     if (!channel) return
 
     const contactName = conv.contact?.name || 'Un lead'
-    await sendWhatsAppTemplateToPhone(channel.id, salesExecutivePhone, executiveHandoffTemplateId, [contactName])
+    const contactPhone = conv.contact?.phone || 'sin teléfono'
+    await sendWhatsAppTemplateToPhone(channel.id, salesExecutivePhone, executiveHandoffTemplateId, [contactName, contactPhone])
   } catch (err) {
     console.error(`[Handoff] Failed to notify sales executive for conversation ${conversationId}:`, err)
   }
