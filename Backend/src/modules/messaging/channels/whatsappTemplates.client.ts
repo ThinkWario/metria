@@ -4,7 +4,7 @@
  * submitted here and approved by Meta before they can be sent.
  */
 
-const WA_API_VERSION = 'v19.0'
+const WA_API_VERSION = 'v26.0'
 
 export interface MetaTemplateResult {
   metaTemplateId: string

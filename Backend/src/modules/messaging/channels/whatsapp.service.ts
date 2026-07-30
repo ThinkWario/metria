@@ -5,7 +5,7 @@
 import crypto from 'crypto'
 import { processInboundMessage } from '../message.service'
 
-const WA_API_VERSION = 'v19.0'
+const WA_API_VERSION = 'v26.0'
 
 export interface WhatsAppBody {
   entry?: Array<{
