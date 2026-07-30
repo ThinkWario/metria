@@ -473,6 +473,24 @@ export default function AiAgentSettingsPage() {
                             ))}
                         </CardContent>
                     </Card>
+
+                    {/* Seguimientos y Derivación */}
+                    <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
+                        <CardHeader className="pb-3">
+                            <CardTitle className="flex items-center gap-2 text-base">
+                                <ShieldCheck className="h-4 w-4 text-primary" />
+                                Seguimientos y Derivación
+                            </CardTitle>
+                            <CardDescription className="text-xs">
+                                Secuencia de mensajes cuando un lead no responde, y a quién avisar cuando el agente deriva a un humano.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardFooter>
+                            <Button variant="link" size="sm" className="h-auto p-0 text-xs" asChild>
+                                <a href={agent?.id ? `/dashboard/bots/${agent.id}` : '/dashboard/bots'}>Configurar →</a>
+                            </Button>
+                        </CardFooter>
+                    </Card>
                 </div>
             </div>
 
