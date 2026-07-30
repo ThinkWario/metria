@@ -99,17 +99,26 @@ export async function listFollowUpRules(workspaceId: string, botAgentId: string)
 export async function createFollowUpRule(
   workspaceId: string,
   botAgentId: string,
-  data: { delayHours: number; order?: number; isActive?: boolean }
+  data: { delayHours: number; order?: number; isActive?: boolean; whatsappTemplateId?: string | null }
 ) {
   const agent = await prisma.botAgent.findFirst({ where: { id: botAgentId, workspaceId } })
   if (!agent) throw new Error('Agent not found')
+
+  if (data.whatsappTemplateId) {
+    const template = await prisma.whatsAppTemplate.findFirst({
+      where: { id: data.whatsappTemplateId, workspaceId, status: 'APPROVED' }
+    })
+    if (!template) throw new Error('Template not found or not APPROVED for this workspace')
+  }
+
   return prisma.followUpRule.create({
     data: {
       workspaceId,
       botAgentId,
       delayHours: data.delayHours,
       order: data.order ?? 0,
-      isActive: data.isActive ?? true
+      isActive: data.isActive ?? true,
+      whatsappTemplateId: data.whatsappTemplateId ?? null
     }
   })
 }

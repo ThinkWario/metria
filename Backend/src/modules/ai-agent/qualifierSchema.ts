@@ -11,6 +11,7 @@ export interface QualifierOutput {
   statusChange?: 'LEAD' | 'PROSPECT' | 'CUSTOMER'
   deal?: { action: 'create' | 'move'; title?: string; value?: number; stageName?: string }
   needsHuman?: { value: boolean; reason?: string }
+  stopFollowUps?: { value: boolean; reason?: string }
 }
 
 /**
@@ -43,6 +44,13 @@ export const QUALIFIER_SCHEMA = {
       }
     },
     needsHuman: {
+      type: SchemaType.OBJECT,
+      properties: {
+        value: { type: SchemaType.BOOLEAN },
+        reason: { type: SchemaType.STRING }
+      }
+    },
+    stopFollowUps: {
       type: SchemaType.OBJECT,
       properties: {
         value: { type: SchemaType.BOOLEAN },

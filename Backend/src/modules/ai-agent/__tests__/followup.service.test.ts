@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
-    followUpRule: { findMany: vi.fn() },
+    followUpRule: { findMany: vi.fn(), findUnique: vi.fn() },
     followUpJob: { create: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     conversation: { findUnique: vi.fn(), update: vi.fn() },
     message: { create: vi.fn() },

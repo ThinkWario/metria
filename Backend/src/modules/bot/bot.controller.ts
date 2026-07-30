@@ -72,11 +72,11 @@ export async function listFollowUpRulesHandler(req: AuthRequest, res: Response):
 
 export async function createFollowUpRuleHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
-    const { delayHours, order, isActive } = req.body
+    const { delayHours, order, isActive, whatsappTemplateId } = req.body
     if (typeof delayHours !== 'number' || delayHours <= 0) {
       res.status(400).json({ error: 'delayHours must be a positive number' }); return
     }
-    res.status(201).json(await bs.createFollowUpRule(req.user!.workspaceId!, req.params.botId, { delayHours, order, isActive }))
+    res.status(201).json(await bs.createFollowUpRule(req.user!.workspaceId!, req.params.botId, { delayHours, order, isActive, whatsappTemplateId }))
   } catch (err: any) { res.status(notFound(err.message)).json({ error: err.message }) }
 }
 

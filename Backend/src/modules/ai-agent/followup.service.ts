@@ -5,6 +5,14 @@ import { getBusinessHours, isOutsideBusinessHours } from '../bot/businessHours.s
 
 /** Called after the bot sends an outbound message. Schedules the next follow-up in the sequence. */
 export async function scheduleNextFollowUp(workspaceId: string, conversationId: string, botAgentId: string) {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { followUpsPaused: true }
+  })
+  // The lead firmly declined and the bot has no configured objection response for it
+  // (see stopFollowUps in ai.service.ts) — stop nudging this conversation for good.
+  if (conversation?.followUpsPaused) return
+
   const rules = await prisma.followUpRule.findMany({
     where: { workspaceId, botAgentId, isActive: true },
     orderBy: { order: 'asc' }
@@ -77,15 +85,29 @@ export async function processDueFollowUps() {
         where: { id: job.conversationId },
         include: { channel: true }
       })
-      if (!conv || conv.status !== 'OPEN' || !conv.isHandledByBot) continue
+      if (!conv || conv.status !== 'OPEN' || !conv.isHandledByBot || conv.followUpsPaused) continue
 
-      const followUpInstruction =
-        'SISTEMA: El cliente no ha respondido. Escribe UN mensaje breve y natural de seguimiento para retomar la conversación según el contexto e intentar avanzar al cierre. No repitas saludos completos ni seas invasivo.'
+      const rule = await prisma.followUpRule.findUnique({ where: { id: job.ruleId } })
 
-      const text = await processAiResponse(job.workspaceId, job.conversationId, followUpInstruction)
-      if (!text) continue
+      if (rule?.whatsappTemplateId) {
+        // Steps this far out are past Meta's 24h free-text window — must use an
+        // approved template (see sendOutboundWhatsAppTemplate in message.service.ts).
+        const { sendOutboundWhatsAppTemplate } = await import('../messaging/message.service')
+        try {
+          await sendOutboundWhatsAppTemplate(job.workspaceId, job.conversationId, rule.whatsappTemplateId)
+        } catch (err) {
+          console.error(`[FollowUp] Template send failed for job ${job.id}:`, err)
+          continue // don't advance the sequence on a failed send
+        }
+      } else {
+        const followUpInstruction =
+          'SISTEMA: El cliente no ha respondido. Escribe UN mensaje breve y natural de seguimiento para retomar la conversación según el contexto e intentar avanzar al cierre. No repitas saludos completos ni seas invasivo.'
 
-      await sendOutboundPlatformMessage(job.workspaceId, job.conversationId, text, 'BOT')
+        const text = await processAiResponse(job.workspaceId, job.conversationId, followUpInstruction)
+        if (!text) continue
+
+        await sendOutboundPlatformMessage(job.workspaceId, job.conversationId, text, 'BOT')
+      }
 
       // Same fallback as message.service: if the conversation has no assigned bot,
       // use the workspace's most recent active bot so the sequence continues.

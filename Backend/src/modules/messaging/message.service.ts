@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma'
 import { getIO } from '../../lib/socket'
 import { tryRunBotFlows } from '../bot/flow.engine'
 import { scheduleAiReply } from '../ai-agent/aiResponder'
-import { sendWhatsAppMessage } from './channels/whatsapp.service'
+import { sendWhatsAppMessage, sendWhatsAppTemplateMessage } from './channels/whatsapp.service'
 import { sendInstagramMessage } from './channels/instagram.service'
 import { sendMessengerMessage } from './channels/messenger.service'
 import { sendTelegramMessage } from './channels/telegram.service'
@@ -78,6 +78,51 @@ export async function sendOutboundPlatformMessage(
   await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } })
   getIO().to(`workspace:${workspaceId}`).emit('message:new', {
     conversationId, direction: 'OUTBOUND', senderType, content: text, sentAt: message.sentAt, status
+  })
+  return message
+}
+
+/**
+ * Sends an approved WhatsApp template message through the conversation's channel
+ * and persists it — the only send type Cloud API allows past the 24h customer
+ * service window (see sendWhatsAppTemplateMessage). Currently supports a single
+ * {{1}} = contact name placeholder, matching sheets.service.ts's opening-template send.
+ */
+export async function sendOutboundWhatsAppTemplate(
+  workspaceId: string,
+  conversationId: string,
+  templateId: string
+) {
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId, workspaceId },
+    include: { channel: true, contact: { select: { name: true } } }
+  })
+  if (!conv) throw new Error('Conversation not found')
+  if (conv.channel.platform !== 'WHATSAPP') throw new Error('Template sends are WhatsApp-only')
+
+  const config = conv.channel.config as Record<string, any>
+  const template = await prisma.whatsAppTemplate.findFirst({
+    where: { id: templateId, channelId: conv.channelId, status: 'APPROVED' }
+  })
+  if (!template) throw new Error(`Template ${templateId} not found or not APPROVED for this channel`)
+
+  const contactName = conv.contact?.name || 'Hola'
+  await sendWhatsAppTemplateMessage(
+    config.phoneNumberId,
+    config.accessToken,
+    conv.externalId,
+    template.name,
+    template.language,
+    [contactName]
+  )
+
+  const content = template.bodyText.replace(/\{\{1\}\}/g, contactName)
+  const message = await prisma.message.create({
+    data: { workspaceId, conversationId, direction: 'OUTBOUND', senderType: 'BOT', content, status: 'SENT' }
+  })
+  await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } })
+  getIO().to(`workspace:${workspaceId}`).emit('message:new', {
+    conversationId, direction: 'OUTBOUND', senderType: 'BOT', content, sentAt: message.sentAt, status: 'SENT'
   })
   return message
 }

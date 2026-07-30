@@ -123,6 +123,7 @@ export function compileQualifierPrompt({ agent, profile, contact }: Pick<Compile
 - Usa "statusChange" solo cuando el status del contacto debe pasar de LEAD a PROSPECT o a CUSTOMER.
 - Usa "deal" solo si corresponde crear una oportunidad nueva o mover una existente a otra etapa del pipeline.
 - Usa "needsHuman" si el cliente pide hablar con un humano explícitamente o está molesto.
+- Usa "stopFollowUps" solo si el cliente rechaza la oferta de forma clara y firme (ej. "no me interesa", "no gracias", "no me escribas más") Y esa objeción NO está en la lista de MANEJO DE OBJECIONES de arriba (si está en la lista, respóndela normalmente y no actives esto — la secuencia de seguimiento sigue). Un "no" dudoso, una pregunta, o silencio no cuentan.
 - Si no hay señal nueva en este turno, devuelve un objeto vacío {}. No inventes datos que el cliente no dijo.`)
 
   return sections.join('\n\n')

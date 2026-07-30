@@ -402,6 +402,7 @@ model WhatsAppTemplate {
   updatedAt      DateTime @updatedAt @map("updated_at")
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   channel        Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  followUpRules  FollowUpRule[]
 
   @@unique([channelId, name, language])
   @@map("whatsapp_templates")
@@ -630,6 +631,7 @@ model Conversation {
   assignedToUserId String?           @map("assigned_to_user_id")
   assignedToBotId  String?           @map("assigned_to_bot_id")
   isHandledByBot   Boolean           @default(false) @map("is_handled_by_bot")
+  followUpsPaused  Boolean           @default(false) @map("follow_ups_paused")
   messageCount     Int               @default(0) @map("message_count")
   lastMessageAt    DateTime?         @map("last_message_at")
   firstResponseAt  DateTime?         @map("first_response_at")
@@ -839,13 +841,18 @@ model Appointment {
 }
 
 model FollowUpRule {
-  id          String    @id @default(uuid())
-  workspaceId String    @map("workspace_id")
-  botAgentId  String    @map("bot_agent_id")
-  delayHours  Int       @map("delay_hours")
-  order       Int       @default(0)
-  isActive    Boolean   @default(true) @map("is_active")
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                 String            @id @default(uuid())
+  workspaceId        String            @map("workspace_id")
+  botAgentId         String            @map("bot_agent_id")
+  delayHours         Int               @map("delay_hours")
+  order              Int               @default(0)
+  isActive           Boolean           @default(true) @map("is_active")
+  // When set, this step sends the approved WhatsApp template instead of an
+  // AI-generated free-text message — required once the step falls outside
+  // Meta's 24h customer-service window (free text gets rejected, error 131047).
+  whatsappTemplateId String?           @map("whatsapp_template_id")
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  whatsappTemplate   WhatsAppTemplate? @relation(fields: [whatsappTemplateId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, isActive])
   @@map("follow_up_rules")

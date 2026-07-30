@@ -9,6 +9,13 @@ interface FollowUpRule {
   delayHours: number
   order: number
   isActive: boolean
+  whatsappTemplateId?: string | null
+}
+
+interface WhatsAppTemplate {
+  id: string
+  name: string
+  status: string
 }
 
 interface BotFlow {
@@ -53,7 +60,9 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
   const [followUpRules, setFollowUpRules] = useState<FollowUpRule[]>([])
   const [rulesLoading, setRulesLoading] = useState(true)
   const [newDelayHours, setNewDelayHours] = useState('')
+  const [newTemplateId, setNewTemplateId] = useState('')
   const [addingRule, setAddingRule] = useState(false)
+  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
   const router = useRouter()
 
   useEffect(() => {
@@ -64,7 +73,21 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
     if (!mounted) return
     loadFlows()
     loadFollowUpRules()
+    loadTemplates()
   }, [mounted])
+
+  const loadTemplates = async () => {
+    try {
+      const data = await fetchAPI('/messaging/whatsapp/templates')
+      const approved = (Array.isArray(data?.templates) ? data.templates : []).filter(
+        (t: WhatsAppTemplate) => t.status === 'APPROVED'
+      )
+      setTemplates(approved)
+    } catch (error) {
+      console.error('Error loading WhatsApp templates:', error)
+      setTemplates([])
+    }
+  }
 
   const loadFlows = async () => {
     setLoading(true)
@@ -102,10 +125,11 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
       const nextOrder = followUpRules.reduce((max, r) => Math.max(max, r.order), -1) + 1
       const created = await fetchAPI(`/bots/${botId}/followup-rules`, {
         method: 'POST',
-        body: JSON.stringify({ delayHours, order: nextOrder })
+        body: JSON.stringify({ delayHours, order: nextOrder, whatsappTemplateId: newTemplateId || null })
       })
       setFollowUpRules(prev => [...prev, created].sort((a, b) => a.order - b.order))
       setNewDelayHours('')
+      setNewTemplateId('')
       toast.success('Seguimiento agregado')
     } catch (error) {
       console.error('Error creating follow-up rule:', error)
@@ -397,6 +421,11 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
                   <span className="font-medium">
                     {index + 1}º después de {rule.delayHours}h
                   </span>
+                  {rule.whatsappTemplateId && (
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
+                      Con plantilla
+                    </span>
+                  )}
                   {!rule.isActive && (
                     <span className="px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">Inactivo</span>
                   )}
@@ -424,6 +453,22 @@ export default function BotDetailClient({ botId }: BotDetailClientProps) {
               placeholder="Ej: 24"
               className="w-32 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Plantilla (opcional)</label>
+            <select
+              value={newTemplateId}
+              onChange={e => setNewTemplateId(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+            >
+              <option value="">Texto libre (IA)</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Usa plantilla si este paso puede caer más de 24h después del último mensaje del cliente.
+            </p>
           </div>
           <button
             type="submit"

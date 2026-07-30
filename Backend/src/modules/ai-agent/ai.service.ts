@@ -484,6 +484,15 @@ async function processAiResponseSplit(
     return null
   }
 
+  // Firm, unmanageable decline (see stopFollowUps rule in the qualifier prompt): the bot
+  // still answers this turn, it just stops proactively nudging this lead afterward.
+  if (qualifierOutput?.stopFollowUps?.value === true) {
+    await prisma.conversation.update({ where: { id: conversationId }, data: { followUpsPaused: true } })
+    const { cancelPendingFollowUps } = await import('./followup.service')
+    await cancelPendingFollowUps(conversationId)
+    await logAiAction(workspaceId, conversationId, qualifierOutput.stopFollowUps.reason ?? 'Dejó de insistir: el cliente rechazó la oferta')
+  }
+
   if (!responderText) return responderText
   const guarded = blockLeakedInternals(responderText)
   return sanitizeResponse(stripUnknownUrls(guarded, toolResultUrls), profile?.languageGuard)
