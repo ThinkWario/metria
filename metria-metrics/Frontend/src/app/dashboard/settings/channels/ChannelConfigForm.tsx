@@ -24,9 +24,10 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
         e.preventDefault()
         setLoading(true)
         try {
+            const displayName = platform.charAt(0).toUpperCase() + platform.slice(1)
             await fetchAPI(`/messaging/channels/${platform}/config`, {
                 method: 'POST',
-                body: JSON.stringify(config),
+                body: JSON.stringify({ name: displayName, config }),
             })
             toast.success(`Configuración de ${platform.charAt(0).toUpperCase() + platform.slice(1)} guardada`)
             if (onSaveSuccess) onSaveSuccess()
