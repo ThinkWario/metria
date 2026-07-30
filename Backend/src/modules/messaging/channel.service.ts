@@ -16,6 +16,17 @@ export async function getChannels(workspaceId: string) {
 }
 
 export async function upsertChannelConfig(workspaceId: string, data: ChannelConfig) {
+  // A plain overwrite of `config` silently drops keys the submitted form
+  // doesn't know about (e.g. isAiEnabled, set only by the native WhatsApp
+  // 'ready' handler) — merge onto the existing config so saving Cloud API
+  // credentials from the settings form doesn't turn the AI bot off as a
+  // side effect. Submitted keys still win over stored ones.
+  const existing = await prisma.channel.findUnique({
+    where: { workspaceId_platform: { workspaceId, platform: data.platform } },
+    select: { config: true }
+  })
+  const mergedConfig = { ...(existing?.config as Record<string, unknown> ?? {}), ...data.config }
+
   return prisma.channel.upsert({
     where: {
       workspaceId_platform: {
@@ -25,7 +36,7 @@ export async function upsertChannelConfig(workspaceId: string, data: ChannelConf
     },
     update: {
       name: data.name,
-      config: data.config,
+      config: mergedConfig,
       status: data.status || 'CONNECTED'
     },
     create: {

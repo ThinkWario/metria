@@ -25,9 +25,12 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
         setLoading(true)
         try {
             const displayName = platform.charAt(0).toUpperCase() + platform.slice(1)
+            // Saving this form is an explicit choice of the Cloud API — clear isNative
+            // so sendPlatformMessage stops routing through a stale whatsapp-web.js session.
+            const outgoingConfig = platform === 'whatsapp' ? { ...config, isNative: false } : config
             await fetchAPI(`/messaging/channels/${platform}/config`, {
                 method: 'POST',
-                body: JSON.stringify({ name: displayName, config }),
+                body: JSON.stringify({ name: displayName, config: outgoingConfig }),
             })
             toast.success(`Configuración de ${platform.charAt(0).toUpperCase() + platform.slice(1)} guardada`)
             if (onSaveSuccess) onSaveSuccess()
