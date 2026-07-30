@@ -52,6 +52,8 @@ import { startWorkflowCron } from './modules/automation/automation.cron'
 import { startCampaignsCron } from './modules/campaigns/campaigns.cron'
 import sheetsRoutes from './modules/sheets/sheets.routes'
 import { startSheetsSyncCron } from './modules/sheets/sheets.cron'
+import metaEventsRoutes from './modules/meta-events/metaEvents.routes'
+import { startMetaEventsRetryCron } from './modules/meta-events/metaEvents.cron'
 
 const app = express()
 
@@ -150,6 +152,7 @@ app.use('/api/integrations/google-calendar', googleCalendarRoutes)
 app.use('/api', productsRoutes)
 app.use('/api', invoicesRoutes)
 app.use('/api', sheetsRoutes)
+app.use('/api', metaEventsRoutes)
 
 // Start cron jobs
 startAnalyticsCron()
@@ -157,6 +160,7 @@ startFollowUpCron()
 startWorkflowCron()
 startCampaignsCron()
 startSheetsSyncCron()
+startMetaEventsRetryCron()
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

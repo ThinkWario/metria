@@ -51,7 +51,7 @@ vi.mock('../../crm/pipeline.service', () => ({ createDeal: vi.fn(), moveDeal: vi
 import { processAiResponse } from '../ai.service'
 import { prisma } from '../../../lib/prisma'
 import { updateQualification, addTag } from '../../crm/contact.service'
-import { scheduleAppointment, filterSlotsByCalendarBusy, rescheduleAppointment } from '../../scheduling/scheduling.service'
+import { scheduleAppointment, getAvailableSlots, filterSlotsByCalendarBusy, rescheduleAppointment } from '../../scheduling/scheduling.service'
 
 const WS = 'ws-1'
 const CONV = 'conv-1'
@@ -161,7 +161,8 @@ describe('processAiResponse (rewired)', () => {
   })
 
   it('executes reschedule_appointment: updates the active appointment and notifies both sides', async () => {
-    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'a1' } as any)
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'a1', type: 'SITE_VISIT' } as any)
+    vi.mocked(getAvailableSlots).mockResolvedValueOnce([new Date('2026-06-16T10:00:00')])
     const submit = vi.fn(async () => ({ text: 'Reagendado', toolCalls: [], submitToolResults: vi.fn() }))
     chatMock.mockResolvedValue({
       text: null,

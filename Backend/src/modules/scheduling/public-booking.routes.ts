@@ -148,7 +148,7 @@ router.post('/booking/:slug/book', simpleRateLimit(10 * 60 * 1000, 10), async (r
         type: PUBLIC_BOOKING_TYPE,
         scheduledAt,
         createdBy: 'PUBLIC_BOOKING'
-      })
+      }, 'website')
     } catch (e: any) {
       const msg = String(e?.message || '')
       if (/taken|availability/i.test(msg)) {

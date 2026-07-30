@@ -4,8 +4,14 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: {
     pipeline: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     pipelineStage: { findFirst: vi.fn() },
-    deal: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() }
+    deal: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    // Read by the Purchase CAPI event emitted when a deal closes WON.
+    contact: { findUnique: vi.fn().mockResolvedValue(null) }
   }
+}))
+
+vi.mock('../../meta-events/metaEvents.service', () => ({
+  emitMetaPurchaseEvent: vi.fn()
 }))
 
 import { listPipelines, createPipeline, listDeals, createDeal, moveDeal, closeDeal } from '../pipeline.service'

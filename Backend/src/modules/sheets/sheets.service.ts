@@ -4,6 +4,7 @@ import { normalizePhone } from '../../lib/phoneFormat'
 import { suggestFieldMappings, qualifyLead } from './sheets.agent'
 import { sendOutboundPlatformMessage } from '../messaging/message.service'
 import { sendWhatsAppTemplateMessage } from '../messaging/channels/whatsapp.service'
+import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 const API_KEY = process.env.GOOGLE_SHEETS_API_KEY
@@ -312,7 +313,9 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
           ? await prisma.contact.findUnique({ where: { workspaceId_phone: { workspaceId: integration.workspaceId, phone } } })
           : null
 
+      let isNewContact = false
       if (!contact) {
+        isNewContact = true
         contact = await prisma.contact.create({
           data: {
             workspaceId: integration.workspaceId,
@@ -326,8 +329,33 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
             leadTemperature: qualResult?.qualificationStatus === 'CALIFICA' ? 'HOT'
               : qualResult?.qualificationStatus === 'REVISAR' ? 'WARM' : 'COLD',
             qualificationData,
+            firstSeenAt: new Date(),
+            // Consent is only stamped when the integration has an explicit
+            // consent version configured — otherwise Contact/Lead/QualifiedLead
+            // stay ungated-but-unsent (metaEvents.capi's consent check).
+            ...(integration.metaConsentVersion
+              ? { consentVersion: integration.metaConsentVersion, consentAt: new Date(), consentStatus: 'implicit_form_submission' }
+              : {}),
           },
         })
+      }
+
+      // Contact + Lead only fire for genuinely-submitted rows (isComplete) —
+      // an "Incompleto"-tagged partial row isn't a confirmed business moment yet.
+      if (isNewContact && isComplete) {
+        emitMetaContactEvent(integration.workspaceId, contact, 'system_generated')
+          .catch(err => console.error('[SheetsSync] Contact event failed:', err))
+        emitMetaLeadEvent(integration.workspaceId, contact, 'system_generated')
+          .catch(err => console.error('[SheetsSync] Lead event failed:', err))
+      }
+
+      // QualifiedLead — deterministic event_id (dc:v1:<leadId>:QualifiedLead)
+      // means re-syncing an already-qualified contact safely no-ops via the
+      // unique(pixelId,eventName,eventId) constraint instead of re-sending.
+      if (isComplete && qualResult?.qualificationStatus === 'CALIFICA') {
+        emitMetaQualifiedLeadEvent(integration.workspaceId, contact, 'system_generated', {
+          qualificationVersion: integration.qualificationRules ? 'sheets_rules_v1' : 'sheets_default_v1'
+        }).catch(err => console.error('[SheetsSync] QualifiedLead event failed:', err))
       }
 
       const customFieldValues: Record<string, string> = {}

@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma'
+import { emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
 
 export interface ListContactsOpts {
   search?: string
@@ -214,7 +215,7 @@ export async function updateQualification(
     ? { ...((contact.qualificationData as object) ?? {}), ...input.data }
     : undefined
 
-  return prisma.contact.update({
+  const updated = await prisma.contact.update({
     where: { id: contact.id },
     data: {
       ...(input.temperature && { leadTemperature: input.temperature }),
@@ -223,6 +224,17 @@ export async function updateQualification(
       ...(mergedData && { qualificationData: mergedData as any })
     }
   })
+
+  // Deterministic event_id (dc:v1:<leadId>:QualifiedLead) makes re-calling
+  // this with temperature=HOT on an already-qualified lead a safe no-op.
+  // Only caller today is the AI qualifier (ai.service.ts) -- action_source
+  // 'chat' reflects that this always originates from a WhatsApp conversation.
+  if (input.temperature === 'HOT') {
+    emitMetaQualifiedLeadEvent(workspaceId, updated, 'chat', { qualificationVersion: 'ai_qualifier_v1' })
+      .catch(err => console.error('[updateQualification] QualifiedLead event failed:', err))
+  }
+
+  return updated
 }
 
 export async function bulkUpdateContacts(

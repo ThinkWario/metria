@@ -45,6 +45,7 @@ model Workspace {
   channels                 Channel[]
   whatsAppSessions         WhatsAppSession[]
   whatsAppTemplates        WhatsAppTemplate[]
+  conversionEvents         ConversionEvent[]
   contactNotes             ContactNote[]
   contactTags              ContactTag[]
   contacts                 Contact[]
@@ -426,6 +427,29 @@ model Contact {
   leadType           String?              @map("lead_type") // CURIOUS | QUOTING | READY_TO_BUY | POST_SALE
   qualificationData  Json?                @map("qualification_data")
   customFields       Json?                @map("custom_fields")
+  // First-touch attribution — captured once at Contact creation, never
+  // overwritten by later sessions (dc_events_v1 spec: "nunca reemplazar
+  // first_touch con el último clic").
+  utmSource          String?              @map("utm_source")
+  utmMedium          String?              @map("utm_medium")
+  utmCampaign        String?              @map("utm_campaign")
+  utmContent         String?              @map("utm_content")
+  utmTerm            String?              @map("utm_term")
+  metaCampaignId     String?              @map("meta_campaign_id")
+  metaAdsetId        String?              @map("meta_adset_id")
+  metaAdId           String?              @map("meta_ad_id")
+  fbclid             String?
+  fbc                String?
+  fbp                String?
+  clientIpAddress    String?              @map("client_ip_address")
+  clientUserAgent    String?              @map("client_user_agent")
+  firstSeenAt        DateTime?            @map("first_seen_at")
+  // Consent gate for Meta events — Contact/Lead/etc. are only sent to CAPI
+  // when consentStatus is set (dc_events_v1 acceptance test #3: "sin
+  // consentimiento: no se envía a Meta").
+  consentVersion     String?              @map("consent_version")
+  consentAt          DateTime?            @map("consent_at")
+  consentStatus      String?              @map("consent_status")
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
   healthScores       ContactHealthScore[]
@@ -440,11 +464,50 @@ model Contact {
   tickets            Ticket[]
   campaignRecipients CampaignRecipient[]
   invoices           Invoice[]
+  conversionEvents   ConversionEvent[]
 
   @@unique([workspaceId, email])
   @@unique([workspaceId, phone])
   @@index([workspaceId, status])
   @@map("contacts")
+}
+
+// Mirrors dc_events_v1's conversion_events table — audit trail + idempotency
+// for every event mirrored to Meta CAPI (Contact, Lead, QualifiedLead,
+// Schedule, TechnicalReviewCompleted, Purchase, ...). One row per attempted
+// send; the unique index is what actually blocks Meta-side duplicates when
+// a retry reuses the same eventId.
+model ConversionEvent {
+  id                 String    @id @default(uuid())
+  workspaceId        String    @map("workspace_id")
+  leadId             String    @map("lead_id")
+  pixelId            String    @map("pixel_id")
+  eventName          String    @map("event_name")
+  eventId            String    @map("event_id")
+  actionSource       String    @map("action_source")
+  occurredAt         DateTime  @map("occurred_at")
+  payloadVersion     String    @default("dc_events_v1") @map("payload_version")
+  payloadHash        String    @map("payload_hash")
+  // Full request body sent to Meta, kept for audit + retry. user_data only
+  // ever contains hashed PII (em/ph) plus the fields the spec explicitly
+  // allows unhashed (fbc/fbp/ip/user-agent) -- never raw email/phone/RUT.
+  payload            Json?
+  status             String    @default("pending") // pending | sent | retry | failed
+  metaHttpStatus     Int?      @map("meta_http_status")
+  metaEventsReceived Int?      @map("meta_events_received")
+  metaFbtraceId      String?   @map("meta_fbtrace_id")
+  attemptCount       Int       @default(0) @map("attempt_count")
+  duplicateAttempts  Int       @default(0) @map("duplicate_attempts")
+  lastErrorCode      String?   @map("last_error_code")
+  nextRetryAt        DateTime? @map("next_retry_at")
+  sentAt             DateTime? @map("sent_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact            Contact   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([pixelId, eventName, eventId])
+  @@index([workspaceId, status])
+  @@map("conversion_events")
 }
 
 model ContactTag {
@@ -557,6 +620,11 @@ model SheetIntegration {
   // human must review and send it manually from the inbox.
   linkToWhatsapp         Boolean       @default(false) @map("link_to_whatsapp")
   whatsappOpeningMessage String?       @map("whatsapp_opening_message")
+  // When set, imported contacts are stamped with this consent version/status
+  // so Contact/Lead events are allowed to reach Meta CAPI (dc_events_v1 gate:
+  // no consent recorded = never sent). Left null until the source form's
+  // actual consent copy/version is confirmed -- no consent is fabricated.
+  metaConsentVersion     String?       @map("meta_consent_version")
   isActive               Boolean       @default(true) @map("is_active")
   lastSyncedAt           DateTime?     @map("last_synced_at")
   lastSyncError          String?       @map("last_sync_error")

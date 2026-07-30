@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import { emitContactEvent } from '../automation/emit'
+import { emitMetaPurchaseEvent } from '../meta-events/metaEvents.service'
 
 const DEFAULT_STAGES = [
   { name: 'Lead', color: '#94a3b8', order: 1, isWon: false, isLost: false },
@@ -101,8 +102,16 @@ export async function moveDeal(workspaceId: string, dealId: string, stageId: str
 
   const meta = { dealId, stageId, stageName: stage.name }
   await emitContactEvent(workspaceId, deal.contactId, 'DEAL_STAGE_CHANGED', `Deal movido a ${stage.name}`, undefined, meta)
-  if (stage.isWon) await emitContactEvent(workspaceId, deal.contactId, 'DEAL_WON', `Deal ganado: ${deal.title}`, undefined, meta)
-  else if (stage.isLost) await emitContactEvent(workspaceId, deal.contactId, 'DEAL_LOST', `Deal perdido: ${deal.title}`, undefined, meta)
+  if (stage.isWon) {
+    await emitContactEvent(workspaceId, deal.contactId, 'DEAL_WON', `Deal ganado: ${deal.title}`, undefined, meta)
+    const contact = await prisma.contact.findUnique({ where: { id: deal.contactId } })
+    if (contact) {
+      emitMetaPurchaseEvent(workspaceId, contact, deal.id, Number(deal.value), deal.currency)
+        .catch(err => console.error('[Pipeline] Purchase event failed:', err))
+    }
+  } else if (stage.isLost) {
+    await emitContactEvent(workspaceId, deal.contactId, 'DEAL_LOST', `Deal perdido: ${deal.title}`, undefined, meta)
+  }
 
   return updated
 }
@@ -131,6 +140,14 @@ export async function closeDeal(
     lostReason ?? undefined,
     { dealId }
   )
+
+  if (outcome === 'WON') {
+    const contact = await prisma.contact.findUnique({ where: { id: deal.contactId } })
+    if (contact) {
+      emitMetaPurchaseEvent(workspaceId, contact, deal.id, Number(deal.value), deal.currency)
+        .catch(err => console.error('[Pipeline] Purchase event failed:', err))
+    }
+  }
 
   return updated
 }

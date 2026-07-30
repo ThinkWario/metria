@@ -1,5 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { getFreeBusy } from './google-calendar.service'
+import { emitMetaScheduleEvent, emitMetaTechnicalReviewCompletedEvent } from '../meta-events/metaEvents.service'
+import type { ActionSource } from '../meta-events/metaEvents.capi'
 
 /**
  * Timezone handling: BusinessHours stores the workspace timezone. When configured,
@@ -168,7 +170,8 @@ async function assertNoCollision(
 
 export async function scheduleAppointment(
   workspaceId: string,
-  input: { contactId: string; type: string; scheduledAt: Date; dealId?: string; createdBy: string; notes?: string }
+  input: { contactId: string; type: string; scheduledAt: Date; dealId?: string; createdBy: string; notes?: string },
+  actionSource: ActionSource = 'system_generated'
 ) {
   const contact = await prisma.contact.findFirst({ where: { id: input.contactId, workspaceId } })
   if (!contact) throw new Error('Contact not found')
@@ -176,7 +179,7 @@ export async function scheduleAppointment(
   const duration = await resolveSlotDuration(workspaceId, input.type, input.scheduledAt)
   await assertNoCollision(workspaceId, input.scheduledAt, duration)
 
-  return prisma.appointment.create({
+  const appointment = await prisma.appointment.create({
     data: {
       workspaceId,
       contactId: contact.id,
@@ -188,6 +191,11 @@ export async function scheduleAppointment(
       notes: input.notes ?? null
     }
   })
+
+  emitMetaScheduleEvent(workspaceId, contact, appointment.id, actionSource)
+    .catch(err => console.error('[Scheduling] Schedule event failed:', err))
+
+  return appointment
 }
 
 /**
@@ -231,5 +239,15 @@ export async function updateAppointmentStatus(workspaceId: string, id: string, s
   if (!valid.includes(status)) throw new Error(`Invalid status: ${status}`)
   const appt = await prisma.appointment.findFirst({ where: { id, workspaceId } })
   if (!appt) throw new Error('Appointment not found')
-  return prisma.appointment.update({ where: { id: appt.id }, data: { status } })
+  const updated = await prisma.appointment.update({ where: { id: appt.id }, data: { status } })
+
+  if (status === 'COMPLETED' && appt.status !== 'COMPLETED') {
+    const contact = await prisma.contact.findFirst({ where: { id: appt.contactId, workspaceId } })
+    if (contact) {
+      emitMetaTechnicalReviewCompletedEvent(workspaceId, contact, appt.id)
+        .catch(err => console.error('[Scheduling] TechnicalReviewCompleted event failed:', err))
+    }
+  }
+
+  return updated
 }

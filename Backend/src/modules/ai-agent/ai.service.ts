@@ -114,12 +114,12 @@ const toolDeclarations = [
   },
   {
     name: 'schedule_appointment',
-    description: 'Books an appointment at a confirmed time. Only use times returned by get_available_slots.',
+    description: 'Books an appointment at a confirmed time. isoDateTime MUST be copied verbatim from one of the strings get_available_slots just returned -- never retype, reformat, or recompute it from the human-readable time you told the customer, or it will be rejected.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         contactId: { type: SchemaType.STRING },
-        isoDateTime: { type: SchemaType.STRING, description: 'ISO 8601 datetime' },
+        isoDateTime: { type: SchemaType.STRING, description: 'One exact ISO 8601 string copied from get_available_slots output' },
         type: { type: SchemaType.STRING, description: 'SITE_VISIT | CALL' }
       },
       required: ['contactId', 'isoDateTime', 'type']
@@ -127,11 +127,11 @@ const toolDeclarations = [
   },
   {
     name: 'reschedule_appointment',
-    description: "Reschedules the customer's existing appointment to a new confirmed time. Only use times returned by get_available_slots.",
+    description: "Reschedules the customer's existing appointment to a new confirmed time. newIsoDateTime MUST be copied verbatim from one of the strings get_available_slots just returned -- never retype, reformat, or recompute it, or it will be rejected.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        newIsoDateTime: { type: SchemaType.STRING, description: 'ISO 8601 datetime for the new time' }
+        newIsoDateTime: { type: SchemaType.STRING, description: 'One exact ISO 8601 string copied from get_available_slots output' }
       },
       required: ['newIsoDateTime']
     }
@@ -598,12 +598,30 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
 
       case 'schedule_appointment': {
         const type = args.type ?? 'SITE_VISIT'
+
+        // Never trust a model-reconstructed ISO string directly — LLMs
+        // reliably mangle timezone offsets and date arithmetic when writing
+        // one from memory instead of copying it. Only book a time that
+        // exactly matches one just computed by get_available_slots, which
+        // does the timezone math correctly server-side.
+        const rawSlots = await getAvailableSlots(workspaceId, type, new Date(), 14)
+        const validSlots = await filterSlotsByCalendarBusy(workspaceId, type, rawSlots)
+        const requested = new Date(args.isoDateTime)
+        const matchedSlot = validSlots.find(s => s.getTime() === requested.getTime())
+        if (!matchedSlot) {
+          return {
+            success: false,
+            error: 'invalid_or_stale_slot',
+            message: 'Ese horario ya no coincide con uno disponible. Llama a get_available_slots de nuevo y usa uno de esos valores exactos.'
+          }
+        }
+
         const appt = await scheduleAppointment(workspaceId, {
           contactId,
           type,
-          scheduledAt: new Date(args.isoDateTime),
+          scheduledAt: matchedSlot,
           createdBy: 'BOT'
-        })
+        }, 'chat')
 
         // Best-effort: a Calendar sync / notification problem must never make the
         // agent report the booking itself as failed — the Appointment row above
@@ -644,7 +662,21 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         })
         if (!active) return { success: false, error: 'No hay cita activa para reagendar' }
 
-        const rescheduled = await rescheduleAppointment(workspaceId, active.id, new Date(args.newIsoDateTime))
+        // Same guard as schedule_appointment — only accept a time that
+        // exactly matches a currently valid, timezone-correct slot.
+        const rawSlotsForReschedule = await getAvailableSlots(workspaceId, active.type, new Date(), 14)
+        const validSlotsForReschedule = await filterSlotsByCalendarBusy(workspaceId, active.type, rawSlotsForReschedule)
+        const requestedNew = new Date(args.newIsoDateTime)
+        const matchedNewSlot = validSlotsForReschedule.find(s => s.getTime() === requestedNew.getTime())
+        if (!matchedNewSlot) {
+          return {
+            success: false,
+            error: 'invalid_or_stale_slot',
+            message: 'Ese horario ya no coincide con uno disponible. Llama a get_available_slots de nuevo y usa uno de esos valores exactos.'
+          }
+        }
+
+        const rescheduled = await rescheduleAppointment(workspaceId, active.id, matchedNewSlot)
 
         // Best-effort: a Calendar sync / notification problem must never make the
         // agent report the reschedule itself as failed — the update above already happened.
