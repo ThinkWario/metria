@@ -43,13 +43,22 @@ export async function createMetaTemplate(
   accessToken: string,
   template: { name: string; language: string; category: string; bodyText: string }
 ): Promise<MetaTemplateResult> {
+  // Meta rejects with INVALID_FORMAT if the body has {{n}} placeholders but no
+  // "example" sample value is provided for review.
+  const varIndexes = [...template.bodyText.matchAll(/\{\{(\d+)\}\}/g)].map(m => parseInt(m[1], 10))
+  const maxVar = varIndexes.length > 0 ? Math.max(...varIndexes) : 0
+  const bodyComponent: Record<string, unknown> = { type: 'BODY', text: template.bodyText }
+  if (maxVar > 0) {
+    bodyComponent.example = { body_text: [Array.from({ length: maxVar }, (_, i) => `Ejemplo${i + 1}`)] }
+  }
+
   const body = await metaFetch(`/${wabaId}/message_templates`, accessToken, {
     method: 'POST',
     body: JSON.stringify({
       name: template.name,
       language: template.language,
       category: template.category,
-      components: [{ type: 'BODY', text: template.bodyText }]
+      components: [bodyComponent]
     })
   })
   return { metaTemplateId: body.id, status: body.status ?? 'PENDING' }
