@@ -3,6 +3,7 @@ import { getIO } from '../../lib/socket'
 import { normalizePhone } from '../../lib/phoneFormat'
 import { suggestFieldMappings, qualifyLead } from './sheets.agent'
 import { sendOutboundPlatformMessage } from '../messaging/message.service'
+import { sendWhatsAppTemplateMessage } from '../messaging/channels/whatsapp.service'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 const API_KEY = process.env.GOOGLE_SHEETS_API_KEY
@@ -116,7 +117,13 @@ async function prepareWhatsappConversation(
 
   if (isAiEnabled) {
     try {
-      await sendOutboundPlatformMessage(workspaceId, conversation.id, openingMessage, 'BOT')
+      const config = channel.config as Record<string, any>
+      const isCloudApi = !config?.isNative
+      if (isCloudApi && config?.openingTemplateId) {
+        await sendOpeningTemplate(workspaceId, conversation.id, channelId, config, { name: contact.name, phone: contact.phone })
+      } else {
+        await sendOutboundPlatformMessage(workspaceId, conversation.id, openingMessage, 'BOT')
+      }
       return
     } catch (err) {
       console.error(`[SheetsSync] Failed to send opening WhatsApp message to contact ${contact.id}, falling back to manual note:`, err)
@@ -143,6 +150,48 @@ async function prepareWhatsappConversation(
     content: note.content,
     isInternal: true,
     sentAt: note.sentAt
+  })
+}
+
+/**
+ * Sends the workspace's configured opening HSM template to a fresh Sheets
+ * lead. Cloud API rejects free-form text to a contact who has never
+ * messaged the business number (error 131047) — a template is the only
+ * send type allowed to open that first contact.
+ */
+async function sendOpeningTemplate(
+  workspaceId: string,
+  conversationId: string,
+  channelId: string,
+  config: Record<string, any>,
+  contact: { name: string; phone: string }
+): Promise<void> {
+  const template = await prisma.whatsAppTemplate.findFirst({
+    where: { id: config.openingTemplateId, channelId, status: 'APPROVED' }
+  })
+  if (!template) throw new Error(`Opening template ${config.openingTemplateId} not found or not APPROVED`)
+
+  await sendWhatsAppTemplateMessage(
+    config.phoneNumberId,
+    config.accessToken,
+    contact.phone,
+    template.name,
+    template.language,
+    [contact.name]
+  )
+
+  const content = template.bodyText.replace(/\{\{1\}\}/g, contact.name)
+  const message = await prisma.message.create({
+    data: { workspaceId, conversationId, direction: 'OUTBOUND', senderType: 'BOT', content, status: 'SENT' }
+  })
+  getIO().to(`workspace:${workspaceId}`).emit('message:new', {
+    id: message.id,
+    conversationId,
+    direction: 'OUTBOUND',
+    senderType: 'BOT',
+    content,
+    sentAt: message.sentAt,
+    status: 'SENT'
   })
 }
 

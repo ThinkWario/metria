@@ -11,8 +11,20 @@ const PLATFORM_MAP: Record<string, { verify: any, parse: any }> = {
 }
 
 const VERIFY_TOKEN_MAP: Record<string, string | undefined> = {
+  WHATSAPP: process.env.META_WHATSAPP_VERIFY_TOKEN,
   INSTAGRAM: process.env.META_INSTAGRAM_VERIFY_TOKEN,
   MESSENGER: process.env.META_MESSENGER_VERIFY_TOKEN,
+}
+
+// WhatsApp entries carry the WABA ID at entry.id — the number that actually
+// identifies which channel owns the message is nested under
+// changes[].value.metadata.phone_number_id instead.
+function extractExternalId(platform: string, body: Record<string, any>): string | undefined {
+  const entry = body?.entry?.[0]
+  if (platform === 'WHATSAPP') {
+    return entry?.changes?.[0]?.value?.metadata?.phone_number_id
+  }
+  return entry?.id
 }
 
 // GET /api/webhooks/meta/:platform — no workspaceId (Facebook sends to one URL per app)
@@ -44,19 +56,19 @@ export async function metaWebhook(req: Request, res: Response): Promise<void> {
 
     const signature = (req.headers['x-hub-signature-256'] as string) ?? ''
 
-    // Find the page ID from the payload to identify which workspace owns this channel
-    const entries: Array<{ id?: string }> = req.body?.entry ?? []
-    const pageId = entries[0]?.id
-    if (!pageId) return
+    // Find the external ID from the payload to identify which workspace owns this channel
+    const externalId = extractExternalId(p, req.body)
+    if (!externalId) return
 
-    // Find all connected channels for this platform + pageId
+    // Find all connected channels for this platform + external ID
     const channels = await prisma.channel.findMany({
       where: { platform: p, status: 'CONNECTED' }
     })
 
     const channel = channels.find(ch => {
       const cfg = ch.config as Record<string, string> | null
-      return cfg?.pageId === pageId || cfg?.instagramAccountId === pageId
+      if (p === 'WHATSAPP') return cfg?.phoneNumberId === externalId
+      return cfg?.pageId === externalId || cfg?.instagramAccountId === externalId
     })
 
     if (!channel) return

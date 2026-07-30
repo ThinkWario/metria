@@ -44,6 +44,7 @@ model Workspace {
   channelAnalyticSnapshots ChannelAnalyticSnapshot[]
   channels                 Channel[]
   whatsAppSessions         WhatsAppSession[]
+  whatsAppTemplates        WhatsAppTemplate[]
   contactNotes             ContactNote[]
   contactTags              ContactTag[]
   contacts                 Contact[]
@@ -374,9 +375,36 @@ model Channel {
   analyticSnapshots ChannelAnalyticSnapshot[]
   workspace         Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations     Conversation[]
+  whatsAppTemplates WhatsAppTemplate[]
 
   @@unique([workspaceId, platform])
   @@map("channels")
+}
+
+// WhatsApp Cloud API message templates (HSM) — must be submitted to Meta for
+// approval before use; sending free-form text to a contact outside the 24h
+// customer service window is rejected by the Graph API (error 131047), so a
+// fresh Google Sheets lead's opening message must go through an APPROVED
+// template instead.
+model WhatsAppTemplate {
+  id             String   @id @default(uuid())
+  workspaceId    String   @map("workspace_id")
+  channelId      String   @map("channel_id")
+  name           String
+  language       String   @default("es")
+  category       String   @default("MARKETING")
+  bodyText       String   @map("body_text")
+  variables      Json?
+  status         String   @default("PENDING")
+  metaTemplateId String?  @map("meta_template_id")
+  rejectedReason String?  @map("rejected_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel        Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, name, language])
+  @@map("whatsapp_templates")
 }
 
 model Contact {

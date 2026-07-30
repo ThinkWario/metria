@@ -57,6 +57,47 @@ export async function sendWhatsAppMessage(
 }
 
 /**
+ * Sends an approved template (HSM) message — the only send type Meta allows
+ * to a contact that has never messaged the business number, since free-form
+ * text outside the 24h customer service window is rejected (error 131047).
+ */
+export async function sendWhatsAppTemplateMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  templateName: string,
+  language: string,
+  bodyParams: string[] = []
+): Promise<void> {
+  const url = `https://graph.facebook.com/${WA_API_VERSION}/${phoneNumberId}/messages`
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: language },
+        ...(bodyParams.length > 0
+          ? { components: [{ type: 'body', parameters: bodyParams.map(text => ({ type: 'text', text })) }] }
+          : {})
+      }
+    })
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`WhatsApp template API error ${response.status}: ${body}`)
+  }
+}
+
+/**
  * Downloads inbound media from Meta Cloud API. Two-step flow: resolve the
  * media_id to a temporary URL, then fetch it — both requests need the same
  * bearer token.

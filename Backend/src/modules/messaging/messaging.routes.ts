@@ -18,6 +18,13 @@ import {
   disconnectWhatsAppSessionHandler
 } from './messaging.controller'
 import { metaWebhookVerify as gatewayVerify, metaWebhook as gatewayWebhook } from './webhook.gateway'
+import {
+  listTemplatesHandler,
+  createTemplateHandler,
+  syncTemplatesHandler,
+  deleteTemplateHandler,
+  setOpeningTemplateHandler
+} from './templates.controller'
 
 const router = Router()
 
@@ -43,5 +50,12 @@ router.patch('/messaging/conversations/:conversationId/unread', authenticate, re
 // Native WhatsApp QR flow
 router.post('/messaging/whatsapp/init', authenticate, requirePlan('PRO', 'SCALE'), initWhatsAppSessionHandler)
 router.post('/messaging/whatsapp/disconnect', authenticate, requirePlan('PRO', 'SCALE'), disconnectWhatsAppSessionHandler)
+
+// WhatsApp Cloud API message templates (HSM)
+router.get('/messaging/whatsapp/templates', authenticate, requirePlan('PRO', 'SCALE'), listTemplatesHandler)
+router.post('/messaging/whatsapp/templates', authenticate, requirePlan('PRO', 'SCALE'), createTemplateHandler)
+router.post('/messaging/whatsapp/templates/sync', authenticate, requirePlan('PRO', 'SCALE'), syncTemplatesHandler)
+router.delete('/messaging/whatsapp/templates/:id', authenticate, requirePlan('PRO', 'SCALE'), deleteTemplateHandler)
+router.patch('/messaging/whatsapp/templates/:id/opening', authenticate, requirePlan('PRO', 'SCALE'), setOpeningTemplateHandler)
 
 export default router

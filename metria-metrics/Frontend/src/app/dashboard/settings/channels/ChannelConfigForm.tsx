@@ -46,13 +46,34 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                             Estos campos son solo para la API Cloud oficial de Meta. Si conectaste con código QR, no necesitas completarlos.
                         </p>
                         <div className="grid gap-2">
-                            <Label htmlFor="phoneNumber">Número de teléfono</Label>
+                            <Label htmlFor="phoneNumberId">Phone Number ID</Label>
                             <Input
-                                id="phoneNumber"
-                                name="phoneNumber"
-                                value={config.phoneNumber || ''}
+                                id="phoneNumberId"
+                                name="phoneNumberId"
+                                value={config.phoneNumberId || ''}
                                 onChange={handleInputChange}
-                                placeholder="ej: +56912345678"
+                                placeholder="ID numérico del número (Meta Business > WhatsApp Manager)"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="wabaId">WABA ID</Label>
+                            <Input
+                                id="wabaId"
+                                name="wabaId"
+                                value={config.wabaId || ''}
+                                onChange={handleInputChange}
+                                placeholder="ID de la cuenta de WhatsApp Business"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="accessToken">Access Token</Label>
+                            <Input
+                                id="accessToken"
+                                name="accessToken"
+                                type="password"
+                                value={config.accessToken || ''}
+                                onChange={handleInputChange}
+                                placeholder="Access Token de Meta"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -73,7 +94,7 @@ export const ChannelConfigForm = ({ platform, initialConfig, onSaveSuccess }: Ch
                                 name="verifyToken"
                                 value={config.verifyToken || ''}
                                 onChange={handleInputChange}
-                                placeholder="Token de verificación del webhook"
+                                placeholder="Token de verificación del webhook (META_WHATSAPP_VERIFY_TOKEN)"
                             />
                         </div>
                     </>
