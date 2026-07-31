@@ -109,7 +109,7 @@ export function MetaIntegrationCard({ integration, token, needsAdAccount: initia
                 platform: 'meta',
                 name: 'Meta Ads',
                 type: 'REST API',
-                config: { accessToken: accessToken.trim(), adAccountId: manualAdAccountId.trim() }
+                config: { ...integration?.config, accessToken: accessToken.trim(), adAccountId: manualAdAccountId.trim() }
             })
             queryClient.invalidateQueries({ queryKey: ['settings', 'integrations'] })
             toast.success('Integración Meta guardada')
