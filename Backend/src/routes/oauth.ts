@@ -141,16 +141,23 @@ router.get('/:platform/callback', async (req, res) => {
             }
         }
 
+        // Preserve fields not owned by the OAuth flow (e.g. a manually-entered pixelId)
+        // across reconnects — the OAuth callback only knows about token/ad-account/page data.
+        const existing = await prisma.integration.findUnique({
+            where: { workspaceId_platform: { workspaceId, platform: platform.toLowerCase() } }
+        })
+        const mergedConfig = { ...(existing?.config as Record<string, any> ?? {}), ...config }
+
         await prisma.integration.upsert({
             where: { workspaceId_platform: { workspaceId, platform: platform.toLowerCase() } },
-            update: { status: 'Connected', config },
+            update: { status: 'Connected', config: mergedConfig },
             create: {
                 workspaceId,
                 platform: platform.toLowerCase(),
                 name: integrationName,
                 type: 'AD_ACCOUNT',
                 status: 'Connected',
-                config,
+                config: mergedConfig,
             }
         })
 
