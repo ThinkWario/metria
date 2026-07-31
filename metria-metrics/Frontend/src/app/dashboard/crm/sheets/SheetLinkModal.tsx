@@ -26,6 +26,19 @@ interface AnalyzeResult {
       sessionId?: string
       eventColumn?: string
       eventFilter?: string
+      utmSource?: string
+      utmMedium?: string
+      utmCampaign?: string
+      utmContent?: string
+      utmTerm?: string
+      metaCampaignId?: string
+      metaAdsetId?: string
+      metaAdId?: string
+      fbclid?: string
+      fbc?: string
+      fbp?: string
+      landingUrl?: string
+      referrer?: string
     }
     suggestedQualificationFields: string[]
     notes: string[]
@@ -45,6 +58,19 @@ const CRM_MAPPING_FIELDS: { key: string; label: string; required?: boolean }[] =
   { key: 'phone', label: 'Teléfono' },
   { key: 'sessionId', label: 'ID de sesión (dedup)' },
   { key: 'eventColumn', label: 'Columna de estado/evento' },
+  { key: 'utmSource', label: 'UTM Source' },
+  { key: 'utmMedium', label: 'UTM Medium' },
+  { key: 'utmCampaign', label: 'UTM Campaign' },
+  { key: 'utmContent', label: 'UTM Content' },
+  { key: 'utmTerm', label: 'UTM Term' },
+  { key: 'metaCampaignId', label: 'Meta Campaign ID' },
+  { key: 'metaAdsetId', label: 'Meta Ad Set ID' },
+  { key: 'metaAdId', label: 'Meta Ad ID' },
+  { key: 'fbclid', label: 'fbclid' },
+  { key: 'fbc', label: 'fbc' },
+  { key: 'fbp', label: 'fbp' },
+  { key: 'landingUrl', label: 'Landing URL' },
+  { key: 'referrer', label: 'Referrer' },
 ]
 
 interface Props {

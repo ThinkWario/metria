@@ -445,6 +445,8 @@ model Contact {
   fbclid             String?
   fbc                String?
   fbp                String?
+  landingUrl         String?              @map("landing_url")
+  referrer           String?
   clientIpAddress    String?              @map("client_ip_address")
   clientUserAgent    String?              @map("client_user_agent")
   firstSeenAt        DateTime?            @map("first_seen_at")

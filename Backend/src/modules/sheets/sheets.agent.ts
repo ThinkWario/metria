@@ -10,6 +10,10 @@ const CRM_FIELDS = `
 - sessionId: Identificador único de sesión/registro (para evitar duplicados)
 - eventColumn: Columna que indica el estado del registro (ej: "Evento", "Estado")
 - eventFilter: Valor exacto que indica registro completo (ej: "complete", "completo", "enviado")
+- utmSource, utmMedium, utmCampaign, utmContent, utmTerm: columnas de atribución UTM (first-touch)
+- metaCampaignId, metaAdsetId, metaAdId: IDs de campaña/conjunto/anuncio de Meta Ads
+- fbclid, fbc, fbp: identificadores de clic/cookie de Meta para deduplicación de CAPI
+- landingUrl, referrer: URL de aterrizaje y referrer de la primera visita
 `
 
 export interface FieldMappings {
@@ -19,6 +23,19 @@ export interface FieldMappings {
   sessionId?: string
   eventColumn?: string
   eventFilter?: string
+  utmSource?: string
+  utmMedium?: string
+  utmCampaign?: string
+  utmContent?: string
+  utmTerm?: string
+  metaCampaignId?: string
+  metaAdsetId?: string
+  metaAdId?: string
+  fbclid?: string
+  fbc?: string
+  fbp?: string
+  landingUrl?: string
+  referrer?: string
 }
 
 export interface SuggestedAnalysis {
@@ -50,7 +67,20 @@ Responde SOLO con JSON válido, sin markdown, sin explicaciones:
     "phone": "nombre_columna_o_null",
     "sessionId": "nombre_columna_o_null",
     "eventColumn": "nombre_columna_o_null",
-    "eventFilter": "valor_exacto_o_null"
+    "eventFilter": "valor_exacto_o_null",
+    "utmSource": "nombre_columna_o_null",
+    "utmMedium": "nombre_columna_o_null",
+    "utmCampaign": "nombre_columna_o_null",
+    "utmContent": "nombre_columna_o_null",
+    "utmTerm": "nombre_columna_o_null",
+    "metaCampaignId": "nombre_columna_o_null",
+    "metaAdsetId": "nombre_columna_o_null",
+    "metaAdId": "nombre_columna_o_null",
+    "fbclid": "nombre_columna_o_null",
+    "fbc": "nombre_columna_o_null",
+    "fbp": "nombre_columna_o_null",
+    "landingUrl": "nombre_columna_o_null",
+    "referrer": "nombre_columna_o_null"
   },
   "suggestedQualificationFields": ["columna1", "columna2"],
   "allHeaders": ${JSON.stringify(headers)},

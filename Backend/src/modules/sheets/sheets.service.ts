@@ -246,6 +246,21 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
   const nameCol = mappings.name ? headers.indexOf(mappings.name) : -1
   const emailCol = mappings.email ? headers.indexOf(mappings.email) : -1
   const phoneCol = mappings.phone ? headers.indexOf(mappings.phone) : -1
+  // First-touch attribution columns — all optional, all only ever applied at
+  // Contact creation (dc_events_v2_metria: "nunca reemplazar first_touch con
+  // el último clic"). An integration with none of these mapped just imports
+  // without attribution, same as before this was added.
+  const ATTRIBUTION_FIELDS = [
+    'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm',
+    'metaCampaignId', 'metaAdsetId', 'metaAdId', 'fbclid', 'fbc', 'fbp',
+    'landingUrl', 'referrer',
+  ] as const
+  type AttributionField = typeof ATTRIBUTION_FIELDS[number]
+  const attributionCols = {} as Record<AttributionField, number>
+  for (const field of ATTRIBUTION_FIELDS) {
+    attributionCols[field] = mappings[field] ? headers.indexOf(mappings[field]) : -1
+  }
+
   const excludedColumns = new Set(integration.excludedColumns ?? [])
   const customFieldMappings = (integration.customFieldMappings as Record<string, string> | null) ?? {}
   const qualificationKeyMappings = (integration.qualificationKeyMappings as Record<string, string> | null) ?? {}
@@ -285,6 +300,14 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
       const phone = normalizePhone(rawPhone) ?? ''
 
       if (!name && !email && !phone) { skipped++; continue }
+
+      const attribution: Partial<Record<AttributionField, string>> = {}
+      for (const field of ATTRIBUTION_FIELDS) {
+        const idx = attributionCols[field]
+        if (idx < 0) continue
+        const val = row[idx]?.trim()
+        if (val) attribution[field] = val
+      }
 
       const rowData: Record<string, string> = {}
       headers.forEach((h, i) => { if (!excludedColumns.has(h)) rowData[h] = row[i] ?? '' })
@@ -348,6 +371,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
               : qualResult?.qualificationStatus === 'REVISAR' ? 'WARM' : 'COLD',
             qualificationData,
             firstSeenAt: new Date(),
+            ...attribution,
             // Consent is only stamped when this row shows real evidence of
             // consent (mapped column, affirmative value) AND the integration
             // has a consent version configured to attach — never from the
