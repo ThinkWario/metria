@@ -204,7 +204,7 @@ describe('syncSheet dedup safeguards', () => {
     const [r1, r2] = await Promise.all([syncSheet(INTEGRATION_ID), syncSheet(INTEGRATION_ID)])
 
     expect(prisma.contact.create).toHaveBeenCalledTimes(1)
-    expect([r1, r2]).toContainEqual({ imported: 0, skipped: 0, errors: 0 })
+    expect([r1, r2]).toContainEqual({ imported: 0, skipped: 0, errors: 0, rowErrors: [] })
   })
 
   it('skips every row and imports nothing when no sessionId column is mapped (no row-position fallback)', async () => {
@@ -216,7 +216,7 @@ describe('syncSheet dedup safeguards', () => {
     const result = await syncSheet(INTEGRATION_ID)
 
     expect(prisma.contact.create).not.toHaveBeenCalled()
-    expect(result).toEqual({ imported: 0, skipped: 1, errors: 0 })
+    expect(result).toEqual({ imported: 0, skipped: 1, errors: 0, rowErrors: [] })
   })
 
   it('dedupes deals by contact + pipeline, not by a fragile title substring match', async () => {
@@ -231,6 +231,49 @@ describe('syncSheet dedup safeguards', () => {
       expect.objectContaining({ where: { contactId: 'c1', pipelineId: 'pipe-1' } })
     )
     expect(prisma.deal.create).not.toHaveBeenCalled()
+  })
+
+  it('skips the row instead of creating a duplicate when email and phone match two different existing contacts', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono', email: 'Email', sessionId: 'SID' } }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockImplementation(((({ where }: any) => {
+      if (where.workspaceId_email) return Promise.resolve({ id: 'contact-by-email' })
+      if (where.workspaceId_phone) return Promise.resolve({ id: 'contact-by-phone' })
+      return Promise.resolve(null)
+    })) as any)
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        values: [['Nombre', 'Telefono', 'Email', 'SID'], ['Ana', '9 1234 5678', 'ana@test.cl', 'sess-1']]
+      })
+    } as any)
+
+    const result = await syncSheet(INTEGRATION_ID)
+
+    expect(prisma.contact.create).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      imported: 0,
+      skipped: 1,
+      errors: 0,
+      rowErrors: [expect.stringContaining('contact-by-email')]
+    })
+    expect(result.rowErrors[0]).toContain('contact-by-phone')
+  })
+
+  it('records the row and reason in rowErrors (and persists it as lastSyncError) instead of a bare count', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(baseIntegration() as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockRejectedValue(new Error('unique constraint violation'))
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    const result = await syncSheet(INTEGRATION_ID)
+
+    expect(result.errors).toBe(1)
+    expect(result.rowErrors).toEqual([expect.stringContaining('unique constraint violation')])
+    expect(prisma.sheetIntegration.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ lastSyncError: expect.stringContaining('unique constraint violation') }) })
+    )
   })
 })
 

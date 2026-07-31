@@ -210,8 +210,20 @@ async function sendOpeningTemplate(
 // both import the same rows.
 const syncsInProgress = new Set<string>()
 
-export async function syncSheet(integrationId: string): Promise<{ imported: number; skipped: number; errors: number }> {
-  if (syncsInProgress.has(integrationId)) return { imported: 0, skipped: 0, errors: 0 }
+export interface SyncResult {
+  imported: number
+  skipped: number
+  errors: number
+  // Per-row failure/conflict detail (QA 31jul §10) — a bare error count
+  // gives no way to tell a sync that silently skipped a phone/email
+  // conflict from one that hit a transient Sheets API error.
+  rowErrors: string[]
+}
+
+const EMPTY_RESULT: SyncResult = { imported: 0, skipped: 0, errors: 0, rowErrors: [] }
+
+export async function syncSheet(integrationId: string): Promise<SyncResult> {
+  if (syncsInProgress.has(integrationId)) return EMPTY_RESULT
   syncsInProgress.add(integrationId)
   try {
     return await runSync(integrationId)
@@ -220,12 +232,12 @@ export async function syncSheet(integrationId: string): Promise<{ imported: numb
   }
 }
 
-async function runSync(integrationId: string): Promise<{ imported: number; skipped: number; errors: number }> {
+async function runSync(integrationId: string): Promise<SyncResult> {
   const integration = await prisma.sheetIntegration.findUnique({ where: { id: integrationId } })
-  if (!integration || !integration.isActive) return { imported: 0, skipped: 0, errors: 0 }
+  if (!integration || !integration.isActive) return EMPTY_RESULT
 
   const { headers, rows } = await fetchSheetData(integration.sheetId)
-  if (headers.length === 0 || rows.length === 0) return { imported: 0, skipped: 0, errors: 0 }
+  if (headers.length === 0 || rows.length === 0) return EMPTY_RESULT
 
   const mappings = integration.fieldMappings as Record<string, string>
   const qualFields = (integration.qualificationFields as string[] | null) ?? []
@@ -273,6 +285,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
   let skipped = 0
   let errors = 0
   const newSessionIds: string[] = []
+  const rowErrors: string[] = []
 
   for (const [rowIndex, row] of rows.entries()) {
     try {
@@ -352,11 +365,24 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
         sessionId,
       }
 
-      let contact = email
+      // Checked independently (not email-else-phone) so a row whose email
+      // doesn't match anyone but whose phone already belongs to a different
+      // contact is caught as a conflict instead of silently creating a
+      // duplicate Contact for the same person (QA 31jul §10).
+      const contactByEmail = email
         ? await prisma.contact.findUnique({ where: { workspaceId_email: { workspaceId: integration.workspaceId, email } } })
-        : phone
-          ? await prisma.contact.findUnique({ where: { workspaceId_phone: { workspaceId: integration.workspaceId, phone } } })
-          : null
+        : null
+      const contactByPhone = phone
+        ? await prisma.contact.findUnique({ where: { workspaceId_phone: { workspaceId: integration.workspaceId, phone } } })
+        : null
+
+      if (contactByEmail && contactByPhone && contactByEmail.id !== contactByPhone.id) {
+        skipped++
+        rowErrors.push(`Fila ${rowIndex + 1} (session ${sessionId}): email pertenece a contacto ${contactByEmail.id}, teléfono pertenece a contacto ${contactByPhone.id} — no importada, requiere resolución manual`)
+        continue
+      }
+
+      let contact = contactByEmail || contactByPhone
 
       let isNewContact = false
       if (!contact) {
@@ -466,7 +492,10 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
       if (sessionId && isComplete) newSessionIds.push(sessionId)
       imported++
     } catch (err) {
-      console.error(`[SheetsSync] Error en fila:`, err)
+      const failedSessionId = sessionIdCol >= 0 ? row[sessionIdCol] : undefined
+      const reason = err instanceof Error ? err.message : String(err)
+      console.error(`[SheetsSync] Error en fila ${rowIndex + 1}:`, err)
+      rowErrors.push(`Fila ${rowIndex + 1}${failedSessionId ? ` (session ${failedSessionId})` : ''}: ${reason}`)
       errors++
     }
   }
@@ -475,12 +504,12 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
     where: { id: integrationId },
     data: {
       lastSyncedAt: new Date(),
-      lastSyncError: errors > 0 ? `${errors} errores en último sync` : null,
+      lastSyncError: rowErrors.length > 0 ? rowErrors.join('\n') : null,
       importedSessionIds: { push: newSessionIds },
     },
   })
 
-  return { imported, skipped, errors }
+  return { imported, skipped, errors, rowErrors }
 }
 
 export async function syncAllActiveSheets(): Promise<void> {

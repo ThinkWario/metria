@@ -47,7 +47,12 @@ export default function SheetCard({ integration, onUpdated }: Props) {
     setSyncing(true)
     try {
       const res = await fetchAPI(`/sheets/${integration.id}/sync`, { method: 'POST' })
-      toast.success(`Sync completo: ${res.data.imported} importados, ${res.data.skipped} saltados`)
+      const rowErrors: string[] = res.data.rowErrors ?? []
+      if (rowErrors.length > 0) {
+        toast.error(`Sync con ${rowErrors.length} error(es): ${rowErrors[0]}`)
+      } else {
+        toast.success(`Sync completo: ${res.data.imported} importados, ${res.data.skipped} saltados`)
+      }
       onUpdated()
     } catch (err: any) {
       toast.error(err.message)
@@ -127,7 +132,7 @@ export default function SheetCard({ integration, onUpdated }: Props) {
         </div>
 
         {integration.lastSyncError && (
-          <p className="text-xs text-destructive truncate">{integration.lastSyncError}</p>
+          <p className="text-xs text-destructive whitespace-pre-line max-h-24 overflow-y-auto">{integration.lastSyncError}</p>
         )}
       </CardContent>
 
