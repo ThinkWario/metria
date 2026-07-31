@@ -32,15 +32,21 @@ function toContactData(contact: ContactLike) {
   }
 }
 
+// sessionId, when known, becomes the event_id subject (dc:v2:<session_id>:
+// Contact / ...:Lead) instead of contact.id — matches the id a future
+// browser-side Pixel/CAPI call for the same hito would use, so Meta can
+// dedupe them. Falls back to contact.id when no sessionId is available.
 export async function emitMetaContactEvent(
   workspaceId: string,
   contact: ContactLike,
   actionSource: ActionSource,
-  customData?: Record<string, string | number | boolean>
+  customData?: Record<string, string | number | boolean>,
+  sessionId?: string
 ): Promise<void> {
   await emitConversionEvent({
     workspaceId, leadId: contact.id, eventName: 'Contact', actionSource,
-    occurredAt: new Date(), contact: toContactData(contact), customData
+    occurredAt: new Date(), contact: toContactData(contact), customData,
+    eventIdSubject: sessionId
   })
 }
 
@@ -48,11 +54,13 @@ export async function emitMetaLeadEvent(
   workspaceId: string,
   contact: ContactLike,
   actionSource: ActionSource,
-  customData?: Record<string, string | number | boolean>
+  customData?: Record<string, string | number | boolean>,
+  sessionId?: string
 ): Promise<void> {
   await emitConversionEvent({
     workspaceId, leadId: contact.id, eventName: 'Lead', actionSource,
-    occurredAt: new Date(), contact: toContactData(contact), customData
+    occurredAt: new Date(), contact: toContactData(contact), customData,
+    eventIdSubject: sessionId
   })
 }
 

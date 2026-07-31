@@ -31,8 +31,8 @@ function hashPii(value: string): string {
   return crypto.createHash('sha256').update(value.trim().toLowerCase()).digest('hex')
 }
 
-export function buildEventId(leadId: string, eventName: string, suffix?: string): string {
-  return suffix ? `dc:v1:${leadId}:${eventName}:${suffix}` : `dc:v1:${leadId}:${eventName}`
+export function buildEventId(subjectId: string, eventName: string, suffix?: string): string {
+  return suffix ? `dc:v2:${subjectId}:${eventName}:${suffix}` : `dc:v2:${subjectId}:${eventName}`
 }
 
 function computeNextRetry(attempt: number): Date {
@@ -47,6 +47,11 @@ interface EmitParams {
   actionSource: ActionSource
   occurredAt: Date
   eventIdSuffix?: string
+  // Overrides leadId as the event_id subject — used for Contact/Lead, whose
+  // spec'd id is dc:v2:<session_id>:<eventName> so a future browser-side
+  // Pixel/CAPI using the same session_id can dedupe with this one. leadId
+  // is still used for the Contact FK and consent lookup regardless.
+  eventIdSubject?: string
   contact: {
     email?: string | null
     phone?: string | null
@@ -83,7 +88,7 @@ export async function emitConversionEvent(params: EmitParams): Promise<void> {
   const config = (integration?.config ?? {}) as { accessToken?: string; pixelId?: string }
   if (!config.pixelId || !config.accessToken) return
 
-  const eventId = buildEventId(leadId, eventName, params.eventIdSuffix)
+  const eventId = buildEventId(params.eventIdSubject ?? leadId, eventName, params.eventIdSuffix)
 
   const userData: Record<string, unknown> = { external_id: [hashPii(leadId)] }
   if (contact.email) userData.em = [hashPii(contact.email)]
@@ -93,7 +98,7 @@ export async function emitConversionEvent(params: EmitParams): Promise<void> {
   if (contact.clientIpAddress) userData.client_ip_address = contact.clientIpAddress
   if (contact.clientUserAgent) userData.client_user_agent = contact.clientUserAgent
 
-  const customData: Record<string, unknown> = { event_schema_version: 'dc_events_v1' }
+  const customData: Record<string, unknown> = { event_schema_version: 'dc_events_v2_metria' }
   for (const [key, value] of Object.entries(params.customData ?? {})) {
     if (ALLOWED_CUSTOM_DATA_KEYS.has(key)) customData[key] = value
   }

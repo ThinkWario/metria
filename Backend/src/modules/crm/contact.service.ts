@@ -1,5 +1,4 @@
 import { prisma } from '../../lib/prisma'
-import { emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
 
 export interface ListContactsOpts {
   search?: string
@@ -225,14 +224,9 @@ export async function updateQualification(
     }
   })
 
-  // Deterministic event_id (dc:v1:<leadId>:QualifiedLead) makes re-calling
-  // this with temperature=HOT on an already-qualified lead a safe no-op.
-  // Only caller today is the AI qualifier (ai.service.ts) -- action_source
-  // 'chat' reflects that this always originates from a WhatsApp conversation.
-  if (input.temperature === 'HOT') {
-    emitMetaQualifiedLeadEvent(workspaceId, updated, 'chat', { qualificationVersion: 'ai_qualifier_v1' })
-      .catch(err => console.error('[updateQualification] QualifiedLead event failed:', err))
-  }
+  // QualifiedLead a Meta CAPI deshabilitado (doc de aprobación §3):
+  // temperature==='HOT' del calificador IA por sí solo no es la "regla
+  // versionada completa" que exige la spec. Reactivar junto con esa regla.
 
   return updated
 }

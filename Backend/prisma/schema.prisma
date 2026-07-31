@@ -417,6 +417,10 @@ model Contact {
   phone              String?
   avatarUrl          String?              @map("avatar_url")
   source             String
+  // Onboarding session identity (dc_events_v2_metria) — same value the
+  // browser's cookie/Pixel used, so CAPI event_id (dc:v2:<sessionId>:...)
+  // can eventually dedupe against a client-side Pixel call for the same hito.
+  sessionId          String?              @map("session_id")
   sourceCampaignId   String?              @map("source_campaign_id")
   shopifyCustomerId  String?              @map("shopify_customer_id")
   status             String               @default("LEAD")
@@ -468,6 +472,7 @@ model Contact {
 
   @@unique([workspaceId, email])
   @@unique([workspaceId, phone])
+  @@unique([workspaceId, source, sessionId])
   @@index([workspaceId, status])
   @@map("contacts")
 }
@@ -486,7 +491,7 @@ model ConversionEvent {
   eventId            String    @map("event_id")
   actionSource       String    @map("action_source")
   occurredAt         DateTime  @map("occurred_at")
-  payloadVersion     String    @default("dc_events_v1") @map("payload_version")
+  payloadVersion     String    @default("dc_events_v2_metria") @map("payload_version")
   payloadHash        String    @map("payload_hash")
   // Full request body sent to Meta, kept for audit + retry. user_data only
   // ever contains hashed PII (em/ph) plus the fields the spec explicitly
@@ -655,6 +660,13 @@ model Deal {
   sourceChannelId  String?       @map("source_channel_id")
   probability      Int?          @map("probability")
   expectedCloseAt  DateTime?     @map("expected_close_at")
+  // Purchase CAPI gate (dc_events_v2_metria spec): a deal reaching the WON
+  // stage is not itself evidence of a sale — Purchase must not fire unless
+  // all four of these are set. See pipeline.service.ts hasConfirmedPurchase.
+  contractId                 String?   @map("contract_id")
+  contractSignedAt           DateTime? @map("contract_signed_at")
+  initialPaymentConfirmedAt  DateTime? @map("initial_payment_confirmed_at")
+  confirmedContractValue     Decimal?  @db.Decimal(10, 2) @map("confirmed_contract_value")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
   contact          Contact       @relation(fields: [contactId], references: [id])

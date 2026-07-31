@@ -2,6 +2,17 @@ import { prisma } from '../../lib/prisma'
 import { emitContactEvent } from '../automation/emit'
 import { emitMetaPurchaseEvent } from '../meta-events/metaEvents.service'
 
+// Purchase must not fire on a stage move alone — requires contrato firmado
+// + pago inicial confirmado (dc_events_v2_metria spec §10).
+function hasConfirmedPurchase(deal: {
+  contractId: string | null
+  contractSignedAt: Date | null
+  initialPaymentConfirmedAt: Date | null
+  confirmedContractValue: unknown
+}): boolean {
+  return !!(deal.contractId && deal.contractSignedAt && deal.initialPaymentConfirmedAt && deal.confirmedContractValue)
+}
+
 const DEFAULT_STAGES = [
   { name: 'Lead', color: '#94a3b8', order: 1, isWon: false, isLost: false },
   { name: 'Calificado', color: '#818cf8', order: 2, isWon: false, isLost: false },
@@ -106,8 +117,12 @@ export async function moveDeal(workspaceId: string, dealId: string, stageId: str
     await emitContactEvent(workspaceId, deal.contactId, 'DEAL_WON', `Deal ganado: ${deal.title}`, undefined, meta)
     const contact = await prisma.contact.findUnique({ where: { id: deal.contactId } })
     if (contact) {
-      emitMetaPurchaseEvent(workspaceId, contact, deal.id, Number(deal.value), deal.currency)
-        .catch(err => console.error('[Pipeline] Purchase event failed:', err))
+      if (hasConfirmedPurchase(deal)) {
+        emitMetaPurchaseEvent(workspaceId, contact, deal.id, Number(deal.confirmedContractValue), deal.currency)
+          .catch(err => console.error('[Pipeline] Purchase event failed:', err))
+      } else {
+        console.warn(`[Pipeline] Deal ${deal.id} movido a WON sin contrato firmado + pago confirmado — Purchase no emitido`)
+      }
     }
   } else if (stage.isLost) {
     await emitContactEvent(workspaceId, deal.contactId, 'DEAL_LOST', `Deal perdido: ${deal.title}`, undefined, meta)
@@ -144,8 +159,12 @@ export async function closeDeal(
   if (outcome === 'WON') {
     const contact = await prisma.contact.findUnique({ where: { id: deal.contactId } })
     if (contact) {
-      emitMetaPurchaseEvent(workspaceId, contact, deal.id, Number(deal.value), deal.currency)
-        .catch(err => console.error('[Pipeline] Purchase event failed:', err))
+      if (hasConfirmedPurchase(deal)) {
+        emitMetaPurchaseEvent(workspaceId, contact, deal.id, Number(deal.confirmedContractValue), deal.currency)
+          .catch(err => console.error('[Pipeline] Purchase event failed:', err))
+      } else {
+        console.warn(`[Pipeline] Deal ${deal.id} cerrado WON sin contrato firmado + pago confirmado — Purchase no emitido`)
+      }
     }
   }
 
@@ -216,6 +235,13 @@ export async function updateDeal(
     probability?: number | null
     expectedCloseAt?: string | null
     assignedToUserId?: string | null
+    // Purchase CAPI gate — see hasConfirmedPurchase(). No route/UI sets
+    // these yet; that's a separate follow-up, but the field is here so one
+    // can be wired without another schema change.
+    contractId?: string | null
+    contractSignedAt?: string | null
+    initialPaymentConfirmedAt?: string | null
+    confirmedContractValue?: number | null
   }
 ) {
   const deal = await prisma.deal.findFirst({ where: { id: dealId, workspaceId } })
@@ -229,6 +255,14 @@ export async function updateDeal(
     updateData.expectedCloseAt = data.expectedCloseAt ? new Date(data.expectedCloseAt) : null
   }
   if (data.assignedToUserId !== undefined) updateData.assignedToUserId = data.assignedToUserId
+  if (data.contractId !== undefined) updateData.contractId = data.contractId
+  if (data.contractSignedAt !== undefined) {
+    updateData.contractSignedAt = data.contractSignedAt ? new Date(data.contractSignedAt) : null
+  }
+  if (data.initialPaymentConfirmedAt !== undefined) {
+    updateData.initialPaymentConfirmedAt = data.initialPaymentConfirmedAt ? new Date(data.initialPaymentConfirmedAt) : null
+  }
+  if (data.confirmedContractValue !== undefined) updateData.confirmedContractValue = data.confirmedContractValue
 
   return prisma.deal.update({
     where: { id: dealId },

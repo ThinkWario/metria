@@ -4,7 +4,7 @@ import { normalizePhone } from '../../lib/phoneFormat'
 import { suggestFieldMappings, qualifyLead } from './sheets.agent'
 import { sendOutboundPlatformMessage } from '../messaging/message.service'
 import { sendWhatsAppTemplateMessage } from '../messaging/channels/whatsapp.service'
-import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
+import { emitMetaContactEvent, emitMetaLeadEvent } from '../meta-events/metaEvents.service'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 const API_KEY = process.env.GOOGLE_SHEETS_API_KEY
@@ -12,6 +12,14 @@ const API_KEY = process.env.GOOGLE_SHEETS_API_KEY
 export function extractSheetId(url: string): string | null {
   const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
   return match ? match[1] : null
+}
+
+// Real per-row consent evidence only — a checkbox/column value the person
+// actually saw and ticked, never inferred from the integration being
+// configured at all (dc_events_v2_metria gate: no consent = never sent).
+function isAffirmativeConsent(value: string | undefined): boolean {
+  if (!value) return false
+  return ['true', '1', 'si', 'sí', 'yes', 'x'].includes(value.trim().toLowerCase())
 }
 
 async function sheetsGet(path: string): Promise<any> {
@@ -232,6 +240,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
     : null
 
   const sessionIdCol = mappings.sessionId ? headers.indexOf(mappings.sessionId) : -1
+  const consentCol = mappings.consentAccepted ? headers.indexOf(mappings.consentAccepted) : -1
   const eventCol = mappings.eventColumn ? headers.indexOf(mappings.eventColumn) : -1
   const eventFilter = mappings.eventFilter as string | undefined
   const nameCol = mappings.name ? headers.indexOf(mappings.name) : -1
@@ -248,16 +257,24 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
 
   for (const [rowIndex, row] of rows.entries()) {
     try {
-      // Falls back to the row's position when no sessionId column is mapped
-      // — sheets fed by form responses are append-only, so the row index is
-      // a stable identity for dedup purposes even without an explicit ID
-      // column. Without this, every sync without a sessionId mapping would
-      // re-import every row from scratch.
-      const sessionId = sessionIdCol >= 0 ? row[sessionIdCol] : `_row${rowIndex}`
+      // No row-position fallback — a spreadsheet row index is not a session
+      // identity (dc_events_v2_metria spec, doc de aprobación §2.B). An
+      // integration without fieldMappings.sessionId configured simply can't
+      // import rows until it's mapped; that's a config gap to surface via
+      // logs/soporte, not something to paper over silently.
+      const sessionId: string | undefined = sessionIdCol >= 0 ? row[sessionIdCol] : undefined
+      if (!sessionId) {
+        skipped++
+        if (sessionIdCol < 0) console.warn(`[SheetsSync] integration ${integration.id}: fieldMappings.sessionId no está configurado — fila ${rowIndex} omitida`)
+        continue
+      }
 
-      if (sessionId && importedIds.has(sessionId)) { skipped++; continue }
+      if (importedIds.has(sessionId)) { skipped++; continue }
 
       const isComplete = !eventFilter || eventCol < 0 || row[eventCol]?.toLowerCase() === eventFilter.toLowerCase()
+      // Real evidence this specific row/person consented — never inferred
+      // from the integration merely having a consent version configured.
+      const rowConsentGranted = consentCol >= 0 && isAffirmativeConsent(row[consentCol])
 
       const name = nameCol >= 0 ? row[nameCol]?.trim() : ''
       const email = emailCol >= 0 ? row[emailCol]?.trim() : ''
@@ -319,7 +336,8 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
         contact = await prisma.contact.create({
           data: {
             workspaceId: integration.workspaceId,
-            name: name || `Lead ${integration.campaignLabel ?? 'Sheet'} (${sessionId?.slice(0, 8) ?? 'sin ID'})`,
+            sessionId,
+            name: name || `Lead ${integration.campaignLabel ?? 'Sheet'} (${sessionId.slice(0, 8)})`,
             email: email || null,
             phone: phone || null,
             source: 'google_sheets',
@@ -330,11 +348,13 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
               : qualResult?.qualificationStatus === 'REVISAR' ? 'WARM' : 'COLD',
             qualificationData,
             firstSeenAt: new Date(),
-            // Consent is only stamped when the integration has an explicit
-            // consent version configured — otherwise Contact/Lead/QualifiedLead
+            // Consent is only stamped when this row shows real evidence of
+            // consent (mapped column, affirmative value) AND the integration
+            // has a consent version configured to attach — never from the
+            // integration flag alone. Otherwise Contact/Lead/QualifiedLead
             // stay ungated-but-unsent (metaEvents.capi's consent check).
-            ...(integration.metaConsentVersion
-              ? { consentVersion: integration.metaConsentVersion, consentAt: new Date(), consentStatus: 'implicit_form_submission' }
+            ...(integration.metaConsentVersion && rowConsentGranted
+              ? { consentVersion: integration.metaConsentVersion, consentAt: new Date(), consentStatus: 'granted' }
               : {}),
           },
         })
@@ -343,20 +363,18 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
       // Contact + Lead only fire for genuinely-submitted rows (isComplete) —
       // an "Incompleto"-tagged partial row isn't a confirmed business moment yet.
       if (isNewContact && isComplete) {
-        emitMetaContactEvent(integration.workspaceId, contact, 'system_generated')
+        emitMetaContactEvent(integration.workspaceId, contact, 'system_generated', undefined, sessionId)
           .catch(err => console.error('[SheetsSync] Contact event failed:', err))
-        emitMetaLeadEvent(integration.workspaceId, contact, 'system_generated')
+        emitMetaLeadEvent(integration.workspaceId, contact, 'system_generated', undefined, sessionId)
           .catch(err => console.error('[SheetsSync] Lead event failed:', err))
       }
 
-      // QualifiedLead — deterministic event_id (dc:v1:<leadId>:QualifiedLead)
-      // means re-syncing an already-qualified contact safely no-ops via the
-      // unique(pixelId,eventName,eventId) constraint instead of re-sending.
-      if (isComplete && qualResult?.qualificationStatus === 'CALIFICA') {
-        emitMetaQualifiedLeadEvent(integration.workspaceId, contact, 'system_generated', {
-          qualificationVersion: integration.qualificationRules ? 'sheets_rules_v1' : 'sheets_default_v1'
-        }).catch(err => console.error('[SheetsSync] QualifiedLead event failed:', err))
-      }
+      // QualifiedLead a Meta CAPI deshabilitado (doc de aprobación §3):
+      // qualResult.qualificationStatus === 'CALIFICA' por sí solo no es la
+      // "regla versionada completa" que exige la spec (cobertura, propietario/
+      // decisor, aptitud técnica, banda de boleta, siguiente paso confirmado,
+      // + validación humana). Reactivar la llamada a emitMetaQualifiedLeadEvent
+      // solo junto con esa regla real.
 
       const customFieldValues: Record<string, string> = {}
       for (const [sheetCol, defKey] of Object.entries(customFieldMappings)) {
