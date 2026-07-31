@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,6 +50,12 @@ export function MetaIntegrationCard({ integration, token, needsAdAccount: initia
     const [disconnecting, setDisconnecting] = useState(false)
     const [pixelId, setPixelId] = useState(integration?.config?.pixelId ?? '')
     const [savingPixel, setSavingPixel] = useState(false)
+
+    // integration arrives async (React Query resolves after mount) — resync once real data lands
+    useEffect(() => {
+        setAdAccountId(integration?.config?.adAccountId ?? '')
+        setPixelId(integration?.config?.pixelId ?? '')
+    }, [integration?.config?.adAccountId, integration?.config?.pixelId])
 
     const handleDisconnect = async () => {
         if (!confirm('¿Desconectar Meta? Esto eliminará la integración y los canales de Instagram y Messenger.')) return
