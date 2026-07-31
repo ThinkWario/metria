@@ -53,3 +53,32 @@ export async function getMetaEventsSummaryHandler(req: Request, res: Response): 
     res.status(500).json({ error: 'Failed to load meta events summary' })
   }
 }
+
+/**
+ * Per-send detail (bobyads 31jul, "Metria": mostrar estado y respuesta de
+ * cada envío CAPI) — the summary above only aggregates counts; this exposes
+ * the individual ConversionEvent rows (status, Meta's HTTP status,
+ * fbtrace_id, error) already recorded by sendAndRecord().
+ */
+export async function getMetaEventsRecentHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const limit = Math.min(Number(req.query.limit) || 50, 200)
+
+    const rows = await prisma.conversionEvent.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true, eventName: true, eventId: true, status: true,
+        metaHttpStatus: true, metaEventsReceived: true, metaFbtraceId: true,
+        lastErrorCode: true, attemptCount: true, createdAt: true, sentAt: true
+      }
+    })
+
+    res.json({ events: rows })
+  } catch (err) {
+    console.error('[MetaEvents] recent error:', err)
+    res.status(500).json({ error: 'Failed to load recent meta events' })
+  }
+}

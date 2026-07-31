@@ -14,7 +14,7 @@ const CAPI_API_VERSION = 'v19.0'
 const MAX_ATTEMPTS = 5
 
 export type MetaEventName =
-  | 'Contact' | 'Lead' | 'SubmitApplication' | 'QualifiedLead'
+  | 'Contact' | 'Lead' | 'SubmitApplication' | 'FinanceApplicationSubmitted' | 'QualifiedLead'
   | 'Schedule' | 'TechnicalReviewCompleted' | 'FinalProposalSent' | 'Purchase'
 
 export type ActionSource = 'website' | 'chat' | 'phone_call' | 'system_generated'

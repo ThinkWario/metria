@@ -25,10 +25,21 @@ vi.mock('../../messaging/message.service', () => ({
   sendOutboundPlatformMessage: vi.fn(async () => ({ id: 'msg-1', sentAt: new Date() }))
 }))
 
+vi.mock('../../meta-events/metaEvents.service', () => ({
+  emitMetaContactEvent: vi.fn(async () => {}),
+  emitMetaLeadEvent: vi.fn(async () => {}),
+  emitMetaFinanceApplicationSubmittedEvent: vi.fn(async () => {})
+}))
+
 import { syncSheet, analyzeSheet } from '../sheets.service'
 import { prisma } from '../../../lib/prisma'
 import { suggestFieldMappings, qualifyLead } from '../sheets.agent'
 import { sendOutboundPlatformMessage } from '../../messaging/message.service'
+import {
+  emitMetaContactEvent,
+  emitMetaLeadEvent,
+  emitMetaFinanceApplicationSubmittedEvent
+} from '../../meta-events/metaEvents.service'
 
 const WS_ID = 'ws-1'
 const INTEGRATION_ID = 'integ-1'
@@ -524,5 +535,92 @@ describe('syncSheet AI stage routing', () => {
     expect(prisma.deal.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ stageId: 'stage-1' }) })
     )
+  })
+})
+
+describe('syncSheet consent gating and financing events (bobyads 31jul)', () => {
+  it('logs an explicit "omitido por consentimiento" rowError and skips Contact/Lead when a new complete row has no consent recorded', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' } }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    mockSheetRows([['Ana', '9 1234 5678']])
+
+    const result = await syncSheet(INTEGRATION_ID)
+
+    expect(result.rowErrors).toEqual([expect.stringContaining('CAPI omitido — sin consentimiento registrado')])
+    expect(emitMetaContactEvent).not.toHaveBeenCalled()
+    expect(emitMetaLeadEvent).not.toHaveBeenCalled()
+  })
+
+  it('fires Contact/Lead without a consent-omitted error when the row\'s mapped consent column is affirmative', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID', consentAccepted: 'Consiente' }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ values: [['Nombre', 'Telefono', 'SID', 'Consiente'], ['Ana', '9 1234 5678', 'sess-1', 'true']] })
+    } as any)
+
+    const result = await syncSheet(INTEGRATION_ID)
+
+    expect(result.rowErrors).toEqual([])
+    expect(emitMetaContactEvent).toHaveBeenCalledWith(WS_ID, expect.objectContaining({ id: 'c1' }), 'system_generated', undefined, 'sess-1')
+    expect(emitMetaLeadEvent).toHaveBeenCalledWith(WS_ID, expect.objectContaining({ id: 'c1' }), 'system_generated', undefined, 'sess-1')
+  })
+
+  it('fires FinanceApplicationSubmitted only when the financing column has a value and consent is granted', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: {
+          name: 'Nombre', phone: 'Telefono', sessionId: 'SID',
+          consentAccepted: 'Consiente', financingApplication: 'IngresoMensual'
+        }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        values: [
+          ['Nombre', 'Telefono', 'SID', 'Consiente', 'IngresoMensual'],
+          ['Ana', '9 1234 5678', 'sess-1', 'true', '1500000']
+        ]
+      })
+    } as any)
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(emitMetaFinanceApplicationSubmittedEvent).toHaveBeenCalledWith(WS_ID, expect.objectContaining({ id: 'c1' }), 'system_generated', 'sess-1')
+  })
+
+  it('does not fire FinanceApplicationSubmitted when the financing column is empty', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({
+        fieldMappings: {
+          name: 'Nombre', phone: 'Telefono', sessionId: 'SID',
+          consentAccepted: 'Consiente', financingApplication: 'IngresoMensual'
+        }
+      }) as any
+    )
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        values: [
+          ['Nombre', 'Telefono', 'SID', 'Consiente', 'IngresoMensual'],
+          ['Ana', '9 1234 5678', 'sess-1', 'true', '']
+        ]
+      })
+    } as any)
+
+    await syncSheet(INTEGRATION_ID)
+
+    expect(emitMetaFinanceApplicationSubmittedEvent).not.toHaveBeenCalled()
   })
 })

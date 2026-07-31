@@ -64,6 +64,19 @@ export async function emitMetaLeadEvent(
   })
 }
 
+export async function emitMetaFinanceApplicationSubmittedEvent(
+  workspaceId: string,
+  contact: ContactLike,
+  actionSource: ActionSource,
+  sessionId?: string
+): Promise<void> {
+  await emitConversionEvent({
+    workspaceId, leadId: contact.id, eventName: 'FinanceApplicationSubmitted', actionSource,
+    occurredAt: new Date(), contact: toContactData(contact),
+    eventIdSubject: sessionId
+  })
+}
+
 export async function emitMetaQualifiedLeadEvent(
   workspaceId: string,
   contact: ContactLike,

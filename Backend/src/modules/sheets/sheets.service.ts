@@ -4,7 +4,7 @@ import { normalizePhone } from '../../lib/phoneFormat'
 import { suggestFieldMappings, qualifyLead } from './sheets.agent'
 import { sendOutboundPlatformMessage } from '../messaging/message.service'
 import { sendWhatsAppTemplateMessage } from '../messaging/channels/whatsapp.service'
-import { emitMetaContactEvent, emitMetaLeadEvent } from '../meta-events/metaEvents.service'
+import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent } from '../meta-events/metaEvents.service'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 const API_KEY = process.env.GOOGLE_SHEETS_API_KEY
@@ -257,6 +257,7 @@ async function runSync(integrationId: string): Promise<SyncResult> {
   // below (QA 30jul §4 P1: auditar qué versión del texto vio esta persona
   // puntual, no sólo un valor fijo para toda la integración).
   const consentVersionCol = mappings.consentVersion ? headers.indexOf(mappings.consentVersion) : -1
+  const financingCol = mappings.financingApplication ? headers.indexOf(mappings.financingApplication) : -1
   const eventCol = mappings.eventColumn ? headers.indexOf(mappings.eventColumn) : -1
   const eventFilter = mappings.eventFilter as string | undefined
   const nameCol = mappings.name ? headers.indexOf(mappings.name) : -1
@@ -308,6 +309,7 @@ async function runSync(integrationId: string): Promise<SyncResult> {
       // from the integration merely having a consent version configured.
       const rowConsentGranted = consentCol >= 0 && isAffirmativeConsent(row[consentCol])
       const rowConsentVersion = consentVersionCol >= 0 ? row[consentVersionCol]?.trim() : ''
+      const rowIsFinancingApplication = financingCol >= 0 && !!row[financingCol]?.trim()
 
       const name = nameCol >= 0 ? row[nameCol]?.trim() : ''
       const email = emailCol >= 0 ? row[emailCol]?.trim() : ''
@@ -418,10 +420,24 @@ async function runSync(integrationId: string): Promise<SyncResult> {
       // Contact + Lead only fire for genuinely-submitted rows (isComplete) —
       // an "Incompleto"-tagged partial row isn't a confirmed business moment yet.
       if (isNewContact && isComplete) {
-        emitMetaContactEvent(integration.workspaceId, contact, 'system_generated', undefined, sessionId)
-          .catch(err => console.error('[SheetsSync] Contact event failed:', err))
-        emitMetaLeadEvent(integration.workspaceId, contact, 'system_generated', undefined, sessionId)
-          .catch(err => console.error('[SheetsSync] Lead event failed:', err))
+        if (rowConsentGranted) {
+          emitMetaContactEvent(integration.workspaceId, contact, 'system_generated', undefined, sessionId)
+            .catch(err => console.error('[SheetsSync] Contact event failed:', err))
+          emitMetaLeadEvent(integration.workspaceId, contact, 'system_generated', undefined, sessionId)
+            .catch(err => console.error('[SheetsSync] Lead event failed:', err))
+        } else {
+          // metaEvents.capi's own consent gate would silently drop these too
+          // (freshContact.consentStatus check) — logged explicitly here so
+          // it shows up in lastSyncError/SheetCard instead of only a server
+          // console.warn (bobyads 31jul, "Metria": registrar explícitamente
+          // "omitido por consentimiento").
+          rowErrors.push(`Fila ${rowIndex + 1} (session ${sessionId}): CAPI omitido — sin consentimiento registrado en la fila`)
+        }
+      }
+
+      if (isComplete && rowConsentGranted && rowIsFinancingApplication) {
+        emitMetaFinanceApplicationSubmittedEvent(integration.workspaceId, contact, 'system_generated', sessionId)
+          .catch(err => console.error('[SheetsSync] FinanceApplicationSubmitted event failed:', err))
       }
 
       // QualifiedLead a Meta CAPI deshabilitado (doc de aprobación §3):

@@ -14,7 +14,9 @@ const CRM_FIELDS = `
 - metaCampaignId, metaAdsetId, metaAdId: IDs de campaña/conjunto/anuncio de Meta Ads
 - fbclid, fbc, fbp: identificadores de clic/cookie de Meta para deduplicación de CAPI
 - landingUrl, referrer: URL de aterrizaje y referrer de la primera visita
+- consentAccepted: columna con el valor real de consentimiento marcado por la persona (checkbox/booleano)
 - consentVersion: columna con la versión del texto legal de consentimiento que la persona vio
+- financingApplication: columna que solo tiene valor cuando la persona completó la solicitud de pre-calificación financiera (ej: "Ingreso Mensual")
 `
 
 export interface FieldMappings {
@@ -37,7 +39,9 @@ export interface FieldMappings {
   fbp?: string
   landingUrl?: string
   referrer?: string
+  consentAccepted?: string
   consentVersion?: string
+  financingApplication?: string
 }
 
 export interface SuggestedAnalysis {

@@ -23,19 +23,41 @@ interface Summary {
     note: string
 }
 
+interface ConversionEventRow {
+    id: string
+    eventName: string
+    eventId: string
+    status: string
+    metaHttpStatus: number | null
+    metaEventsReceived: number | null
+    metaFbtraceId: string | null
+    lastErrorCode: string | null
+    attemptCount: number
+    createdAt: string
+    sentAt: string | null
+}
+
+const STATUS_STYLES: Record<string, string> = {
+    sent: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+    pending: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+    retry: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+    failed: 'bg-red-500/10 text-red-500 border-red-500/20',
+}
+
 export default function MetaEventsClient() {
     const [mounted, setMounted] = useState(false)
     const [summary, setSummary] = useState<Summary | null>(null)
+    const [recent, setRecent] = useState<ConversionEventRow[] | null>(null)
     const [loading, setLoading] = useState(true)
 
     useEffect(() => setMounted(true), [])
 
     useEffect(() => {
         if (!mounted) return
-        fetchAPI('/meta-events/summary')
-            .then(setSummary)
-            .catch(() => setSummary(null))
-            .finally(() => setLoading(false))
+        Promise.all([
+            fetchAPI('/meta-events/summary').then(setSummary).catch(() => setSummary(null)),
+            fetchAPI('/meta-events/recent').then(res => setRecent(res.events)).catch(() => setRecent(null)),
+        ]).finally(() => setLoading(false))
     }, [mounted])
 
     if (!mounted || loading) {
@@ -102,6 +124,49 @@ export default function MetaEventsClient() {
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">Envíos recientes</CardTitle>
+                            <CardDescription className="text-xs">Estado y respuesta de Meta para cada evento enviado (último primero).</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {!recent || recent.length === 0 ? (
+                                <p className="text-sm text-muted-foreground text-center py-6">Sin envíos registrados.</p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-xs">
+                                        <thead>
+                                            <tr className="text-left text-muted-foreground border-b border-border/50">
+                                                <th className="py-2 pr-3 font-medium">Evento</th>
+                                                <th className="py-2 pr-3 font-medium">Estado</th>
+                                                <th className="py-2 pr-3 font-medium">HTTP</th>
+                                                <th className="py-2 pr-3 font-medium">fbtrace_id</th>
+                                                <th className="py-2 pr-3 font-medium">Error</th>
+                                                <th className="py-2 pr-3 font-medium">Intentos</th>
+                                                <th className="py-2 pr-3 font-medium">Enviado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {recent.map(ev => (
+                                                <tr key={ev.id} className="border-b border-border/30 last:border-0">
+                                                    <td className="py-2 pr-3 font-medium">{ev.eventName}</td>
+                                                    <td className="py-2 pr-3">
+                                                        <Badge variant="outline" className={`text-[10px] ${STATUS_STYLES[ev.status] ?? ''}`}>{ev.status}</Badge>
+                                                    </td>
+                                                    <td className="py-2 pr-3">{ev.metaHttpStatus ?? '—'}</td>
+                                                    <td className="py-2 pr-3 font-mono text-[10px] text-muted-foreground">{ev.metaFbtraceId ?? '—'}</td>
+                                                    <td className="py-2 pr-3 text-red-500">{ev.lastErrorCode ?? '—'}</td>
+                                                    <td className="py-2 pr-3">{ev.attemptCount}</td>
+                                                    <td className="py-2 pr-3 text-muted-foreground">{ev.sentAt ? new Date(ev.sentAt).toLocaleString('es-CL') : '—'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
                             )}
                         </CardContent>

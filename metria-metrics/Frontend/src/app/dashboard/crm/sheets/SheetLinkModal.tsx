@@ -72,7 +72,9 @@ const CRM_MAPPING_FIELDS: { key: string; label: string; required?: boolean }[] =
   { key: 'fbp', label: 'fbp' },
   { key: 'landingUrl', label: 'Landing URL' },
   { key: 'referrer', label: 'Referrer' },
+  { key: 'consentAccepted', label: 'Consentimiento aceptado' },
   { key: 'consentVersion', label: 'Versión Consentimiento' },
+  { key: 'financingApplication', label: 'Solicitud de financiamiento' },
 ]
 
 interface Props {
