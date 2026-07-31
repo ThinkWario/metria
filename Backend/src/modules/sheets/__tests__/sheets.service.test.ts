@@ -41,7 +41,7 @@ function baseIntegration(overrides: Record<string, unknown> = {}) {
     sheetName: 'Leads Solar',
     campaignLabel: 'campana-1',
     isActive: true,
-    fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+    fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' },
     qualificationFields: null,
     qualificationRules: null,
     importFilter: 'ALL',
@@ -65,10 +65,16 @@ afterEach(() => {
   global.fetch = originalFetch
 })
 
+// Appends a synthetic 'SID' column so every row has the session identity
+// sheets.service.ts now requires to import anything (dc_events_v2_metria:
+// no row-position fallback) — callers don't need to think about it unless
+// a test is specifically exercising the unmapped-sessionId path.
 function mockSheetRows(rows: string[][]) {
   vi.mocked(global.fetch).mockResolvedValue({
     ok: true,
-    json: async () => ({ values: [['Nombre', 'Telefono'], ...rows] })
+    json: async () => ({
+      values: [['Nombre', 'Telefono', 'SID'], ...rows.map((r, i) => [...r, `sess-${i + 1}`])]
+    })
   } as any)
 }
 
@@ -201,20 +207,16 @@ describe('syncSheet dedup safeguards', () => {
     expect([r1, r2]).toContainEqual({ imported: 0, skipped: 0, errors: 0 })
   })
 
-  it('falls back to row position for dedup when no sessionId column is mapped, so re-syncing does not reimport', async () => {
-    let integration = baseIntegration()
-    vi.mocked(prisma.sheetIntegration.findUnique).mockImplementation((async () => integration) as any)
-    vi.mocked(prisma.sheetIntegration.update).mockImplementation((async ({ data }: any) => {
-      integration = { ...integration, importedSessionIds: [...integration.importedSessionIds, ...data.importedSessionIds.push] } as any
-      return integration
-    }) as any)
-    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678' } as any)
+  it('skips every row and imports nothing when no sessionId column is mapped (no row-position fallback)', async () => {
+    vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
+      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono' } }) as any
+    )
     mockSheetRows([['Ana', '9 1234 5678']])
 
-    await syncSheet(INTEGRATION_ID)
-    await syncSheet(INTEGRATION_ID)
+    const result = await syncSheet(INTEGRATION_ID)
 
-    expect(prisma.contact.create).toHaveBeenCalledTimes(1)
+    expect(prisma.contact.create).not.toHaveBeenCalled()
+    expect(result).toEqual({ imported: 0, skipped: 1, errors: 0 })
   })
 
   it('dedupes deals by contact + pipeline, not by a fragile title substring match', async () => {
@@ -235,7 +237,7 @@ describe('syncSheet dedup safeguards', () => {
 describe('syncSheet column exclusion + custom field mapping', () => {
   it('omits excluded columns from qualificationData.rawFields', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
-      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono' }, excludedColumns: ['Telefono'] }) as any
+      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' }, excludedColumns: ['Telefono'] }) as any
     )
     vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
     vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678' } as any)
@@ -251,7 +253,7 @@ describe('syncSheet column exclusion + custom field mapping', () => {
   it('writes customFieldMappings values onto contact.customFields for a newly-created contact', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' },
         customFieldMappings: { Nombre: 'display_name' }
       }) as any
     )
@@ -270,7 +272,7 @@ describe('syncSheet column exclusion + custom field mapping', () => {
   it('merges customFieldMappings values into an already-existing contact\'s customFields', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' },
         customFieldMappings: { Nombre: 'display_name' }
       }) as any
     )
@@ -289,7 +291,7 @@ describe('syncSheet column exclusion + custom field mapping', () => {
   it('resolves qualificationKeyMappings onto the root of qualificationData (not just rawFields)', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' },
         qualificationKeyMappings: { Nombre: 'contact_name_key' }
       }) as any
     )
@@ -307,7 +309,7 @@ describe('syncSheet column exclusion + custom field mapping', () => {
   it('skips a qualificationKeyMappings entry when the sheet cell is empty', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' },
         qualificationKeyMappings: { Telefono: 'phone_key' }
       }) as any
     )
@@ -326,7 +328,7 @@ describe('syncSheet incomplete-lead capture', () => {
   it('still creates the contact and deal when the row fails the eventFilter, tagged Incompleto', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono', eventColumn: 'Evento', eventFilter: 'completo' }
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID', eventColumn: 'Evento', eventFilter: 'completo' }
       }) as any
     )
     vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
@@ -334,7 +336,7 @@ describe('syncSheet incomplete-lead capture', () => {
     vi.mocked(prisma.deal.findFirst).mockResolvedValue(null)
     vi.mocked(global.fetch).mockResolvedValue({
       ok: true,
-      json: async () => ({ values: [['Nombre', 'Telefono', 'Evento'], ['Ana', '9 1234 5678', 'iniciado']] })
+      json: async () => ({ values: [['Nombre', 'Telefono', 'SID', 'Evento'], ['Ana', '9 1234 5678', 'sess-1', 'iniciado']] })
     } as any)
 
     const result = await syncSheet(INTEGRATION_ID)
@@ -351,14 +353,14 @@ describe('syncSheet incomplete-lead capture', () => {
   it('removes the Incompleto tag when a later sync sees the same lead now matching the eventFilter', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono', eventColumn: 'Evento', eventFilter: 'completo' }
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID', eventColumn: 'Evento', eventFilter: 'completo' }
       }) as any
     )
     vi.mocked(prisma.contact.findUnique).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
     vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'deal-1' } as any)
     vi.mocked(global.fetch).mockResolvedValue({
       ok: true,
-      json: async () => ({ values: [['Nombre', 'Telefono', 'Evento'], ['Ana', '9 1234 5678', 'completo']] })
+      json: async () => ({ values: [['Nombre', 'Telefono', 'SID', 'Evento'], ['Ana', '9 1234 5678', 'sess-1', 'completo']] })
     } as any)
 
     await syncSheet(INTEGRATION_ID)
@@ -429,7 +431,7 @@ describe('syncSheet AI stage routing', () => {
   it('routes a CALIFICA lead to the mapped stage instead of targetStageId', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' },
         qualificationFields: ['Nombre'],
         stageRouting: { CALIFICA: 'stage-hot', NO_CALIFICA: 'stage-cold' }
       }) as any
@@ -449,7 +451,7 @@ describe('syncSheet AI stage routing', () => {
   it('falls back to targetStageId when the qualified status has no mapping', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
       baseIntegration({
-        fieldMappings: { name: 'Nombre', phone: 'Telefono' },
+        fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' },
         qualificationFields: ['Nombre'],
         stageRouting: { CALIFICA: 'stage-hot' }
       }) as any
@@ -468,7 +470,7 @@ describe('syncSheet AI stage routing', () => {
 
   it('falls back to targetStageId when no stageRouting is configured at all', async () => {
     vi.mocked(prisma.sheetIntegration.findUnique).mockResolvedValue(
-      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono' } }) as any
+      baseIntegration({ fieldMappings: { name: 'Nombre', phone: 'Telefono', sessionId: 'SID' } }) as any
     )
     vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
     vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c1', name: 'Ana', phone: '56912345678', customFields: null } as any)
