@@ -241,6 +241,10 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
 
   const sessionIdCol = mappings.sessionId ? headers.indexOf(mappings.sessionId) : -1
   const consentCol = mappings.consentAccepted ? headers.indexOf(mappings.consentAccepted) : -1
+  // Per-row consent text version — takes priority over integration.metaConsentVersion
+  // below (QA 30jul §4 P1: auditar qué versión del texto vio esta persona
+  // puntual, no sólo un valor fijo para toda la integración).
+  const consentVersionCol = mappings.consentVersion ? headers.indexOf(mappings.consentVersion) : -1
   const eventCol = mappings.eventColumn ? headers.indexOf(mappings.eventColumn) : -1
   const eventFilter = mappings.eventFilter as string | undefined
   const nameCol = mappings.name ? headers.indexOf(mappings.name) : -1
@@ -290,6 +294,7 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
       // Real evidence this specific row/person consented — never inferred
       // from the integration merely having a consent version configured.
       const rowConsentGranted = consentCol >= 0 && isAffirmativeConsent(row[consentCol])
+      const rowConsentVersion = consentVersionCol >= 0 ? row[consentVersionCol]?.trim() : ''
 
       const name = nameCol >= 0 ? row[nameCol]?.trim() : ''
       const email = emailCol >= 0 ? row[emailCol]?.trim() : ''
@@ -377,8 +382,8 @@ async function runSync(integrationId: string): Promise<{ imported: number; skipp
             // has a consent version configured to attach — never from the
             // integration flag alone. Otherwise Contact/Lead/QualifiedLead
             // stay ungated-but-unsent (metaEvents.capi's consent check).
-            ...(integration.metaConsentVersion && rowConsentGranted
-              ? { consentVersion: integration.metaConsentVersion, consentAt: new Date(), consentStatus: 'granted' }
+            ...(rowConsentGranted && (rowConsentVersion || integration.metaConsentVersion)
+              ? { consentVersion: rowConsentVersion || integration.metaConsentVersion, consentAt: new Date(), consentStatus: 'granted' }
               : {}),
           },
         })

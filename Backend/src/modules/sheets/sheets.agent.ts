@@ -14,6 +14,7 @@ const CRM_FIELDS = `
 - metaCampaignId, metaAdsetId, metaAdId: IDs de campaña/conjunto/anuncio de Meta Ads
 - fbclid, fbc, fbp: identificadores de clic/cookie de Meta para deduplicación de CAPI
 - landingUrl, referrer: URL de aterrizaje y referrer de la primera visita
+- consentVersion: columna con la versión del texto legal de consentimiento que la persona vio
 `
 
 export interface FieldMappings {
@@ -36,6 +37,7 @@ export interface FieldMappings {
   fbp?: string
   landingUrl?: string
   referrer?: string
+  consentVersion?: string
 }
 
 export interface SuggestedAnalysis {
@@ -80,7 +82,8 @@ Responde SOLO con JSON válido, sin markdown, sin explicaciones:
     "fbc": "nombre_columna_o_null",
     "fbp": "nombre_columna_o_null",
     "landingUrl": "nombre_columna_o_null",
-    "referrer": "nombre_columna_o_null"
+    "referrer": "nombre_columna_o_null",
+    "consentVersion": "nombre_columna_o_null"
   },
   "suggestedQualificationFields": ["columna1", "columna2"],
   "allHeaders": ${JSON.stringify(headers)},

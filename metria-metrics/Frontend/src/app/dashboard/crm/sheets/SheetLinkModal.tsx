@@ -39,6 +39,7 @@ interface AnalyzeResult {
       fbp?: string
       landingUrl?: string
       referrer?: string
+      consentVersion?: string
     }
     suggestedQualificationFields: string[]
     notes: string[]
@@ -71,6 +72,7 @@ const CRM_MAPPING_FIELDS: { key: string; label: string; required?: boolean }[] =
   { key: 'fbp', label: 'fbp' },
   { key: 'landingUrl', label: 'Landing URL' },
   { key: 'referrer', label: 'Referrer' },
+  { key: 'consentVersion', label: 'Versión Consentimiento' },
 ]
 
 interface Props {
