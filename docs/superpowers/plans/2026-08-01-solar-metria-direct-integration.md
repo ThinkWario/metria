@@ -663,6 +663,18 @@ describe('finalizeLead', () => {
     expect(result.ok).toBe(true)
     expect(prisma.contactTag.deleteMany).toHaveBeenCalledWith({ where: { contactId: 'c1', name: 'Incompleto' } })
     expect(qualifySolarLead).toHaveBeenCalled()
+    // CALIFICA (mockeado arriba) debe persistirse como leadTemperature HOT y
+    // quedar en qualificationData — es lo que el Contact profile (Task 9) lee.
+    expect(prisma.contact.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'c1' },
+      data: expect.objectContaining({
+        leadTemperature: 'HOT',
+        qualificationData: expect.objectContaining({
+          qualificationStatus: 'CALIFICA',
+          qualificationSummary: 'ok'
+        })
+      })
+    }))
     expect(prisma.deal.create).toHaveBeenCalled()
     expect(emitMetaContactEvent).toHaveBeenCalled()
     expect(emitMetaLeadEvent).toHaveBeenCalled()
@@ -763,6 +775,19 @@ export async function finalizeLead(
   const existingRawFields = bySession ? ((bySession.qualificationData as any)?.rawFields ?? {}) : {}
   const mergedRawFields = { ...existingRawFields, ...payload }
 
+  // Computed BEFORE writing the Contact so qualificationStatus/leadTemperature
+  // land in the same create/update call — the Contact profile (Task 9) reads
+  // qualificationData.qualificationStatus + qualificationSummary directly,
+  // never re-derives them, so they must be persisted, not just computed.
+  const qualResult = qualifySolarLead(mergedRawFields)
+  const leadTemperature = qualResult.qualificationStatus === 'CALIFICA' ? 'HOT'
+    : qualResult.qualificationStatus === 'REVISAR' ? 'WARM' : 'COLD'
+  const qualificationData = {
+    rawFields: mergedRawFields,
+    qualificationStatus: qualResult.qualificationStatus,
+    qualificationSummary: qualResult.qualificationSummary
+  }
+
   const contact = bySession
     ? await prisma.contact.update({
         where: { id: bySession.id },
@@ -770,7 +795,8 @@ export async function finalizeLead(
           ...(payload.name?.trim() ? { name: payload.name.trim() } : {}),
           ...(email ? { email } : {}),
           ...(phone ? { phone } : {}),
-          qualificationData: { rawFields: mergedRawFields },
+          qualificationData,
+          leadTemperature,
           consentVersion: payload.consentVersion ?? null,
           consentAt: new Date(),
           consentStatus: 'granted',
@@ -788,7 +814,8 @@ export async function finalizeLead(
           name: payload.name?.trim() || `Lead Solar (${payload.sessionId.slice(0, 8)})`,
           email, phone,
           status: 'LEAD',
-          qualificationData: { rawFields: mergedRawFields },
+          qualificationData,
+          leadTemperature,
           consentVersion: payload.consentVersion ?? null,
           consentAt: new Date(),
           consentStatus: 'granted',
@@ -800,8 +827,6 @@ export async function finalizeLead(
       })
 
   await prisma.contactTag.deleteMany({ where: { contactId: contact.id, name: 'Incompleto' } })
-
-  const qualResult = qualifySolarLead(mergedRawFields)
 
   const existingDeal = await prisma.deal.findFirst({ where: { contactId: contact.id, pipelineId: SOLAR_PIPELINE_ID } })
   if (!existingDeal) {
@@ -1411,16 +1436,47 @@ const FINANCING_FIELDS: Array<[key: string, label: string]> = [
   ['profesion', 'Profesión'], ['deudaContribuciones', 'Deuda de contribuciones'], ['embargoVigente', 'Embargo vigente']
 ]
 
+/**
+ * Validates a URL before it's ever used as an href — houseMapUrl/meterMapUrl
+ * and the quote link ultimately come from data posted to a public endpoint
+ * (see solarLead.routes.ts), so they're treated as hostile input, same as
+ * any other external URL rendered from stored data (react/security.md).
+ */
+function safeExternalUrl(url?: string | null): string | undefined {
+  if (!url) return undefined
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'https:') return url
+  } catch {
+    // not a valid URL — fall through to undefined
+  }
+  return undefined
+}
+
 /** Solar-specific detail cards — only rendered for source === 'solar_direct'. */
 function SolarLeadCard({ contact }: { contact: Contact }) {
   const raw = (contact.qualificationData?.rawFields ?? {}) as Record<string, string>
+  const qualificationStatus = contact.qualificationData?.qualificationStatus as string | undefined
+  const qualificationSummary = contact.qualificationData?.qualificationSummary as string | undefined
   const hasFinancing = FINANCING_FIELDS.some(([key]) => raw[key])
   const quoteUrl = contact.sessionId
-    ? `https://solar.drillchile.cl/cotizaciones?session=${contact.sessionId}`
-    : null
+    ? safeExternalUrl(`https://solar.drillchile.cl/cotizaciones?session=${contact.sessionId}`)
+    : undefined
+  const houseMapUrl = safeExternalUrl(raw.houseMapUrl)
+  const meterMapUrl = safeExternalUrl(raw.meterMapUrl)
 
   return (
     <>
+      {qualificationStatus && (
+        <div className="rounded-lg border p-4 space-y-2 md:col-span-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Calificación</h3>
+          <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${TEMP_COLOR[contact.leadTemperature ?? ''] ?? 'bg-gray-100 text-gray-700'}`}>
+            {qualificationStatus}
+          </span>
+          {qualificationSummary && <p className="text-sm text-muted-foreground">{qualificationSummary}</p>}
+        </div>
+      )}
+
       <div className="rounded-lg border p-4 space-y-3">
         <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Propiedad y techo</h3>
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -1431,6 +1487,20 @@ function SolarLeadCard({ contact }: { contact: Contact }) {
           <Field label="Comuna" value={raw.comuna} />
           <Field label="Dirección" value={raw.direccion} />
         </div>
+        {(houseMapUrl || meterMapUrl) && (
+          <div className="flex flex-wrap gap-3 pt-1 border-t text-sm">
+            {houseMapUrl && (
+              <a href={houseMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                Ver ubicación de la casa
+              </a>
+            )}
+            {meterMapUrl && (
+              <a href={meterMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                Ver ubicación del medidor
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border p-4 space-y-3">
@@ -1560,7 +1630,8 @@ Run: revisar logs de `[SheetsSyncCron]` en producción — debe seguir corriendo
 - Conflicto de identidad (sessionId vs email/phone) → Task 4, test "rechaza con 409".
 - Reuso de WhatsApp handoff sin duplicar código → Task 1.
 - Qualifier específico sin IA → Task 2.
-- Visibilidad en Contact profile (las 8 secciones del spec) → Task 9 (fusioné "Ubicación" y "Progreso del wizard" dentro de los datos ya mostrados por `Field`/tags existentes en vez de cards separadas — el mapa por lat/lng no tiene un componente de mapa reusable a mano en este archivo, así que quedó fuera de esta iteración; se puede agregar un link a Google Maps con las coordenadas si se pide explícito).
+- Visibilidad en Contact profile (las 8 secciones del spec) → Task 9. "Progreso del wizard" queda cubierto por el tag `Incompleto` que ya se ve en la card de Etiquetas existente (línea 443-454 del archivo), sin duplicar UI. "Ubicación" quedó como links a Google Maps (`houseMapUrl`/`meterMapUrl`, validados con `safeExternalUrl` antes de renderizarse como `href`) dentro de la card "Propiedad y techo" — no se embebe un mapa (no hay componente de mapa reusable en este archivo), pero la ubicación es accesible con un clic.
+- **Calificación financiera visible** (agregado tras revisión con el usuario): `finalizeLead` (Task 4) ahora persiste `leadTemperature` + `qualificationData.qualificationStatus/qualificationSummary` en el mismo `create`/`update` — antes se calculaba y se descartaba. La card "Calificación" en Task 9 es la primera que se muestra (arriba de las demás, `md:col-span-2`) porque es el dato más accionable para ventas.
 - Corte con ventana de verificación → Task 10.
 - solar sin cambios de UI → Task 8, confirmado que las firmas no cambian.
 
