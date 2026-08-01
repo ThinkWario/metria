@@ -1590,13 +1590,763 @@ git commit -m "feat(crm): show solar lead detail (property, financing, attributi
 
 ---
 
-### Task 10: Corte a producción
+### Task 11: Disparar `QualifiedLead` a Meta cuando el lead califica financieramente
+
+**Files:**
+- Modify: `Backend/src/modules/leads/leadIngestion.service.ts`
+- Modify: `Backend/src/modules/leads/__tests__/leadIngestion.service.test.ts`
+
+**Interfaces:**
+- Consumes: `emitMetaQualifiedLeadEvent(workspaceId: string, contact: ContactLike, actionSource: ActionSource, params: { qualificationVersion: string; scoreBand?: string }): Promise<void>` — ya existe en `Backend/src/modules/meta-events/metaEvents.service.ts:80-91`, hoy sin ningún llamador activo (estaba deshabilitado a propósito hasta tener una regla de calificación real — `solarQualifier.ts`, Task 2, es esa regla).
+
+- [ ] **Step 1: Ampliar el test que ya pasa por el camino CALIFICA y agregar uno para el camino que NO debe disparar**
+
+En `leadIngestion.service.test.ts`, agregar `emitMetaQualifiedLeadEvent: vi.fn(async () => {})` al mock existente de `vi.mock('../../meta-events/metaEvents.service', ...)`, e importar `emitMetaQualifiedLeadEvent` junto a los otros imports de ese módulo. Luego:
+
+```typescript
+// Dentro del test "finaliza un lead nuevo..." (ya existente, qualifySolarLead mockeado a CALIFICA), agregar esta línea:
+expect(emitMetaQualifiedLeadEvent).toHaveBeenCalledWith(WS_ID, expect.objectContaining({ id: 'c1' }), 'system_generated', { qualificationVersion: 'solar-v1' })
+
+// Nuevo test al final del describe('finalizeLead', ...):
+it('NO dispara QualifiedLead cuando la calificación es REVISAR o NO_CALIFICA', async () => {
+  vi.mocked(qualifySolarLead).mockReturnValueOnce({ qualificationStatus: 'REVISAR', qualificationSummary: 'faltan datos' })
+  vi.mocked(prisma.contact.findUnique)
+    .mockResolvedValueOnce({ id: 'c2', name: 'x', email: null, phone: null, qualificationData: { rawFields: {} } } as any)
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(null)
+  vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c2', name: 'x', phone: null, email: null } as any)
+  vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
+  vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+  await finalizeLead(WS_ID, { sessionId: 'sess-3', consentAccepted: true } as any)
+
+  expect(emitMetaQualifiedLeadEvent).not.toHaveBeenCalled()
+})
+```
+
+- [ ] **Step 2: Correr para confirmar que falla**
+
+Run: `cd Backend && npm test -- leadIngestion.service.test.ts`
+Expected: FAIL — la primera aserción nueva falla porque `emitMetaQualifiedLeadEvent` nunca se llama todavía.
+
+- [ ] **Step 3: Implementación**
+
+En `leadIngestion.service.ts`, ampliar el import existente de `meta-events.service` y agregar el disparo justo después de `emitMetaLeadEvent`:
+
+```typescript
+// Import ampliado:
+import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent, emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
+
+// Dentro de finalizeLead, inmediatamente después del bloque emitMetaLeadEvent(...).catch(...):
+if (qualResult.qualificationStatus === 'CALIFICA') {
+  emitMetaQualifiedLeadEvent(workspaceId, contact, 'system_generated', { qualificationVersion: 'solar-v1' })
+    .catch(err => console.error('[LeadIngestion] QualifiedLead event failed:', err))
+}
+```
+
+- [ ] **Step 4: Correr para confirmar que pasa**
+
+Run: `cd Backend && npm test -- leadIngestion.service.test.ts`
+Expected: PASS (11/11)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Backend/src/modules/leads/leadIngestion.service.ts Backend/src/modules/leads/__tests__/leadIngestion.service.test.ts
+git commit -m "feat(leads): emit Meta QualifiedLead when a solar lead passes financial qualification"
+```
+
+**Nota operativa (no es código):** este evento nuevo por sí solo no cambia nada en Meta — hay que crear una Custom Conversion sobre `QualifiedLead` en Meta Ads Manager y apuntar el ad set a optimizar hacia ese evento en vez de (o adicional a) `Lead` genérico. Sin ese paso manual, Meta sigue optimizando hacia "cualquiera que complete el formulario".
+
+---
+
+### Task 12: Adjuntar el estado de calificación al evento `Schedule` (visita técnica agendada)
+
+**Files:**
+- Modify: `Backend/src/modules/meta-events/metaEvents.service.ts`
+- Modify: `Backend/src/modules/scheduling/scheduling.service.ts:171-199`
+- Modify: `Backend/src/modules/scheduling/__tests__/scheduling.service.test.ts`
+
+**Interfaces:**
+- Produces (firma ampliada, retrocompatible): `emitMetaScheduleEvent(workspaceId: string, contact: ContactLike, appointmentId: string, actionSource: ActionSource, customData?: Record<string, string | number | boolean>): Promise<void>`.
+
+Este cambio toca un archivo compartido por **todo** el CRM (cualquier tipo de cita, no solo solar) — el parámetro nuevo es opcional, así que los demás llamadores (si los hubiera) no se rompen. Dado que hoy Metria opera solo para DrillChile, el riesgo real es bajo, pero el cambio en sí sigue siendo genérico a propósito.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+En `scheduling.service.test.ts`, agregar antes de la primera línea `import { afterEach } from 'vitest'` (o junto a los demás `vi.mock`/`vi.hoisted` del inicio del archivo) este bloque nuevo:
+
+```typescript
+const { emitMetaScheduleEventMock } = vi.hoisted(() => ({ emitMetaScheduleEventMock: vi.fn(async () => {}) }))
+vi.mock('../../meta-events/metaEvents.service', () => ({
+  emitMetaScheduleEvent: emitMetaScheduleEventMock,
+  emitMetaTechnicalReviewCompletedEvent: vi.fn(async () => {})
+}))
+```
+
+Y agregar este nuevo `describe` al final del archivo:
+
+```typescript
+describe('scheduleAppointment — señal de calificación hacia Meta CAPI', () => {
+  it('pasa qualification_status en el evento Schedule cuando el contact ya calificó', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: 'c1', name: 'Roberto', phone: '56911112222',
+      qualificationData: { qualificationStatus: 'CALIFICA' }
+    } as any)
+    vi.mocked(prisma.appointment.create).mockResolvedValue({ id: 'a1' } as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+    vi.mocked(prisma.availabilityRule.findMany).mockResolvedValue([])
+
+    await scheduleAppointment(WS, {
+      contactId: 'c1', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-15T10:00:00'), createdBy: 'u1'
+    })
+
+    // El emit es fire-and-forget (no awaited dentro de scheduleAppointment) — dar
+    // un tick al event loop para que la promesa se resuelva antes de aseverar.
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(emitMetaScheduleEventMock).toHaveBeenCalledWith(
+      WS, expect.objectContaining({ id: 'c1' }), 'a1', 'system_generated',
+      { qualification_status: 'CALIFICA' }
+    )
+  })
+
+  it('no pasa customData cuando el contact no tiene qualificationStatus', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: 'c2', name: 'Ana', phone: '56922223333', qualificationData: null
+    } as any)
+    vi.mocked(prisma.appointment.create).mockResolvedValue({ id: 'a2' } as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+    vi.mocked(prisma.availabilityRule.findMany).mockResolvedValue([])
+
+    await scheduleAppointment(WS, {
+      contactId: 'c2', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-15T10:00:00'), createdBy: 'u1'
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(emitMetaScheduleEventMock).toHaveBeenCalledWith(
+      WS, expect.objectContaining({ id: 'c2' }), 'a2', 'system_generated', undefined
+    )
+  })
+})
+```
+
+- [ ] **Step 2: Correr para confirmar que fallan**
+
+Run: `cd Backend && npm test -- scheduling.service.test.ts`
+Expected: FAIL — `emitMetaScheduleEventMock` nunca se llama con un 5º argumento todavía.
+
+- [ ] **Step 3: Implementación**
+
+En `Backend/src/modules/meta-events/metaEvents.service.ts`, reemplazar la función `emitMetaScheduleEvent` existente (líneas 93-103) por:
+
+```typescript
+export async function emitMetaScheduleEvent(
+  workspaceId: string,
+  contact: ContactLike,
+  appointmentId: string,
+  actionSource: ActionSource,
+  customData?: Record<string, string | number | boolean>
+): Promise<void> {
+  await emitConversionEvent({
+    workspaceId, leadId: contact.id, eventName: 'Schedule', actionSource,
+    occurredAt: new Date(), eventIdSuffix: appointmentId, contact: toContactData(contact), customData
+  })
+}
+```
+
+En `Backend/src/modules/scheduling/scheduling.service.ts`, reemplazar la línea 195 (`emitMetaScheduleEvent(workspaceId, contact, appointment.id, actionSource) ...`) por:
+
+```typescript
+  const qualificationStatus = (contact.qualificationData as any)?.qualificationStatus as string | undefined
+  emitMetaScheduleEvent(
+    workspaceId, contact, appointment.id, actionSource,
+    qualificationStatus ? { qualification_status: qualificationStatus } : undefined
+  ).catch(err => console.error('[Scheduling] Schedule event failed:', err))
+```
+
+- [ ] **Step 4: Correr para confirmar que pasan**
+
+Run: `cd Backend && npm test -- scheduling.service.test.ts`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Backend/src/modules/meta-events/metaEvents.service.ts Backend/src/modules/scheduling/scheduling.service.ts Backend/src/modules/scheduling/__tests__/scheduling.service.test.ts
+git commit -m "feat(scheduling): attach qualification_status to the Meta Schedule event"
+```
+
+---
+
+### Task 13: Campo `confirmationRequestedAt` en `Appointment`
+
+**Files:**
+- Modify: `Backend/prisma/schema.prisma:905-923`
+
+**Interfaces:**
+- Produces: `Appointment.confirmationRequestedAt: Date | null` — usado por Task 16 (cron) para no volver a preguntar por la misma visita dos veces.
+
+- [ ] **Step 1: Agregar el campo al modelo**
+
+En `Backend/prisma/schema.prisma`, dentro de `model Appointment`, agregar después de la línea `notes String?` (línea 914):
+
+```prisma
+  confirmationRequestedAt DateTime? @map("confirmation_requested_at")
+```
+
+- [ ] **Step 2: Sincronizar la base de datos y regenerar el cliente de Prisma**
+
+Run: `cd Backend && npm run db:push`
+Expected: `Your database is now in sync with your Prisma schema` + regeneración automática de `@prisma/client`.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add Backend/prisma/schema.prisma
+git commit -m "feat(scheduling): add confirmationRequestedAt to Appointment for the visit-confirmation follow-up"
+```
+
+---
+
+### Task 14: Botones de respuesta rápida al enviar plantillas de WhatsApp
+
+**Files:**
+- Modify: `Backend/src/modules/messaging/channels/whatsapp.service.ts` (`sendWhatsAppTemplateMessage`)
+- Modify: `Backend/src/modules/messaging/message.service.ts:136-152` (`sendWhatsAppTemplateToPhone`)
+- Modify: `Backend/src/modules/messaging/__tests__/whatsapp.service.test.ts`
+
+**Interfaces:**
+- Produces (firma ampliada, retrocompatible): `sendWhatsAppTemplateMessage(phoneNumberId, accessToken, to, templateName, language, bodyParams?, buttonPayloads?: string[]): Promise<void>` y `sendWhatsAppTemplateToPhone(channelId, to, templateId, params?, buttonPayloads?: string[]): Promise<void>` — usados por Task 16 (cron) para mandar los botones "Sí"/"No" con el `appointmentId` codificado en el payload.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+Agregar `sendWhatsAppTemplateMessage` al import existente de `'../channels/whatsapp.service'` en `whatsapp.service.test.ts`, y este `describe` al final del archivo:
+
+```typescript
+describe('sendWhatsAppTemplateMessage — botones de respuesta rápida', () => {
+  const originalFetch = global.fetch
+  afterEach(() => { global.fetch = originalFetch })
+
+  it('incluye los componentes de botón cuando se pasan buttonPayloads', async () => {
+    let capturedBody: any
+    global.fetch = vi.fn(async (_url: string, init: any) => {
+      capturedBody = JSON.parse(init.body)
+      return { ok: true, json: async () => ({}) } as any
+    }) as any
+
+    await sendWhatsAppTemplateMessage(
+      'phone-id', 'token', '56900001111', 'visit_confirmation', 'es',
+      ['Roberto'], ['confirm_visit:appt-1:yes', 'confirm_visit:appt-1:no']
+    )
+
+    expect(capturedBody.template.components).toEqual([
+      { type: 'body', parameters: [{ type: 'text', text: 'Roberto' }] },
+      { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: 'confirm_visit:appt-1:yes' }] },
+      { type: 'button', sub_type: 'quick_reply', index: '1', parameters: [{ type: 'payload', payload: 'confirm_visit:appt-1:no' }] }
+    ])
+  })
+
+  it('sin buttonPayloads se comporta igual que antes (solo el componente body)', async () => {
+    let capturedBody: any
+    global.fetch = vi.fn(async (_url: string, init: any) => {
+      capturedBody = JSON.parse(init.body)
+      return { ok: true, json: async () => ({}) } as any
+    }) as any
+
+    await sendWhatsAppTemplateMessage('phone-id', 'token', '56900001111', 'saludo', 'es', ['Roberto'])
+
+    expect(capturedBody.template.components).toEqual([
+      { type: 'body', parameters: [{ type: 'text', text: 'Roberto' }] }
+    ])
+  })
+})
+```
+
+- [ ] **Step 2: Correr para confirmar que falla**
+
+Run: `cd Backend && npm test -- whatsapp.service.test.ts`
+Expected: FAIL — hoy la función no acepta `buttonPayloads`, `capturedBody.template.components` no incluye los componentes de botón.
+
+- [ ] **Step 3: Implementación**
+
+Reemplazar la función completa `sendWhatsAppTemplateMessage` en `Backend/src/modules/messaging/channels/whatsapp.service.ts` por:
+
+```typescript
+export async function sendWhatsAppTemplateMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  templateName: string,
+  language: string,
+  bodyParams: string[] = [],
+  buttonPayloads?: string[]
+): Promise<void> {
+  const url = `https://graph.facebook.com/${WA_API_VERSION}/${phoneNumberId}/messages`
+
+  const components: Record<string, unknown>[] = []
+  if (bodyParams.length > 0) {
+    components.push({ type: 'body', parameters: bodyParams.map(text => ({ type: 'text', text })) })
+  }
+  buttonPayloads?.forEach((payload, index) => {
+    components.push({ type: 'button', sub_type: 'quick_reply', index: String(index), parameters: [{ type: 'payload', payload }] })
+  })
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: language },
+        ...(components.length > 0 ? { components } : {})
+      }
+    })
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`WhatsApp API error ${response.status}: ${body}`)
+  }
+}
+```
+
+En `Backend/src/modules/messaging/message.service.ts`, reemplazar `sendWhatsAppTemplateToPhone` (líneas 136-152) por:
+
+```typescript
+export async function sendWhatsAppTemplateToPhone(
+  channelId: string,
+  to: string,
+  templateId: string,
+  params: string[] = [],
+  buttonPayloads?: string[]
+): Promise<void> {
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } })
+  if (!channel || channel.platform !== 'WHATSAPP') throw new Error('WhatsApp channel not found')
+  const config = channel.config as Record<string, any>
+
+  const template = await prisma.whatsAppTemplate.findFirst({
+    where: { id: templateId, channelId, status: 'APPROVED' }
+  })
+  if (!template) throw new Error(`Template ${templateId} not found or not APPROVED for this channel`)
+
+  await sendWhatsAppTemplateMessage(config.phoneNumberId, config.accessToken, to, template.name, template.language, params, buttonPayloads)
+}
+```
+
+- [ ] **Step 4: Correr para confirmar que pasan**
+
+Run: `cd Backend && npm test -- whatsapp.service.test.ts`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Backend/src/modules/messaging/channels/whatsapp.service.ts Backend/src/modules/messaging/message.service.ts Backend/src/modules/messaging/__tests__/whatsapp.service.test.ts
+git commit -m "feat(messaging): support quick-reply buttons when sending WhatsApp templates"
+```
+
+---
+
+### Task 15: Rol de plantilla "confirmación de visita" (config, sin lógica nueva)
+
+**Files:**
+- Modify: `Backend/src/modules/messaging/templates.controller.ts:24,162`
+- Modify: `metria-metrics/Frontend/src/app/dashboard/settings/channels/WhatsAppTemplatesPanel.tsx`
+
+**Interfaces:**
+- Produces: `channel.config.visitConfirmationTemplateId: string | null`, leído por Task 16 (cron).
+
+Este endpoint (`PATCH /messaging/whatsapp/templates/role/:role`) ya es genérico por diseño — el comentario en el código dice literalmente "Kept generic over role/config-key for whichever channel-level role comes next". Agregar el rol nuevo es un cambio de una línea, sin lógica nueva que testear (la validación, el guardado y la respuesta ya son genéricos).
+
+- [ ] **Step 1: Agregar el rol nuevo al backend**
+
+En `Backend/src/modules/messaging/templates.controller.ts`:
+
+Línea 24, dentro de `listTemplatesHandler`, agregar al objeto de respuesta:
+```typescript
+      technicalVisitTemplateId: config.technicalVisitTemplateId ?? null,
+      visitConfirmationTemplateId: config.visitConfirmationTemplateId ?? null
+```
+
+Línea 162:
+```typescript
+const ASSIGNABLE_TEMPLATE_ROLES = ['technicalVisitTemplateId', 'visitConfirmationTemplateId'] as const
+```
+
+- [ ] **Step 2: Agregar el botón en el panel de plantillas del Frontend**
+
+En `WhatsAppTemplatesPanel.tsx`, siguiendo exactamente el patrón ya usado para `technicalVisitTemplateId`:
+
+```typescript
+// Junto al useState existente (línea 41):
+const [visitConfirmationTemplateId, setVisitConfirmationTemplateId] = useState<string | null>(null)
+
+// En load() (junto a la línea 57):
+setVisitConfirmationTemplateId(data.visitConfirmationTemplateId ?? null)
+
+// En handleDelete (junto a la línea 110):
+if (visitConfirmationTemplateId === id) setVisitConfirmationTemplateId(null)
+
+// Handler nuevo, junto a handleSetTechnicalVisit (línea 126-137):
+const handleSetVisitConfirmation = async (id: string) => {
+    try {
+        const data = await fetchAPI('/messaging/whatsapp/templates/role/visitConfirmationTemplateId', {
+            method: 'PATCH',
+            body: JSON.stringify({ templateId: id })
+        })
+        setVisitConfirmationTemplateId(data.visitConfirmationTemplateId ?? id)
+        toast.success('Plantilla asignada para confirmación de visita técnica')
+    } catch (err: any) {
+        toast.error('No se pudo asignar', { description: err.message })
+    }
+}
+
+// Badge, junto al de technicalVisitTemplateId (línea 221-223):
+{visitConfirmationTemplateId === t.id && (
+    <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Confirmación de visita</Badge>
+)}
+
+// Botón, junto al de "Usar en aviso técnico" (línea 236-243):
+{t.status === 'APPROVED' && visitConfirmationTemplateId !== t.id && (
+    <Button
+        size="sm" variant="outline" className="h-7 text-[10px]"
+        onClick={() => handleSetVisitConfirmation(t.id)}
+    >
+        Usar en confirmación de visita
+    </Button>
+)}
+```
+
+- [ ] **Step 3: Verificar manualmente**
+
+Run: `cd metria-metrics/Frontend && pnpm dev`, ir a Settings → Canales → WhatsApp → Plantillas, confirmar que el botón nuevo aparece en cualquier plantilla `APPROVED` y que al hacer clic queda marcada con el badge "Confirmación de visita".
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add Backend/src/modules/messaging/templates.controller.ts "metria-metrics/Frontend/src/app/dashboard/settings/channels/WhatsAppTemplatesPanel.tsx"
+git commit -m "feat(messaging): add visitConfirmationTemplateId as an assignable template role"
+```
+
+**Nota operativa (no es código):** la plantilla que se asigne acá debe estar creada y aprobada en Meta Business Manager con exactamente 2 botones de tipo Quick Reply (ej. "Sí, se realizó" / "No se realizó") — el texto de los botones lo define quien crea la plantilla en Meta, el código solo manda el payload que Meta devuelve al tocarlos (Task 14).
+
+---
+
+### Task 16: Cron que pregunta al técnico si la visita se realizó
+
+**Files:**
+- Create: `Backend/src/modules/scheduling/visitConfirmation.cron.ts`
+- Modify: `Backend/src/app.ts`
+- Test: `Backend/src/modules/scheduling/__tests__/visitConfirmation.cron.test.ts`
+
+**Interfaces:**
+- Consumes: `sendWhatsAppTemplateToPhone` (Task 14), `Appointment.confirmationRequestedAt` (Task 13), `channel.config.visitConfirmationTemplateId` (Task 15).
+- Produces: `requestPendingConfirmations(): Promise<void>` (exportada para el test) y `startVisitConfirmationCron(): void`.
+
+- [ ] **Step 1: Escribir el test que falla**
+
+```typescript
+// Backend/src/modules/scheduling/__tests__/visitConfirmation.cron.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('../../../lib/prisma', () => ({
+  prisma: {
+    appointment: { findMany: vi.fn(), update: vi.fn() },
+    workspace: { findUnique: vi.fn() },
+    channel: { findFirst: vi.fn() }
+  }
+}))
+vi.mock('../../messaging/message.service', () => ({
+  sendWhatsAppTemplateToPhone: vi.fn(async () => {})
+}))
+
+import { requestPendingConfirmations } from '../visitConfirmation.cron'
+import { prisma } from '../../../lib/prisma'
+import { sendWhatsAppTemplateToPhone } from '../../messaging/message.service'
+
+beforeEach(() => vi.clearAllMocks())
+
+describe('requestPendingConfirmations', () => {
+  it('manda el template con los dos payloads de botón y marca confirmationRequestedAt', async () => {
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([
+      { id: 'a1', workspaceId: 'ws-1', contact: { name: 'Roberto', phone: '56911112222' } }
+    ] as any)
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue({
+      id: 'ch-1', config: { visitConfirmationTemplateId: 'tpl-1' }
+    } as any)
+
+    await requestPendingConfirmations()
+
+    expect(sendWhatsAppTemplateToPhone).toHaveBeenCalledWith(
+      'ch-1', '56900001111', 'tpl-1', ['Roberto'],
+      ['confirm_visit:a1:yes', 'confirm_visit:a1:no']
+    )
+    expect(prisma.appointment.update).toHaveBeenCalledWith({
+      where: { id: 'a1' }, data: { confirmationRequestedAt: expect.any(Date) }
+    })
+  })
+
+  it('no manda nada ni marca la cita si falta notifyPhone, canal o plantilla configurada', async () => {
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([
+      { id: 'a2', workspaceId: 'ws-1', contact: { name: 'Ana', phone: '56922223333' } }
+    ] as any)
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: null } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue({ id: 'ch-1', config: {} } as any)
+
+    await requestPendingConfirmations()
+
+    expect(sendWhatsAppTemplateToPhone).not.toHaveBeenCalled()
+    expect(prisma.appointment.update).not.toHaveBeenCalled()
+  })
+})
+```
+
+- [ ] **Step 2: Correr para confirmar que falla**
+
+Run: `cd Backend && npm test -- visitConfirmation.cron.test.ts`
+Expected: FAIL con "Cannot find module '../visitConfirmation.cron'"
+
+- [ ] **Step 3: Implementación**
+
+```typescript
+// Backend/src/modules/scheduling/visitConfirmation.cron.ts
+import cron from 'node-cron'
+import { prisma } from '../../lib/prisma'
+import { sendWhatsAppTemplateToPhone } from '../messaging/message.service'
+
+// Las visitas duran 30-60 min — 3h después del horario agendado da margen
+// suficiente para que ya haya terminado antes de preguntar por ella.
+const CONFIRMATION_DELAY_MS = 3 * 60 * 60 * 1000
+
+export async function requestPendingConfirmations(): Promise<void> {
+  const cutoff = new Date(Date.now() - CONFIRMATION_DELAY_MS)
+  const dueAppointments = await prisma.appointment.findMany({
+    where: {
+      type: 'SITE_VISIT',
+      status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      scheduledAt: { lt: cutoff },
+      confirmationRequestedAt: null
+    },
+    include: { contact: { select: { name: true, phone: true } } }
+  })
+
+  for (const appt of dueAppointments) {
+    try {
+      const workspace = await prisma.workspace.findUnique({ where: { id: appt.workspaceId }, select: { notifyPhone: true } })
+      const channel = await prisma.channel.findFirst({ where: { workspaceId: appt.workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
+      const templateId = (channel?.config as Record<string, any> | undefined)?.visitConfirmationTemplateId
+
+      if (!workspace?.notifyPhone || !channel || !templateId) {
+        console.warn(`[VisitConfirmation] Saltando cita ${appt.id}: notifyPhone/canal/plantilla no configurados`)
+        continue
+      }
+
+      await sendWhatsAppTemplateToPhone(
+        channel.id,
+        workspace.notifyPhone,
+        templateId,
+        [appt.contact.name],
+        [`confirm_visit:${appt.id}:yes`, `confirm_visit:${appt.id}:no`]
+      )
+
+      await prisma.appointment.update({ where: { id: appt.id }, data: { confirmationRequestedAt: new Date() } })
+    } catch (err) {
+      console.error(`[VisitConfirmation] Error pidiendo confirmación para la cita ${appt.id}:`, err)
+    }
+  }
+}
+
+export function startVisitConfirmationCron(): void {
+  // Cada hora — la pregunta de confirmación no necesita SLA de minutos.
+  cron.schedule('0 * * * *', () => {
+    requestPendingConfirmations().catch(err => console.error('[Cron: VisitConfirmation] Error:', err))
+  })
+  console.log('[VisitConfirmationCron] Scheduled hourly')
+}
+```
+
+Registrar en `Backend/src/app.ts`, junto a los demás imports/arranques de cron:
+
+```typescript
+import { startVisitConfirmationCron } from './modules/scheduling/visitConfirmation.cron'
+// ...
+startVisitConfirmationCron()
+```
+
+- [ ] **Step 4: Correr para confirmar que pasan**
+
+Run: `cd Backend && npm test -- visitConfirmation.cron.test.ts`
+Expected: PASS (2/2)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Backend/src/modules/scheduling/visitConfirmation.cron.ts Backend/src/app.ts Backend/src/modules/scheduling/__tests__/visitConfirmation.cron.test.ts
+git commit -m "feat(scheduling): hourly cron asks notifyPhone to confirm completed site visits"
+```
+
+---
+
+### Task 17: Recibir la respuesta del técnico y cerrar el ciclo
+
+**Files:**
+- Modify: `Backend/src/modules/messaging/channels/whatsapp.service.ts` (tipo `WhatsAppBody`, `parseWhatsAppUpdate`)
+- Modify: `Backend/src/modules/messaging/__tests__/whatsapp.service.test.ts`
+
+**Interfaces:**
+- Consumes: `updateAppointmentStatus(workspaceId: string, id: string, status: string): Promise<Appointment>` — ya existe en `Backend/src/modules/scheduling/scheduling.service.ts:237-253` (ya dispara `TechnicalReviewCompleted` internamente cuando `status === 'COMPLETED'`, sin cambios ahí).
+
+- [ ] **Step 1: Escribir los tests que fallan**
+
+Agregar al inicio de `whatsapp.service.test.ts`, junto a los `vi.mock` existentes:
+
+```typescript
+vi.mock('../../../lib/prisma', () => ({
+  prisma: { workspace: { findUnique: vi.fn() } }
+}))
+vi.mock('../../scheduling/scheduling.service', () => ({
+  updateAppointmentStatus: vi.fn(async () => ({}))
+}))
+```
+
+Y a los imports:
+
+```typescript
+import { prisma } from '../../../lib/prisma'
+import { updateAppointmentStatus } from '../../scheduling/scheduling.service'
+```
+
+Nuevo `describe` al final del archivo:
+
+```typescript
+describe('parseWhatsAppUpdate — respuesta de confirmación de visita', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  function buildInteractiveBody(from: string, buttonId: string) {
+    return {
+      entry: [{ changes: [{ value: {
+        messages: [{ id: 'wamid.1', from, type: 'interactive', interactive: { button_reply: { id: buttonId, title: 'x' } } }]
+      } }] }]
+    } as any
+  }
+
+  it('marca la cita COMPLETED cuando el técnico responde "yes" desde notifyPhone', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56900001111', 'confirm_visit:appt-1:yes'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'COMPLETED')
+  })
+
+  it('marca la cita NO_SHOW cuando el técnico responde "no"', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56900001111', 'confirm_visit:appt-1:no'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'NO_SHOW')
+  })
+
+  it('ignora el botón si el remitente no es el notifyPhone del workspace', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56999998888', 'confirm_visit:appt-1:yes'))
+
+    expect(updateAppointmentStatus).not.toHaveBeenCalled()
+  })
+})
+```
+
+- [ ] **Step 2: Correr para confirmar que fallan**
+
+Run: `cd Backend && npm test -- whatsapp.service.test.ts`
+Expected: FAIL — `msg.type === 'interactive'` no se maneja todavía, `updateAppointmentStatus` nunca se llama.
+
+- [ ] **Step 3: Implementación**
+
+En `Backend/src/modules/messaging/channels/whatsapp.service.ts`:
+
+Ampliar el tipo `WhatsAppBody` (línea 15-24), agregando el campo `interactive` al shape de `messages`:
+
+```typescript
+        messages?: Array<{
+          id: string
+          from: string
+          type: string
+          text?: { body: string }
+          image?: { id: string; mime_type: string }
+          video?: { id: string; mime_type: string }
+          audio?: { id: string; mime_type: string }
+          interactive?: { button_reply?: { id: string; title: string } }
+          referral?: { ref: string }
+        }>
+```
+
+Agregar el import de `prisma` junto al de `processInboundMessage` (línea 6):
+
+```typescript
+import { prisma } from '../../../lib/prisma'
+```
+
+Dentro de `parseWhatsAppUpdate`, en el `for (const msg of value.messages)`, insertar esta rama nueva justo antes de `} else if (msg.type === 'audio' && msg.audio?.id) {`:
+
+```typescript
+        } else if (msg.type === 'interactive' && msg.interactive?.button_reply?.id) {
+          try {
+            const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
+            const notifyDigits = (workspace?.notifyPhone ?? '').replace(/\D/g, '')
+            // Solo el número interno configurado como notifyPhone puede confirmar
+            // visitas — cualquier otro botón entrante se ignora en silencio, no se
+            // trata como mensaje de un lead (evita crear/tocar un Contact acá).
+            if (!notifyDigits || msg.from !== notifyDigits) continue
+
+            const match = msg.interactive.button_reply.id.match(/^confirm_visit:([^:]+):(yes|no)$/)
+            if (!match) continue
+
+            const [, appointmentId, answer] = match
+            const { updateAppointmentStatus } = await import('../../scheduling/scheduling.service')
+            await updateAppointmentStatus(workspaceId, appointmentId, answer === 'yes' ? 'COMPLETED' : 'NO_SHOW')
+          } catch (err) {
+            console.error(`[WhatsApp] Failed to process visit confirmation reply ${msg.id}:`, err)
+          }
+        } else if (msg.type === 'audio' && msg.audio?.id) {
+```
+
+(Reemplaza la línea `} else if (msg.type === 'audio' && msg.audio?.id) {` por el bloque completo de arriba — la rama de audio sigue exactamente igual después, solo se le agrega una rama hermana antes.)
+
+- [ ] **Step 4: Correr para confirmar que pasan**
+
+Run: `cd Backend && npm test -- whatsapp.service.test.ts`
+Expected: PASS
+
+- [ ] **Step 5: Correr toda la suite del Backend**
+
+Run: `cd Backend && npm test`
+Expected: PASS en todos los archivos — este es el último cambio de código antes del corte, buen punto para confirmar cero regresiones acumuladas de los Tasks 1-17.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add Backend/src/modules/messaging/channels/whatsapp.service.ts Backend/src/modules/messaging/__tests__/whatsapp.service.test.ts
+git commit -m "feat(messaging): handle technician's visit-confirmation button reply, closing the Meta CAPI qualification loop"
+```
+
+---
+
+### Task 18: Corte a producción
 
 **Files:** ninguno de código — checklist operativo.
 
 - [ ] **Step 1: Desplegar Backend con el endpoint nuevo**
 
-Configurar en Easypanel las env vars de Task 7 (`SOLAR_API_KEY`, `SOLAR_WORKSPACE_ID`, `SOLAR_PIPELINE_ID`, `SOLAR_STAGE_ID` con los valores reales de producción) y desplegar la rama con los Tasks 1-7 mergeados.
+Configurar en Easypanel las env vars de Task 7 (`SOLAR_API_KEY`, `SOLAR_WORKSPACE_ID`, `SOLAR_PIPELINE_ID`, `SOLAR_STAGE_ID` con los valores reales de producción) y desplegar la rama con los Tasks 1-7 y 11-17 mergeados. Antes de desplegar, confirmar en Meta Business Manager que: (a) existe una Custom Conversion sobre `QualifiedLead` con el ad set apuntando a optimizar hacia ella (Task 11), y (b) la plantilla de confirmación de visita con los 2 botones Quick Reply está aprobada y asignada como `visitConfirmationTemplateId` (Task 15) — sin esos dos pasos manuales, el código nuevo queda desplegado pero inactivo.
 
 - [ ] **Step 2: Desplegar solar apuntando al Backend de producción**
 
@@ -1632,8 +2382,9 @@ Run: revisar logs de `[SheetsSyncCron]` en producción — debe seguir corriendo
 - Qualifier específico sin IA → Task 2.
 - Visibilidad en Contact profile (las 8 secciones del spec) → Task 9. "Progreso del wizard" queda cubierto por el tag `Incompleto` que ya se ve en la card de Etiquetas existente (línea 443-454 del archivo), sin duplicar UI. "Ubicación" quedó como links a Google Maps (`houseMapUrl`/`meterMapUrl`, validados con `safeExternalUrl` antes de renderizarse como `href`) dentro de la card "Propiedad y techo" — no se embebe un mapa (no hay componente de mapa reusable en este archivo), pero la ubicación es accesible con un clic.
 - **Calificación financiera visible** (agregado tras revisión con el usuario): `finalizeLead` (Task 4) ahora persiste `leadTemperature` + `qualificationData.qualificationStatus/qualificationSummary` en el mismo `create`/`update` — antes se calculaba y se descartaba. La card "Calificación" en Task 9 es la primera que se muestra (arriba de las demás, `md:col-span-2`) porque es el dato más accionable para ventas.
-- Corte con ventana de verificación → Task 10.
+- Corte con ventana de verificación → Task 18.
 - solar sin cambios de UI → Task 8, confirmado que las firmas no cambian.
+- **Cierre del lazo con Meta Ads** (agregado tras revisión con el usuario, sesión 2026-08-01): `QualifiedLead` cuando el lead califica financieramente → Task 11 (más la nota operativa de crear la Custom Conversion en Ads Manager — sin eso el evento no cambia nada). Señal de calificación adjunta al evento `Schedule` cuando además agenda visita técnica → Task 12. Cierre real del funnel — que la IA le pregunte al técnico si la visita se hizo, en vez de depender de que alguien actualice el estado a mano en el CRM → Tasks 13-17 (campo nuevo en `Appointment`, botones de respuesta rápida en plantillas, rol de plantilla configurable, cron horario, y la rama nueva en el webhook de WhatsApp que recibe la respuesta y llama `updateAppointmentStatus`, que ya dispara `TechnicalReviewCompleted` sin cambios). Esto último toca el webhook de entrada compartido de WhatsApp — de bajo riesgo hoy porque Metria opera solo para DrillChile, pero vale la pena tenerlo presente si el proyecto se expande a más clientes.
 
 **Gap identificado y resuelto durante la escritura del plan:** el spec pedía una migración de Prisma para el índice único de `sessionId` y un guard de idempotencia nuevo para CAPI — ambos ya existían en el código (`@@unique([workspaceId, source, sessionId])` y el catch de `P2002` en `emitConversionEvent`). Documentado en Global Constraints para que quien ejecute el plan no repita ese trabajo innecesariamente.
 
