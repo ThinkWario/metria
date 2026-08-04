@@ -1,4 +1,6 @@
 import { prisma } from '../../lib/prisma'
+import { SOLAR_SOURCE } from '../leads/leadIngestion.service'
+import { emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
 
 export interface ListContactsOpts {
   search?: string
@@ -306,4 +308,74 @@ export async function calculateHealthScore(workspaceId: string, contactId: strin
   await prisma.contact.update({ where: { id: contactId, workspaceId }, data: { healthScore: score } })
 
   return { score, factors }
+}
+
+interface SolarResV2Criteria {
+  serviceAreaMatch: boolean
+  ownerOrDecisionMaker: boolean
+  technicalFitPreliminary: boolean
+  billBandEligible: boolean
+}
+
+/**
+ * "Validación humana autorizada" — la alternativa explícita que
+ * INSTRUCCIONES_DESARROLLADOR_TRACKING_METRIA_SOLAR_AGOSTO_2026.md §9 ofrece
+ * a la regla automática solar_res_v2 completa ("regla solar_res_v2 o
+ * validación humana autorizada"). Requerir esta confirmación explícita —
+ * en vez de disparar QualifiedLead solo porque los 4 criterios automáticos
+ * dieron true — es además la forma más defendible de cubrir
+ * next_step_confirmed sin inventar una heurística no especificada en los
+ * documentos de negocio: quien confirma está, por definición, confirmando
+ * que corresponde el siguiente paso.
+ */
+export async function confirmQualifiedLead(
+  workspaceId: string,
+  contactId: string,
+  actorUserId: string,
+  options: { override?: boolean; overrideReason?: string } = {}
+) {
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
+  if (!contact) throw new Error('Contact not found')
+  if (contact.source !== SOLAR_SOURCE) {
+    throw new Error('Only solar_direct contacts support solar_res_v2 QualifiedLead confirmation')
+  }
+
+  const qualificationData = (contact.qualificationData as Record<string, any>) ?? {}
+  if (qualificationData.qualifiedLeadConfirmedAt) {
+    throw new Error('QualifiedLead already confirmed for this contact')
+  }
+
+  const criteria = qualificationData.solarResV2Criteria as SolarResV2Criteria | undefined
+  if (!criteria) throw new Error('No solar_res_v2 criteria computed yet for this contact')
+
+  const allCriteriaMet = criteria.serviceAreaMatch && criteria.ownerOrDecisionMaker
+    && criteria.technicalFitPreliminary && criteria.billBandEligible
+
+  if (!allCriteriaMet && !options.override) {
+    throw new Error('solar_res_v2 criteria not fully met — pass override:true with overrideReason to confirm manually')
+  }
+  if (options.override && !options.overrideReason?.trim()) {
+    throw new Error('overrideReason is required when overriding solar_res_v2 criteria')
+  }
+
+  const updatedQualificationData = {
+    ...qualificationData,
+    qualificationVersion: 'solar_res_v2',
+    nextStepConfirmed: true,
+    qualifiedLeadConfirmedBy: actorUserId,
+    qualifiedLeadConfirmedAt: new Date().toISOString(),
+    ...(options.override && { qualifiedLeadOverrideReason: options.overrideReason!.trim() })
+  }
+
+  const updated = await prisma.contact.update({
+    where: { id: contact.id },
+    data: { qualificationData: updatedQualificationData as any }
+  })
+
+  emitMetaQualifiedLeadEvent(workspaceId, updated, 'system_generated', {
+    qualificationVersion: 'solar_res_v2',
+    serviceAreaMatch: criteria.serviceAreaMatch
+  }).catch(err => console.error('[ContactService] QualifiedLead event failed:', err))
+
+  return updated
 }
