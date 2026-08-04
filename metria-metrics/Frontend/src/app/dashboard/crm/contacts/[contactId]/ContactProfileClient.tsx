@@ -71,6 +71,181 @@ const LEAD_TYPE_COLOR: Record<string, string> = {
   READY_TO_BUY: 'bg-green-100 text-green-700', POST_SALE: 'bg-teal-100 text-teal-700'
 }
 
+const FINANCING_FIELDS: Array<[key: string, label: string]> = [
+  ['edad', 'Edad'], ['estadoCivil', 'Estado civil'], ['valorCasa', 'Valor de la vivienda'],
+  ['deudaCasa', 'Deuda de la vivienda'], ['ingresoMensual', 'Ingreso mensual'],
+  ['profesion', 'Profesión'], ['deudaContribuciones', 'Deuda de contribuciones'], ['embargoVigente', 'Embargo vigente']
+]
+
+/**
+ * Todo lo que ya se muestra por su propio campo con nombre (cards de arriba)
+ * o que ya vive en una columna escalar del Contact (Task 3/4) — el resto de
+ * `rawFields` cae en la card genérica "Otros datos" más abajo. Esta lista es
+ * el único lugar que hay que tocar si `StepData` agrega un campo nuevo y
+ * quieres que deje de aparecer ahí para pasar a tener su propia UI.
+ */
+const KNOWN_RAW_FIELD_KEYS = new Set<string>([
+  'propertyType', 'ownershipType', 'techoConfirmado', 'materialTecho', 'comuna', 'direccion',
+  'houseMapUrl', 'meterMapUrl', 'montoBoleta', 'distribuidora', 'consumoHorario', 'empalme', 'plazoInstalacion',
+  ...FINANCING_FIELDS.map(([key]) => key),
+  // Ya persisten como columnas escalares del Contact (Task 3/4), no hace
+  // falta repetirlos desde el JSON crudo:
+  'nombre', 'telefono', 'email', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm',
+  'fbclid', 'metaCampaignId', 'metaAdsetId', 'metaAdId', 'landingUrl', 'referrer',
+  'metaFbc', 'metaFbp', 'clientIpAddress', 'clientUserAgent',
+  // Bookkeeping interno del wizard/endpoint, no es un dato del lead:
+  'sessionId', 'step', 'timestamp', 'action', 'status', 'consentAccepted', 'consentVersion'
+])
+
+/**
+ * Validates a URL before it's ever used as an href — houseMapUrl/meterMapUrl
+ * and the quote link ultimately come from data posted to a public endpoint
+ * (see solarLead.routes.ts), so they're treated as hostile input, same as
+ * any other external URL rendered from stored data (react/security.md).
+ */
+function safeExternalUrl(url?: string | null): string | undefined {
+  if (!url) return undefined
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'https:') return url
+  } catch {
+    // not a valid URL — fall through to undefined
+  }
+  return undefined
+}
+
+/** Solar-specific detail cards — only rendered for source === 'solar_direct'. */
+function SolarLeadCard({ contact }: { contact: Contact }) {
+  const raw = (contact.qualificationData?.rawFields ?? {}) as Record<string, string>
+  const qualificationStatus = contact.qualificationData?.qualificationStatus as string | undefined
+  const qualificationSummary = contact.qualificationData?.qualificationSummary as string | undefined
+  const hasFinancing = FINANCING_FIELDS.some(([key]) => raw[key])
+  const quoteUrl = contact.sessionId
+    ? safeExternalUrl(`https://solar.drillchile.cl/cotizaciones?session=${contact.sessionId}`)
+    : undefined
+  const houseMapUrl = safeExternalUrl(raw.houseMapUrl)
+  const meterMapUrl = safeExternalUrl(raw.meterMapUrl)
+  const otherFields = Object.entries(raw).filter(
+    ([key, value]) => !KNOWN_RAW_FIELD_KEYS.has(key) && value !== undefined && value !== null && value !== ''
+  )
+
+  return (
+    <>
+      {qualificationStatus && (
+        <div className="rounded-lg border p-4 space-y-2 md:col-span-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Calificación</h3>
+          <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${TEMP_COLOR[contact.leadTemperature ?? ''] ?? 'bg-gray-100 text-gray-700'}`}>
+            {qualificationStatus}
+          </span>
+          {qualificationSummary && <p className="text-sm text-muted-foreground">{qualificationSummary}</p>}
+        </div>
+      )}
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Propiedad y techo</h3>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <Field label="Tipo de propiedad" value={raw.propertyType} />
+          <Field label="Tipo de tenencia" value={raw.ownershipType} />
+          <Field label="Techo confirmado" value={raw.techoConfirmado === 'true' ? 'Sí' : raw.techoConfirmado === 'false' ? 'No' : undefined} />
+          <Field label="Material del techo" value={raw.materialTecho} />
+          <Field label="Comuna" value={raw.comuna} />
+          <Field label="Dirección" value={raw.direccion} />
+        </div>
+        {(houseMapUrl || meterMapUrl) && (
+          <div className="flex flex-wrap gap-3 pt-1 border-t text-sm">
+            {houseMapUrl && (
+              <a href={houseMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                Ver ubicación de la casa
+              </a>
+            )}
+            {meterMapUrl && (
+              <a href={meterMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                Ver ubicación del medidor
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Consumo eléctrico</h3>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <Field label="Monto boleta" value={raw.montoBoleta} />
+          <Field label="Distribuidora" value={raw.distribuidora} />
+          <Field label="Consumo horario" value={raw.consumoHorario} />
+          <Field label="Empalme" value={raw.empalme} />
+          <Field label="Plazo de instalación" value={raw.plazoInstalacion} />
+        </div>
+      </div>
+
+      {hasFinancing && (
+        <div className="rounded-lg border border-orange-300 bg-orange-50/50 p-4 space-y-3">
+          <h3 className="text-sm font-medium text-orange-700 uppercase tracking-wide">Solicitud de financiamiento</h3>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            {FINANCING_FIELDS.map(([key, label]) => <Field key={key} label={label} value={raw[key]} />)}
+          </div>
+        </div>
+      )}
+
+      {quoteUrl && (
+        <div className="rounded-lg border p-4">
+          <a href={quoteUrl} target="_blank" rel="noopener noreferrer"
+             className="inline-block px-3 py-1.5 text-sm rounded-lg border hover:bg-muted">
+            Ver cotización
+          </a>
+        </div>
+      )}
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Atribución / Meta Ads</h3>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <Field label="Campaña" value={contact.metaCampaignId} />
+          <Field label="Conjunto de anuncios" value={contact.metaAdsetId} />
+          <Field label="Anuncio" value={contact.metaAdId} />
+          <Field label="UTM source" value={contact.utmSource} />
+          <Field label="UTM medium" value={contact.utmMedium} />
+          <Field label="UTM campaign" value={contact.utmCampaign} />
+          <Field label="Landing" value={contact.landingUrl} />
+          <Field label="Referrer" value={contact.referrer} />
+          <Field label="Fbclid" value={contact.fbclid} />
+        </div>
+      </div>
+
+      <div className="rounded-lg border p-4 space-y-3">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Consentimiento</h3>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <Field label="Versión" value={contact.consentVersion} />
+          <Field label="Estado" value={contact.consentStatus} />
+          <Field label="Fecha" value={contact.consentAt ? new Date(contact.consentAt).toLocaleString('es-CL') : undefined} />
+        </div>
+      </div>
+
+      {otherFields.length > 0 && (
+        <div className="rounded-lg border p-4 space-y-3 md:col-span-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Otros datos</h3>
+          <p className="text-xs text-muted-foreground">
+            Campos capturados por el wizard sin sección dedicada — cubre RUT, coordenadas crudas de mapa,
+            y los campos de otras líneas de servicio (perforación/bombeo/mantención) que StepData también tipa.
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            {otherFields.map(([key, value]) => <Field key={key} label={key} value={String(value)} />)}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function Field({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null
+  return (
+    <div>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="font-medium">{value}</p>
+    </div>
+  )
+}
+
 type Tab = 'resumen' | 'conversaciones' | 'deals' | 'tickets' | 'notas' | 'actividad' | 'tareas'
 
 interface Contact {
@@ -83,6 +258,12 @@ interface Contact {
   tickets: { id: string; title: string; status: string; priority: string; createdAt: string; slaDeadline: string | null }[]
   conversations: { id: string; status: string; messageCount: number; lastMessageAt: string | null; channel: { platform: string; name: string } }[]
   customFields?: Record<string, string> | null
+  sessionId: string | null
+  qualificationData: Record<string, unknown> | null
+  utmSource: string | null; utmMedium: string | null; utmCampaign: string | null
+  metaCampaignId: string | null; metaAdsetId: string | null; metaAdId: string | null
+  fbclid: string | null; landingUrl: string | null; referrer: string | null
+  consentVersion: string | null; consentAt: string | null; consentStatus: string | null
 }
 
 interface CustomFieldDefinition {
@@ -476,6 +657,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
                 </button>
               </div>
             )}
+            {contact.source === 'solar_direct' && <SolarLeadCard contact={contact} />}
             </div>
           </div>
         )}
