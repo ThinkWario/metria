@@ -248,6 +248,95 @@ function Field({ label, value }: { label: string; value?: string | null }) {
 
 type Tab = 'resumen' | 'conversaciones' | 'deals' | 'tickets' | 'notas' | 'actividad' | 'tareas'
 
+interface SolarResV2Criteria {
+  serviceAreaMatch: boolean
+  ownerOrDecisionMaker: boolean
+  technicalFitPreliminary: boolean
+  billBandEligible: boolean
+}
+
+function CriterionRow({ label, met }: { label: string; met: boolean }) {
+  return (
+    <li className={met ? 'text-green-700' : 'text-muted-foreground'}>
+      {met ? '✓' : '○'} {label}
+    </li>
+  )
+}
+
+/**
+ * Gate de validación humana para QualifiedLead (dev3007: "regla solar_res_v2
+ * o validación humana autorizada" — INSTRUCCIONES_DESARROLLADOR_TRACKING_METRIA_SOLAR_AGOSTO_2026.md
+ * §9). leadIngestion.service.ts ya NO dispara QualifiedLead automáticamente;
+ * esta card es el único lugar desde donde se confirma.
+ */
+function QualifiedLeadConfirmCard({ contact, onConfirmed }: { contact: Contact; onConfirmed: (patch: Partial<Contact>) => void }) {
+  const qd = (contact.qualificationData ?? {}) as Record<string, unknown>
+  const criteria = qd.solarResV2Criteria as SolarResV2Criteria | undefined
+  const alreadyConfirmed = !!qd.qualifiedLeadConfirmedAt
+  const [showOverride, setShowOverride] = useState(false)
+  const [overrideReason, setOverrideReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  if (!criteria || alreadyConfirmed) return null
+
+  const allMet = criteria.serviceAreaMatch && criteria.ownerOrDecisionMaker
+    && criteria.technicalFitPreliminary && criteria.billBandEligible
+
+  async function confirm(override: boolean) {
+    setSubmitting(true)
+    try {
+      const updated = await fetchAPI(`/crm/contacts/${contact.id}/confirm-qualified-lead`, {
+        method: 'POST',
+        body: JSON.stringify(override ? { override: true, overrideReason } : {})
+      })
+      onConfirmed(updated)
+      toast.success('Lead calificado confirmado — evento enviado a Meta')
+      setShowOverride(false)
+    } catch {
+      toast.error('No se pudo confirmar el lead calificado')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border p-4 space-y-3 md:col-span-2">
+      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Confirmación QualifiedLead (solar_res_v2)</h3>
+      <ul className="text-sm space-y-1">
+        <CriterionRow label="Zona de cobertura" met={criteria.serviceAreaMatch} />
+        <CriterionRow label="Propietario/decisor" met={criteria.ownerOrDecisionMaker} />
+        <CriterionRow label="Aptitud técnica preliminar (techo)" met={criteria.technicalFitPreliminary} />
+        <CriterionRow label="Banda de boleta elegible" met={criteria.billBandEligible} />
+      </ul>
+      {allMet ? (
+        <button type="button" disabled={submitting} onClick={() => confirm(false)}
+          className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
+          Confirmar Lead Calificado
+        </button>
+      ) : showOverride ? (
+        <div className="space-y-2">
+          <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)}
+            placeholder="Motivo de la excepción (obligatorio)"
+            className="w-full text-sm border rounded-md p-2" rows={2} />
+          <div className="flex gap-2">
+            <button type="button" disabled={submitting || !overrideReason.trim()} onClick={() => confirm(true)}
+              className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
+              Confirmar con excepción
+            </button>
+            <button type="button" onClick={() => setShowOverride(false)} className="text-sm px-3 py-1.5 rounded-md border">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setShowOverride(true)} className="text-sm px-3 py-1.5 rounded-md border">
+          No cumple todos los criterios — confirmar con excepción
+        </button>
+      )}
+    </div>
+  )
+}
+
 interface Contact {
   id: string; name: string; email: string | null; phone: string | null; status: string
   ltv: string; healthScore: number | null; source: string; createdAt: string
@@ -657,7 +746,12 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
                 </button>
               </div>
             )}
-            {contact.source === 'solar_direct' && <SolarLeadCard contact={contact} />}
+            {contact.source === 'solar_direct' && (
+              <>
+                <SolarLeadCard contact={contact} />
+                <QualifiedLeadConfirmCard contact={contact} onConfirmed={(patch) => setContact(c => c ? { ...c, ...patch } : c)} />
+              </>
+            )}
             </div>
           </div>
         )}
