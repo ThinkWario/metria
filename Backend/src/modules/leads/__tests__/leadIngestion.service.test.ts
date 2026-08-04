@@ -17,13 +17,14 @@ vi.mock('../whatsappHandoff', () => ({
 vi.mock('../../meta-events/metaEvents.service', () => ({
   emitMetaContactEvent: vi.fn(async () => {}),
   emitMetaLeadEvent: vi.fn(async () => {}),
-  emitMetaFinanceApplicationSubmittedEvent: vi.fn(async () => {})
+  emitMetaFinanceApplicationSubmittedEvent: vi.fn(async () => {}),
+  emitMetaQualifiedLeadEvent: vi.fn(async () => {})
 }))
 
 import { resolveOrCreatePartialContact, finalizeLead, SOLAR_SOURCE } from '../leadIngestion.service'
 import { qualifySolarLead } from '../solarQualifier'
 import { prepareWhatsappConversation } from '../whatsappHandoff'
-import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent } from '../../meta-events/metaEvents.service'
+import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent, emitMetaQualifiedLeadEvent } from '../../meta-events/metaEvents.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS_ID = 'ws-1'
@@ -194,6 +195,7 @@ describe('finalizeLead', () => {
     expect(prisma.deal.create).toHaveBeenCalled()
     expect(emitMetaContactEvent).toHaveBeenCalled()
     expect(emitMetaLeadEvent).toHaveBeenCalled()
+    expect(emitMetaQualifiedLeadEvent).toHaveBeenCalledWith(WS_ID, expect.objectContaining({ id: 'c1' }), 'system_generated', { qualificationVersion: 'solar-v1' })
     expect(emitMetaFinanceApplicationSubmittedEvent).not.toHaveBeenCalled()
     expect(prepareWhatsappConversation).not.toHaveBeenCalled() // sin canal conectado
   })
@@ -236,5 +238,20 @@ describe('finalizeLead', () => {
     expect(updateArgs.data.metaCampaignId).toBe('123')
     expect(updateArgs.data.fbclid).toBe('abc')
     expect(updateArgs.data.utmSource).toBeUndefined() // ya tenía 'google' — no se pisa
+  })
+
+  it('NO dispara QualifiedLead cuando la calificación es REVISAR o NO_CALIFICA', async () => {
+    vi.mocked(qualifySolarLead).mockReturnValueOnce({ qualificationStatus: 'REVISAR', qualificationSummary: 'faltan datos' })
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({ id: 'c2', name: 'x', email: null, phone: null, qualificationData: { rawFields: {} } } as any)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c2', name: 'x', phone: null, email: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    await finalizeLead(WS_ID, { sessionId: 'sess-3', consentAccepted: true } as any)
+
+    expect(emitMetaQualifiedLeadEvent).not.toHaveBeenCalled()
   })
 })

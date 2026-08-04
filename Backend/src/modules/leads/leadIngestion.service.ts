@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma'
 import { normalizePhone } from '../../lib/phoneFormat'
 import { qualifySolarLead } from './solarQualifier'
 import { prepareWhatsappConversation } from './whatsappHandoff'
-import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent } from '../meta-events/metaEvents.service'
+import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent, emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
 
 export const SOLAR_SOURCE = 'solar_direct'
 
@@ -269,6 +269,11 @@ export async function finalizeLead(
   if (isFinancingApplication(payload)) {
     emitMetaFinanceApplicationSubmittedEvent(workspaceId, contact, 'system_generated', payload.sessionId)
       .catch(err => console.error('[LeadIngestion] FinanceApplicationSubmitted event failed:', err))
+  }
+
+  if (qualResult.qualificationStatus === 'CALIFICA') {
+    emitMetaQualifiedLeadEvent(workspaceId, contact, 'system_generated', { qualificationVersion: 'solar-v1' })
+      .catch(err => console.error('[LeadIngestion] QualifiedLead event failed:', err))
   }
 
   if (phone) {
