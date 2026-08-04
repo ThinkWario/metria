@@ -912,6 +912,7 @@ model Appointment {
   durationMin   Int       @default(60) @map("duration_min")
   status        String    @default("SCHEDULED") // SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
   notes         String?
+  confirmationRequestedAt DateTime? @map("confirmation_requested_at")
   googleEventId String?   @map("google_event_id")
   createdBy     String    @map("created_by") // 'BOT' | userId
   createdAt     DateTime  @default(now()) @map("created_at")
