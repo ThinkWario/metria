@@ -9,9 +9,18 @@ vi.mock('../../ai-agent/providers/gemini.provider', () => ({
   transcribeAudio: vi.fn(async () => 'hola necesito cotizar')
 }))
 
+vi.mock('../../../lib/prisma', () => ({
+  prisma: { workspace: { findUnique: vi.fn() } }
+}))
+vi.mock('../../scheduling/scheduling.service', () => ({
+  updateAppointmentStatus: vi.fn(async () => ({}))
+}))
+
 import { verifyWhatsAppSignature, parseWhatsAppUpdate, sendWhatsAppTemplateMessage } from '../channels/whatsapp.service'
 import { processInboundMessage } from '../message.service'
 import { transcribeAudio } from '../../ai-agent/providers/gemini.provider'
+import { prisma } from '../../../lib/prisma'
+import { updateAppointmentStatus } from '../../scheduling/scheduling.service'
 
 const APP_SECRET = 'test-secret'
 
@@ -181,5 +190,41 @@ describe('sendWhatsAppTemplateMessage — botones de respuesta rápida', () => {
     expect(capturedBody.template.components).toEqual([
       { type: 'body', parameters: [{ type: 'text', text: 'Roberto' }] }
     ])
+  })
+})
+
+describe('parseWhatsAppUpdate — respuesta de confirmación de visita', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  function buildInteractiveBody(from: string, buttonId: string) {
+    return {
+      entry: [{ changes: [{ value: {
+        messages: [{ id: 'wamid.1', from, type: 'interactive', interactive: { button_reply: { id: buttonId, title: 'x' } } }]
+      } }] }]
+    } as any
+  }
+
+  it('marca la cita COMPLETED cuando el técnico responde "yes" desde notifyPhone', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56900001111', 'confirm_visit:appt-1:yes'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'COMPLETED')
+  })
+
+  it('marca la cita NO_SHOW cuando el técnico responde "no"', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56900001111', 'confirm_visit:appt-1:no'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'NO_SHOW')
+  })
+
+  it('ignora el botón si el remitente no es el notifyPhone del workspace', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56999998888', 'confirm_visit:appt-1:yes'))
+
+    expect(updateAppointmentStatus).not.toHaveBeenCalled()
   })
 })

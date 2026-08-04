@@ -4,6 +4,7 @@
 
 import crypto from 'crypto'
 import { processInboundMessage } from '../message.service'
+import { prisma } from '../../../lib/prisma'
 
 const WA_API_VERSION = 'v26.0'
 
@@ -20,6 +21,7 @@ export interface WhatsAppBody {
           image?: { id: string; mime_type: string }
           video?: { id: string; mime_type: string }
           audio?: { id: string; mime_type: string }
+          interactive?: { button_reply?: { id: string; title: string } }
           referral?: { ref: string }
         }>
         statuses?: unknown[]
@@ -229,6 +231,24 @@ export async function parseWhatsAppUpdate(
             })
           } catch (err) {
             console.error(`[WhatsApp] Failed to process message ${msg.id}:`, err)
+          }
+        } else if (msg.type === 'interactive' && msg.interactive?.button_reply?.id) {
+          try {
+            const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
+            const notifyDigits = (workspace?.notifyPhone ?? '').replace(/\D/g, '')
+            // Solo el número interno configurado como notifyPhone puede confirmar
+            // visitas — cualquier otro botón entrante se ignora en silencio, no se
+            // trata como mensaje de un lead (evita crear/tocar un Contact acá).
+            if (!notifyDigits || msg.from !== notifyDigits) continue
+
+            const match = msg.interactive.button_reply.id.match(/^confirm_visit:([^:]+):(yes|no)$/)
+            if (!match) continue
+
+            const [, appointmentId, answer] = match
+            const { updateAppointmentStatus } = await import('../../scheduling/scheduling.service')
+            await updateAppointmentStatus(workspaceId, appointmentId, answer === 'yes' ? 'COMPLETED' : 'NO_SHOW')
+          } catch (err) {
+            console.error(`[WhatsApp] Failed to process visit confirmation reply ${msg.id}:`, err)
           }
         } else if (msg.type === 'audio' && msg.audio?.id) {
           try {

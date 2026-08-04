@@ -1,4 +1,4 @@
-import type { Contact } from '@prisma/client'
+import type { Contact, Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { normalizePhone } from '../../lib/phoneFormat'
 import { qualifySolarLead } from './solarQualifier'
@@ -97,7 +97,7 @@ export async function resolveOrCreatePartialContact(
         email: payload.email?.trim() || null,
         phone: phone || null,
         status: 'LEAD',
-        qualificationData: { rawFields: payload },
+        qualificationData: { rawFields: payload as Prisma.InputJsonValue },
         ...extractAttributionFields(payload),
         tags: { create: { workspaceId, name: 'Incompleto', color: '#f97316' } }
       }
@@ -122,7 +122,7 @@ export async function resolveOrCreatePartialContact(
       ...(payload.nombre?.trim() ? { name: payload.nombre.trim() } : {}),
       ...(payload.email?.trim() ? { email: payload.email.trim() } : {}),
       ...(phone ? { phone } : {}),
-      qualificationData: { rawFields: mergedRawFields },
+      qualificationData: { rawFields: mergedRawFields as Prisma.InputJsonValue },
       ...attributionUpdate
     }
   })
