@@ -290,7 +290,11 @@ function QualifiedLeadConfirmCard({ contact, onConfirmed }: { contact: Contact; 
         body: JSON.stringify(override ? { override: true, overrideReason } : {})
       })
       onConfirmed(updated)
-      toast.success('Lead calificado confirmado — evento enviado a Meta')
+      if (updated.capiDelivered === false) {
+        toast.success('Lead calificado confirmado — el evento a Meta no se pudo verificar, revisa el estado en ConversionEvent')
+      } else {
+        toast.success('Lead calificado confirmado — evento enviado a Meta')
+      }
       setShowOverride(false)
     } catch {
       toast.error('No se pudo confirmar el lead calificado')
@@ -353,6 +357,7 @@ interface Contact {
   metaCampaignId: string | null; metaAdsetId: string | null; metaAdId: string | null
   fbclid: string | null; landingUrl: string | null; referrer: string | null
   consentVersion: string | null; consentAt: string | null; consentStatus: string | null
+  capiDelivered?: boolean
 }
 
 interface CustomFieldDefinition {
