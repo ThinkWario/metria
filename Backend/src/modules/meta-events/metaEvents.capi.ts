@@ -13,8 +13,11 @@ import { prisma } from '../../lib/prisma'
 const CAPI_API_VERSION = 'v19.0'
 const MAX_ATTEMPTS = 5
 
+// QA_E2E_DIRECTO_METRIA_04AGO2026.md §5.3: 'SubmitApplication' (nombre
+// histórico) removido del tipo — 'FinanceApplicationSubmitted' es el único
+// evento canónico de pre-calificación, ya no tenía ningún emisor real.
 export type MetaEventName =
-  | 'Contact' | 'Lead' | 'SubmitApplication' | 'FinanceApplicationSubmitted' | 'QualifiedLead'
+  | 'Contact' | 'Lead' | 'FinanceApplicationSubmitted' | 'QualifiedLead'
   | 'Schedule' | 'TechnicalReviewCompleted' | 'FinalProposalSent' | 'Purchase'
 
 export type ActionSource = 'website' | 'chat' | 'phone_call' | 'system_generated'
