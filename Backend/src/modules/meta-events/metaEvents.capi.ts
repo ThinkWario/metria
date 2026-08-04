@@ -81,10 +81,10 @@ export async function emitConversionEvent(params: EmitParams): Promise<void> {
 
   const freshContact = await prisma.contact.findUnique({
     where: { id: leadId },
-    select: { consentStatus: true }
+    select: { consentStatus: true, consentVersion: true, consentAt: true }
   })
-  if (!freshContact?.consentStatus) {
-    console.warn(`[MetaEvents] Skipped ${eventName} for lead ${leadId}: no consent recorded`)
+  if (!freshContact?.consentStatus || !freshContact.consentVersion || !freshContact.consentAt) {
+    console.warn(`[MetaEvents] Skipped ${eventName} for lead ${leadId}: consentStatus/consentVersion/consentAt incompletos`)
     return
   }
 

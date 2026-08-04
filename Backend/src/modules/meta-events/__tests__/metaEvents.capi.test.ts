@@ -57,3 +57,41 @@ describe('emitConversionEvent — event_source_url', () => {
     expect(body.data[0].event_source_url).toBeUndefined()
   })
 })
+
+describe('emitConversionEvent — gate de consentimiento completo', () => {
+  it('NO envía a Meta si consentVersion falta aunque consentStatus esté granted', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({
+      consentStatus: 'granted', consentVersion: null, consentAt: new Date()
+    } as any)
+
+    await emitConversionEvent({
+      workspaceId: 'ws-1', leadId: 'c-1', eventName: 'Contact', actionSource: 'website',
+      occurredAt: new Date(), contact: { email: 'a@b.cl' }
+    })
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(prisma.conversionEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('NO envía a Meta si consentAt falta aunque consentStatus y consentVersion estén presentes', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({
+      consentStatus: 'granted', consentVersion: 'v1', consentAt: null
+    } as any)
+
+    await emitConversionEvent({
+      workspaceId: 'ws-1', leadId: 'c-1', eventName: 'Contact', actionSource: 'website',
+      occurredAt: new Date(), contact: { email: 'a@b.cl' }
+    })
+
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('envía a Meta cuando consentStatus, consentVersion y consentAt están todos presentes', async () => {
+    await emitConversionEvent({
+      workspaceId: 'ws-1', leadId: 'c-1', eventName: 'Contact', actionSource: 'website',
+      occurredAt: new Date(), contact: { email: 'a@b.cl' }
+    })
+
+    expect(global.fetch).toHaveBeenCalled()
+  })
+})
