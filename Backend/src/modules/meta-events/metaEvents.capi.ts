@@ -52,6 +52,12 @@ interface EmitParams {
   // Pixel/CAPI using the same session_id can dedupe with this one. leadId
   // is still used for the Contact FK and consent lookup regardless.
   eventIdSubject?: string
+  // URL de origen del hito (sin PII) — INSTRUCCIONES_DESARROLLADOR_TRACKING_METRIA_SOLAR_AGOSTO_2026.md
+  // §12 lo exige para Contact/Lead/FinanceApplicationSubmitted, que ocurren
+  // en solar.drillchile.cl. Opcional porque eventos backend-originados
+  // (Schedule, TechnicalReviewCompleted, Purchase, QualifiedLead) no tienen
+  // una URL de página que los origine.
+  eventSourceUrl?: string | null
   contact: {
     email?: string | null
     phone?: string | null
@@ -71,7 +77,7 @@ interface EmitParams {
  * "sin consentimiento: no se envía a Meta").
  */
 export async function emitConversionEvent(params: EmitParams): Promise<void> {
-  const { workspaceId, leadId, eventName, actionSource, occurredAt, contact } = params
+  const { workspaceId, leadId, eventName, actionSource, occurredAt, contact, eventSourceUrl } = params
 
   const freshContact = await prisma.contact.findUnique({
     where: { id: leadId },
@@ -109,6 +115,7 @@ export async function emitConversionEvent(params: EmitParams): Promise<void> {
       event_time: Math.floor(occurredAt.getTime() / 1000),
       event_id: eventId,
       action_source: actionSource,
+      ...(eventSourceUrl && { event_source_url: eventSourceUrl }),
       user_data: userData,
       custom_data: customData
     }]
