@@ -21,7 +21,8 @@ export async function listTemplatesHandler(req: Request, res: Response): Promise
     res.json({
       templates,
       openingTemplateId: config.openingTemplateId ?? null,
-      technicalVisitTemplateId: config.technicalVisitTemplateId ?? null
+      technicalVisitTemplateId: config.technicalVisitTemplateId ?? null,
+      visitConfirmationTemplateId: config.visitConfirmationTemplateId ?? null
     })
   } catch (err) {
     console.error('[Templates] list error:', err)
@@ -159,7 +160,7 @@ export async function setOpeningTemplateHandler(req: Request, res: Response): Pr
   }
 }
 
-const ASSIGNABLE_TEMPLATE_ROLES = ['technicalVisitTemplateId'] as const
+const ASSIGNABLE_TEMPLATE_ROLES = ['technicalVisitTemplateId', 'visitConfirmationTemplateId'] as const
 type AssignableTemplateRole = typeof ASSIGNABLE_TEMPLATE_ROLES[number]
 
 /**

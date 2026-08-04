@@ -39,6 +39,7 @@ export const WhatsAppTemplatesPanel = () => {
     const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
     const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null)
     const [technicalVisitTemplateId, setTechnicalVisitTemplateId] = useState<string | null>(null)
+    const [visitConfirmationTemplateId, setVisitConfirmationTemplateId] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
     const [creating, setCreating] = useState(false)
@@ -55,6 +56,7 @@ export const WhatsAppTemplatesPanel = () => {
             setTemplates(data.templates ?? [])
             setOpeningTemplateId(data.openingTemplateId ?? null)
             setTechnicalVisitTemplateId(data.technicalVisitTemplateId ?? null)
+            setVisitConfirmationTemplateId(data.visitConfirmationTemplateId ?? null)
         } catch (err: any) {
             toast.error('No se pudieron cargar las plantillas', { description: err.message })
         } finally {
@@ -108,6 +110,7 @@ export const WhatsAppTemplatesPanel = () => {
             setTemplates(prev => prev.filter(t => t.id !== id))
             if (openingTemplateId === id) setOpeningTemplateId(null)
             if (technicalVisitTemplateId === id) setTechnicalVisitTemplateId(null)
+            if (visitConfirmationTemplateId === id) setVisitConfirmationTemplateId(null)
         } catch (err: any) {
             toast.error('No se pudo borrar la plantilla', { description: err.message })
         }
@@ -131,6 +134,19 @@ export const WhatsAppTemplatesPanel = () => {
             })
             setTechnicalVisitTemplateId(data.technicalVisitTemplateId ?? id)
             toast.success('Plantilla asignada para aviso de visita técnica')
+        } catch (err: any) {
+            toast.error('No se pudo asignar', { description: err.message })
+        }
+    }
+
+    const handleSetVisitConfirmation = async (id: string) => {
+        try {
+            const data = await fetchAPI('/messaging/whatsapp/templates/role/visitConfirmationTemplateId', {
+                method: 'PATCH',
+                body: JSON.stringify({ templateId: id })
+            })
+            setVisitConfirmationTemplateId(data.visitConfirmationTemplateId ?? id)
+            toast.success('Plantilla asignada para confirmación de visita')
         } catch (err: any) {
             toast.error('No se pudo asignar', { description: err.message })
         }
@@ -221,6 +237,9 @@ export const WhatsAppTemplatesPanel = () => {
                                         {technicalVisitTemplateId === t.id && (
                                             <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Aviso visita técnica</Badge>
                                         )}
+                                        {visitConfirmationTemplateId === t.id && (
+                                            <Badge variant="outline" className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">Confirmación de visita</Badge>
+                                        )}
                                     </div>
                                     <p className="text-[11px] text-muted-foreground truncate">{t.bodyText}</p>
                                     {t.status === 'REJECTED' && t.rejectedReason && (
@@ -239,6 +258,14 @@ export const WhatsAppTemplatesPanel = () => {
                                             onClick={() => handleSetTechnicalVisit(t.id)}
                                         >
                                             Usar en aviso técnico
+                                        </Button>
+                                    )}
+                                    {t.status === 'APPROVED' && visitConfirmationTemplateId !== t.id && (
+                                        <Button
+                                            size="sm" variant="outline" className="h-7 text-[10px]"
+                                            onClick={() => handleSetVisitConfirmation(t.id)}
+                                        >
+                                            Usar en confirmación de visita
                                         </Button>
                                     )}
                                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(t.id)}>
