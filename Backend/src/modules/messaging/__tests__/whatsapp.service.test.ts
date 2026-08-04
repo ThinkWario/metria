@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import crypto from 'crypto'
 
 vi.mock('../message.service', () => ({
@@ -9,7 +9,7 @@ vi.mock('../../ai-agent/providers/gemini.provider', () => ({
   transcribeAudio: vi.fn(async () => 'hola necesito cotizar')
 }))
 
-import { verifyWhatsAppSignature, parseWhatsAppUpdate } from '../channels/whatsapp.service'
+import { verifyWhatsAppSignature, parseWhatsAppUpdate, sendWhatsAppTemplateMessage } from '../channels/whatsapp.service'
 import { processInboundMessage } from '../message.service'
 import { transcribeAudio } from '../../ai-agent/providers/gemini.provider'
 
@@ -143,5 +143,43 @@ describe('parseWhatsAppUpdate — audio messages', () => {
 
     expect(transcribeAudio).not.toHaveBeenCalled()
     expect(processInboundMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('sendWhatsAppTemplateMessage — botones de respuesta rápida', () => {
+  const originalFetch = global.fetch
+  afterEach(() => { global.fetch = originalFetch })
+
+  it('incluye los componentes de botón cuando se pasan buttonPayloads', async () => {
+    let capturedBody: any
+    global.fetch = vi.fn(async (_url: string, init: any) => {
+      capturedBody = JSON.parse(init.body)
+      return { ok: true, json: async () => ({}) } as any
+    }) as any
+
+    await sendWhatsAppTemplateMessage(
+      'phone-id', 'token', '56900001111', 'visit_confirmation', 'es',
+      ['Roberto'], ['confirm_visit:appt-1:yes', 'confirm_visit:appt-1:no']
+    )
+
+    expect(capturedBody.template.components).toEqual([
+      { type: 'body', parameters: [{ type: 'text', text: 'Roberto' }] },
+      { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: 'confirm_visit:appt-1:yes' }] },
+      { type: 'button', sub_type: 'quick_reply', index: '1', parameters: [{ type: 'payload', payload: 'confirm_visit:appt-1:no' }] }
+    ])
+  })
+
+  it('sin buttonPayloads se comporta igual que antes (solo el componente body)', async () => {
+    let capturedBody: any
+    global.fetch = vi.fn(async (_url: string, init: any) => {
+      capturedBody = JSON.parse(init.body)
+      return { ok: true, json: async () => ({}) } as any
+    }) as any
+
+    await sendWhatsAppTemplateMessage('phone-id', 'token', '56900001111', 'saludo', 'es', ['Roberto'])
+
+    expect(capturedBody.template.components).toEqual([
+      { type: 'body', parameters: [{ type: 'text', text: 'Roberto' }] }
+    ])
   })
 })

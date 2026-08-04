@@ -137,7 +137,8 @@ export async function sendWhatsAppTemplateToPhone(
   channelId: string,
   to: string,
   templateId: string,
-  params: string[] = []
+  params: string[] = [],
+  buttonPayloads?: string[]
 ): Promise<void> {
   const channel = await prisma.channel.findUnique({ where: { id: channelId } })
   if (!channel || channel.platform !== 'WHATSAPP') throw new Error('WhatsApp channel not found')
@@ -148,7 +149,7 @@ export async function sendWhatsAppTemplateToPhone(
   })
   if (!template) throw new Error(`Template ${templateId} not found or not APPROVED for this channel`)
 
-  await sendWhatsAppTemplateMessage(config.phoneNumberId, config.accessToken, to, template.name, template.language, params)
+  await sendWhatsAppTemplateMessage(config.phoneNumberId, config.accessToken, to, template.name, template.language, params, buttonPayloads)
 }
 
 /**

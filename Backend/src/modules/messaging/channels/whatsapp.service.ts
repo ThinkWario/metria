@@ -67,9 +67,18 @@ export async function sendWhatsAppTemplateMessage(
   to: string,
   templateName: string,
   language: string,
-  bodyParams: string[] = []
+  bodyParams: string[] = [],
+  buttonPayloads?: string[]
 ): Promise<void> {
   const url = `https://graph.facebook.com/${WA_API_VERSION}/${phoneNumberId}/messages`
+
+  const components: Record<string, unknown>[] = []
+  if (bodyParams.length > 0) {
+    components.push({ type: 'body', parameters: bodyParams.map(text => ({ type: 'text', text })) })
+  }
+  buttonPayloads?.forEach((payload, index) => {
+    components.push({ type: 'button', sub_type: 'quick_reply', index: String(index), parameters: [{ type: 'payload', payload }] })
+  })
 
   const response = await fetch(url, {
     method: 'POST',
@@ -84,9 +93,7 @@ export async function sendWhatsAppTemplateMessage(
       template: {
         name: templateName,
         language: { code: language },
-        ...(bodyParams.length > 0
-          ? { components: [{ type: 'body', parameters: bodyParams.map(text => ({ type: 'text', text })) }] }
-          : {})
+        ...(components.length > 0 ? { components } : {})
       }
     })
   })
