@@ -18,6 +18,11 @@ const { getFreeBusyMock } = vi.hoisted(() => ({ getFreeBusyMock: vi.fn() }))
 vi.mock('../google-calendar.service', () => ({
   getFreeBusy: getFreeBusyMock
 }))
+const { emitMetaScheduleEventMock } = vi.hoisted(() => ({ emitMetaScheduleEventMock: vi.fn(async () => {}) }))
+vi.mock('../../meta-events/metaEvents.service', () => ({
+  emitMetaScheduleEvent: emitMetaScheduleEventMock,
+  emitMetaTechnicalReviewCompletedEvent: vi.fn(async () => {})
+}))
 
 import { afterEach } from 'vitest'
 import { getAvailableSlots, scheduleAppointment, filterSlotsByCalendarBusy, rescheduleAppointment } from '../scheduling.service'
@@ -262,5 +267,55 @@ describe('rescheduleAppointment', () => {
 
     await expect(rescheduleAppointment(WS, 'ghost', new Date('2026-06-15T14:00:00')))
       .rejects.toThrow('Appointment not found')
+  })
+})
+
+// Deviación del spec: el spec mockeaba availabilityRule.findMany → [] (lo que
+// haría que resolveSlotDuration lanzara 'outside availability'); con una regla
+// que cubra el slot, el fixture es ejecutable y la aserción apunta al argumento.
+describe('scheduleAppointment — señal de calificación hacia Meta CAPI', () => {
+  const MONDAY_RULE = [
+    { dayOfWeek: 1, startTime: '09:00', endTime: '18:00', slotMinutes: 60, apptType: 'SITE_VISIT' }
+  ]
+
+  it('pasa qualification_status en el evento Schedule cuando el contact ya calificó', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: 'c1', name: 'Roberto', phone: '56911112222',
+      qualificationData: { qualificationStatus: 'CALIFICA' }
+    } as any)
+    vi.mocked(prisma.availabilityRule.findMany).mockResolvedValue(MONDAY_RULE as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+    vi.mocked(prisma.appointment.create).mockResolvedValue({ id: 'a1' } as any)
+
+    await scheduleAppointment(WS, {
+      contactId: 'c1', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-15T10:00:00'), createdBy: 'u1'
+    })
+
+    // El emit es fire-and-forget (no awaited dentro de scheduleAppointment) — dar
+    // un tick al event loop para que la promesa se resuelva antes de aseverar.
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(emitMetaScheduleEventMock).toHaveBeenCalledWith(
+      WS, expect.objectContaining({ id: 'c1' }), 'a1', 'system_generated',
+      { qualification_status: 'CALIFICA' }
+    )
+  })
+
+  it('no pasa customData cuando el contact no tiene qualificationStatus', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: 'c2', name: 'Ana', phone: '56922223333', qualificationData: null
+    } as any)
+    vi.mocked(prisma.availabilityRule.findMany).mockResolvedValue(MONDAY_RULE as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+    vi.mocked(prisma.appointment.create).mockResolvedValue({ id: 'a2' } as any)
+
+    await scheduleAppointment(WS, {
+      contactId: 'c2', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-15T10:00:00'), createdBy: 'u1'
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(emitMetaScheduleEventMock).toHaveBeenCalledWith(
+      WS, expect.objectContaining({ id: 'c2' }), 'a2', 'system_generated', undefined
+    )
   })
 })

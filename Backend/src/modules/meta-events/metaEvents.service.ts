@@ -94,11 +94,12 @@ export async function emitMetaScheduleEvent(
   workspaceId: string,
   contact: ContactLike,
   appointmentId: string,
-  actionSource: ActionSource
+  actionSource: ActionSource,
+  customData?: Record<string, string | number | boolean>
 ): Promise<void> {
   await emitConversionEvent({
     workspaceId, leadId: contact.id, eventName: 'Schedule', actionSource,
-    occurredAt: new Date(), eventIdSuffix: appointmentId, contact: toContactData(contact)
+    occurredAt: new Date(), eventIdSuffix: appointmentId, contact: toContactData(contact), customData
   })
 }
 

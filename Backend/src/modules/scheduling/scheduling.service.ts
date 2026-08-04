@@ -192,8 +192,11 @@ export async function scheduleAppointment(
     }
   })
 
-  emitMetaScheduleEvent(workspaceId, contact, appointment.id, actionSource)
-    .catch(err => console.error('[Scheduling] Schedule event failed:', err))
+  const qualificationStatus = (contact.qualificationData as any)?.qualificationStatus as string | undefined
+  emitMetaScheduleEvent(
+    workspaceId, contact, appointment.id, actionSource,
+    qualificationStatus ? { qualification_status: qualificationStatus } : undefined
+  ).catch(err => console.error('[Scheduling] Schedule event failed:', err))
 
   return appointment
 }
