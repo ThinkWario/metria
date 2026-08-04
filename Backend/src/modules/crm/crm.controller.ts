@@ -116,6 +116,23 @@ export async function calculateHealthScoreHandler(req: AuthRequest, res: Respons
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
 }
 
+function confirmQualifiedLeadStatus(msg: string): number {
+  if (msg.toLowerCase().includes('not found')) return 404
+  if (msg.includes('not fully met') || msg.includes('already confirmed') || msg.includes('Only solar_direct')) return 409
+  if (msg.includes('No solar_res_v2 criteria') || msg.includes('overrideReason is required')) return 400
+  return 500
+}
+
+export async function confirmQualifiedLeadHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { override, overrideReason } = req.body
+    const updated = await cs.confirmQualifiedLead(req.user!.workspaceId!, req.params.contactId, req.user!.id!, { override, overrideReason })
+    res.json(updated)
+  } catch (err: any) {
+    res.status(confirmQualifiedLeadStatus(err.message)).json({ error: err.message })
+  }
+}
+
 export async function bulkUpdateContactsHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     const { ids, status, tags } = req.body

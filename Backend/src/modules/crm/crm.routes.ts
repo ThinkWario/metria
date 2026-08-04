@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma'
 import {
   listContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
+  confirmQualifiedLeadHandler,
   bulkUpdateContactsHandler, bulkDeleteContactsHandler,
   listDuplicateContactsHandler, mergeContactsHandler,
   listCustomFieldsHandler, createCustomFieldHandler, deleteCustomFieldHandler, setContactCustomFieldsHandler,
@@ -33,6 +34,7 @@ router.post('/crm/contacts/:contactId/notes', ...auth, addNoteHandler)
 router.post('/crm/contacts/:contactId/tags', ...auth, addTagHandler)
 router.delete('/crm/contacts/:contactId/tags/:tagId', ...auth, removeTagHandler)
 router.post('/crm/contacts/:contactId/health-score', ...auth, calculateHealthScoreHandler)
+router.post('/crm/contacts/:contactId/confirm-qualified-lead', ...auth, confirmQualifiedLeadHandler)
 
 // Custom Fields
 router.get('/crm/custom-fields', ...auth, listCustomFieldsHandler)
