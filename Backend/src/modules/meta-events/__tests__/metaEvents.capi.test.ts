@@ -73,6 +73,20 @@ describe('emitConversionEvent — gate de consentimiento completo', () => {
     expect(prisma.conversionEvent.create).not.toHaveBeenCalled()
   })
 
+  it('NO envía a Meta si consentStatus es un string truthy distinto de "granted" (ej. "revoked")', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({
+      consentStatus: 'revoked', consentVersion: 'v1', consentAt: new Date()
+    } as any)
+
+    await emitConversionEvent({
+      workspaceId: 'ws-1', leadId: 'c-1', eventName: 'Contact', actionSource: 'website',
+      occurredAt: new Date(), contact: { email: 'a@b.cl' }
+    })
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(prisma.conversionEvent.create).not.toHaveBeenCalled()
+  })
+
   it('NO envía a Meta si consentAt falta aunque consentStatus y consentVersion estén presentes', async () => {
     vi.mocked(prisma.contact.findUnique).mockResolvedValue({
       consentStatus: 'granted', consentVersion: 'v1', consentAt: null

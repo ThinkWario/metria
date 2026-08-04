@@ -83,7 +83,7 @@ export async function emitConversionEvent(params: EmitParams): Promise<void> {
     where: { id: leadId },
     select: { consentStatus: true, consentVersion: true, consentAt: true }
   })
-  if (!freshContact?.consentStatus || !freshContact.consentVersion || !freshContact.consentAt) {
+  if (freshContact?.consentStatus !== 'granted' || !freshContact.consentVersion || !freshContact.consentAt) {
     console.warn(`[MetaEvents] Skipped ${eventName} for lead ${leadId}: consentStatus/consentVersion/consentAt incompletos`)
     return
   }
