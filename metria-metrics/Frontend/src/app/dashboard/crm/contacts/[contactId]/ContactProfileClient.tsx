@@ -41,7 +41,7 @@ interface RevenueSummary {
     totalRevenue30d: number
     netProfit30d: number
   }
-  contactAttribution: {
+  contactAttribution?: {
     source: string | null
     estimatedAdCost: null
     note: string
@@ -1036,7 +1036,7 @@ function EcommercePerformanceCard({
             </p>
           </div>
         </div>
-        {r.contactAttribution.source && (
+        {r.contactAttribution?.source && (
           <p className="text-[11px] text-muted-foreground">
             Fuente: <span className="font-medium">{r.contactAttribution.source}</span>
             {' · '}{r.contactAttribution.note}

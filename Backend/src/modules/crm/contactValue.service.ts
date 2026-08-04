@@ -108,12 +108,37 @@ export interface RevenueSummary {
     totalRevenue30d: number
     netProfit30d: number
   }
+  contactAttribution: {
+    source: string | null
+    estimatedAdCost: null
+    note: string
+  }
+}
+
+/**
+ * QA_E2E_DIRECTO_METRIA_04AGO2026.md P0 #1: contactAttribution debe
+ * existir siempre en la respuesta — el Frontend lo lee sin optional
+ * chaining y un campo ausente crasheaba el perfil completo del Contact.
+ * estimatedAdCost queda fijo en null (no hay costo por-anuncio
+ * atribuible a nivel de contacto individual todavía); source prioriza
+ * utmSource (attribution real de campaña) sobre el source genérico de
+ * ingesta (solar_direct, sheet_import, etc.) cuando ambos existen.
+ */
+function buildContactAttribution(contact: { source: string; utmSource: string | null }): RevenueSummary['contactAttribution'] {
+  const source = contact.utmSource?.trim() || contact.source?.trim() || null
+  return {
+    source,
+    estimatedAdCost: null,
+    note: source
+      ? 'Atribución estimada según el origen registrado del contacto.'
+      : 'Sin datos de atribución disponibles para este contacto.'
+  }
 }
 
 export async function getRevenueSummary(workspaceId: string, contactId: string): Promise<RevenueSummary> {
   const contact = await prisma.contact.findFirst({
     where: { id: contactId, workspaceId },
-    select: { email: true }
+    select: { email: true, source: true, utmSource: true }
   })
   if (!contact) throw new Error('Contact not found')
 
@@ -166,6 +191,7 @@ export async function getRevenueSummary(workspaceId: string, contactId: string):
 
   return {
     contactRevenue: { totalRevenue, orderCount, avgOrderValue, lastPurchaseDate },
-    workspaceContext: { avgROAS, totalAdSpend30d, totalRevenue30d, netProfit30d }
+    workspaceContext: { avgROAS, totalAdSpend30d, totalRevenue30d, netProfit30d },
+    contactAttribution: buildContactAttribution(contact)
   }
 }
