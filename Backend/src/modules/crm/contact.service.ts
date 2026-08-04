@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma'
 import { SOLAR_SOURCE } from '../leads/leadIngestion.service'
 import { emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
+import type { SolarResV2Criteria } from '../leads/solarQualifier'
 
 export interface ListContactsOpts {
   search?: string
@@ -310,13 +311,6 @@ export async function calculateHealthScore(workspaceId: string, contactId: strin
   return { score, factors }
 }
 
-interface SolarResV2Criteria {
-  serviceAreaMatch: boolean
-  ownerOrDecisionMaker: boolean
-  technicalFitPreliminary: boolean
-  billBandEligible: boolean
-}
-
 /**
  * "Validación humana autorizada" — la alternativa explícita que
  * INSTRUCCIONES_DESARROLLADOR_TRACKING_METRIA_SOLAR_AGOSTO_2026.md §9 ofrece
@@ -345,6 +339,10 @@ export async function confirmQualifiedLead(
     throw new Error('QualifiedLead already confirmed for this contact')
   }
 
+  if (!contact.email && !contact.phone) {
+    throw new Error('Contact has no valid email or phone — cannot confirm QualifiedLead without identity')
+  }
+
   const criteria = qualificationData.solarResV2Criteria as SolarResV2Criteria | undefined
   if (!criteria) throw new Error('No solar_res_v2 criteria computed yet for this contact')
 
@@ -364,18 +362,24 @@ export async function confirmQualifiedLead(
     nextStepConfirmed: true,
     qualifiedLeadConfirmedBy: actorUserId,
     qualifiedLeadConfirmedAt: new Date().toISOString(),
-    ...(options.override && { qualifiedLeadOverrideReason: options.overrideReason!.trim() })
+    ...(options.override && { qualifiedLeadOverrideReason: options.overrideReason!.trim().slice(0, 500) })
   }
 
   const updated = await prisma.contact.update({
-    where: { id: contact.id },
+    where: { id: contact.id, workspaceId },
     data: { qualificationData: updatedQualificationData as any }
   })
 
-  emitMetaQualifiedLeadEvent(workspaceId, updated, 'system_generated', {
-    qualificationVersion: 'solar_res_v2',
-    serviceAreaMatch: criteria.serviceAreaMatch
-  }).catch(err => console.error('[ContactService] QualifiedLead event failed:', err))
+  let capiDelivered = true
+  try {
+    await emitMetaQualifiedLeadEvent(workspaceId, updated, 'system_generated', {
+      qualificationVersion: 'solar_res_v2',
+      serviceAreaMatch: criteria.serviceAreaMatch
+    })
+  } catch (err) {
+    console.error('[ContactService] QualifiedLead event failed:', err)
+    capiDelivered = false
+  }
 
-  return updated
+  return { ...updated, capiDelivered }
 }

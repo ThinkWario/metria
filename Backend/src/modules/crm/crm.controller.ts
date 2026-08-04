@@ -119,7 +119,7 @@ export async function calculateHealthScoreHandler(req: AuthRequest, res: Respons
 function confirmQualifiedLeadStatus(msg: string): number {
   if (msg.toLowerCase().includes('not found')) return 404
   if (msg.includes('not fully met') || msg.includes('already confirmed') || msg.includes('Only solar_direct')) return 409
-  if (msg.includes('No solar_res_v2 criteria') || msg.includes('overrideReason is required')) return 400
+  if (msg.includes('No solar_res_v2 criteria') || msg.includes('overrideReason is required') || msg.includes('no valid email or phone')) return 400
   return 500
 }
 

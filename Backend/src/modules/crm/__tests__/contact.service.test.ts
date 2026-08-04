@@ -285,14 +285,14 @@ describe('confirmQualifiedLead', () => {
 
   it('rechaza si no hay solarResV2Criteria calculado todavía', async () => {
     vi.mocked(prisma.contact.findFirst).mockResolvedValue({
-      id: CONTACT_ID, source: 'solar_direct', qualificationData: {}
+      id: CONTACT_ID, source: 'solar_direct', email: 'a@b.cl', qualificationData: {}
     } as any)
     await expect(confirmQualifiedLead(WS, CONTACT_ID, 'user-1')).rejects.toThrow('No solar_res_v2 criteria')
   })
 
   it('rechaza sin override si no todos los criterios están cumplidos', async () => {
     vi.mocked(prisma.contact.findFirst).mockResolvedValue({
-      id: CONTACT_ID, source: 'solar_direct',
+      id: CONTACT_ID, source: 'solar_direct', email: 'a@b.cl',
       qualificationData: { solarResV2Criteria: { ...ALL_MET, billBandEligible: false } }
     } as any)
     await expect(confirmQualifiedLead(WS, CONTACT_ID, 'user-1')).rejects.toThrow('not fully met')
@@ -300,10 +300,19 @@ describe('confirmQualifiedLead', () => {
 
   it('rechaza override sin overrideReason', async () => {
     vi.mocked(prisma.contact.findFirst).mockResolvedValue({
-      id: CONTACT_ID, source: 'solar_direct',
+      id: CONTACT_ID, source: 'solar_direct', email: 'a@b.cl',
       qualificationData: { solarResV2Criteria: { ...ALL_MET, billBandEligible: false } }
     } as any)
     await expect(confirmQualifiedLead(WS, CONTACT_ID, 'user-1', { override: true })).rejects.toThrow('overrideReason is required')
+  })
+
+  it('rechaza si el contacto no tiene email ni phone válidos, sin disparar el evento a Meta', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: CONTACT_ID, source: 'solar_direct', email: null, phone: null,
+      qualificationData: { solarResV2Criteria: ALL_MET }
+    } as any)
+    await expect(confirmQualifiedLead(WS, CONTACT_ID, 'user-1')).rejects.toThrow('no valid email or phone')
+    expect(emitMetaQualifiedLeadEvent).not.toHaveBeenCalled()
   })
 
   it('rechaza si ya fue confirmado antes', async () => {
@@ -321,10 +330,10 @@ describe('confirmQualifiedLead', () => {
     } as any)
     vi.mocked(prisma.contact.update).mockResolvedValue({ id: CONTACT_ID, email: 'a@b.cl' } as any)
 
-    await confirmQualifiedLead(WS, CONTACT_ID, 'user-1')
+    const result = await confirmQualifiedLead(WS, CONTACT_ID, 'user-1')
 
     expect(prisma.contact.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: CONTACT_ID },
+      where: { id: CONTACT_ID, workspaceId: WS },
       data: expect.objectContaining({
         qualificationData: expect.objectContaining({
           qualificationVersion: 'solar_res_v2',
@@ -337,11 +346,12 @@ describe('confirmQualifiedLead', () => {
       WS, expect.objectContaining({ id: CONTACT_ID }), 'system_generated',
       { qualificationVersion: 'solar_res_v2', serviceAreaMatch: true }
     )
+    expect(result.capiDelivered).toBe(true)
   })
 
   it('permite override con overrideReason y lo persiste, aunque falten criterios', async () => {
     vi.mocked(prisma.contact.findFirst).mockResolvedValue({
-      id: CONTACT_ID, source: 'solar_direct',
+      id: CONTACT_ID, source: 'solar_direct', email: 'a@b.cl',
       qualificationData: { rawFields: {}, solarResV2Criteria: { ...ALL_MET, billBandEligible: false } }
     } as any)
     vi.mocked(prisma.contact.update).mockResolvedValue({ id: CONTACT_ID } as any)
@@ -356,5 +366,33 @@ describe('confirmQualifiedLead', () => {
       })
     }))
     expect(emitMetaQualifiedLeadEvent).toHaveBeenCalled()
+  })
+
+  it('acota overrideReason a 500 caracteres antes de persistirlo', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: CONTACT_ID, source: 'solar_direct', email: 'a@b.cl',
+      qualificationData: { rawFields: {}, solarResV2Criteria: { ...ALL_MET, billBandEligible: false } }
+    } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: CONTACT_ID } as any)
+    const longReason = 'x'.repeat(600)
+
+    await confirmQualifiedLead(WS, CONTACT_ID, 'user-1', { override: true, overrideReason: longReason })
+
+    const updateArgs = vi.mocked(prisma.contact.update).mock.calls.at(-1)?.[0] as any
+    expect(updateArgs.data.qualificationData.qualifiedLeadOverrideReason).toHaveLength(500)
+  })
+
+  it('persiste la confirmación y devuelve capiDelivered:false sin lanzar cuando el envío a Meta falla', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: CONTACT_ID, source: 'solar_direct', email: 'a@b.cl',
+      qualificationData: { rawFields: {}, solarResV2Criteria: ALL_MET }
+    } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: CONTACT_ID, email: 'a@b.cl' } as any)
+    vi.mocked(emitMetaQualifiedLeadEvent).mockRejectedValueOnce(new Error('Meta API down'))
+
+    const result = await confirmQualifiedLead(WS, CONTACT_ID, 'user-1')
+
+    expect(prisma.contact.update).toHaveBeenCalled()
+    expect(result.capiDelivered).toBe(false)
   })
 })
