@@ -138,6 +138,34 @@ describe('resolveOrCreatePartialContact', () => {
     expect(updateArgs.data.utmCampaign).toBe('campana-2') // no tenía first-touch — se llena
     expect(updateArgs.data.utmSource).toBeUndefined() // ya tenía 'google' — no se pisa
   })
+
+  it('preserva claves de qualificationData ajenas a rawFields (ej. confirmación humana) al recibir un save posterior', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({
+      id: 'c1',
+      name: 'Lead Solar (sess-1)',
+      email: null,
+      phone: null,
+      qualificationData: {
+        rawFields: { sessionId: 'sess-1' },
+        qualifiedLeadConfirmedAt: '2026-08-01T00:00:00.000Z',
+        qualifiedLeadConfirmedBy: 'user-1'
+      }
+    } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1' } as any)
+
+    await resolveOrCreatePartialContact(WS_ID, { sessionId: 'sess-1', comuna: 'Providencia' })
+
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: expect.objectContaining({
+        qualificationData: expect.objectContaining({
+          qualifiedLeadConfirmedAt: '2026-08-01T00:00:00.000Z',
+          qualifiedLeadConfirmedBy: 'user-1',
+          rawFields: { sessionId: 'sess-1', comuna: 'Providencia' }
+        })
+      })
+    })
+  })
 })
 
 describe('finalizeLead', () => {
@@ -153,7 +181,7 @@ describe('finalizeLead', () => {
       .mockResolvedValueOnce({ id: 'c-other', email: 'roberto@test.cl' } as any) // by email
 
     const result = await finalizeLead(WS_ID, {
-      sessionId: 'sess-1', consentAccepted: true, email: 'roberto@test.cl'
+      sessionId: 'sess-1', consentAccepted: true, consentVersion: 'v1', email: 'roberto@test.cl'
     } as any)
 
     expect(result.ok).toBe(false)
@@ -220,7 +248,7 @@ describe('finalizeLead', () => {
     vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
 
     await finalizeLead(WS_ID, {
-      sessionId: 'sess-2', consentAccepted: true, email: 'roberto@test.cl', ingresoMensual: '900000', edad: '35'
+      sessionId: 'sess-2', consentAccepted: true, consentVersion: 'v1', email: 'roberto@test.cl', ingresoMensual: '900000', edad: '35'
     } as any)
 
     expect(emitMetaFinanceApplicationSubmittedEvent).toHaveBeenCalled()
@@ -239,7 +267,7 @@ describe('finalizeLead', () => {
     vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
 
     await finalizeLead(WS_ID, {
-      sessionId: 'sess-3', consentAccepted: true,
+      sessionId: 'sess-3', consentAccepted: true, consentVersion: 'v1',
       utmSource: 'meta', utmCampaign: 'campana-1', metaCampaignId: '123', fbclid: 'abc'
     } as any)
 
@@ -259,7 +287,7 @@ describe('finalizeLead', () => {
     vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
     vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
 
-    await finalizeLead(WS_ID, { sessionId: 'sess-3', consentAccepted: true } as any)
+    await finalizeLead(WS_ID, { sessionId: 'sess-3', consentAccepted: true, consentVersion: 'v1' } as any)
 
     expect(emitMetaQualifiedLeadEvent).not.toHaveBeenCalled()
   })
@@ -273,9 +301,47 @@ describe('finalizeLead', () => {
     vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
     vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
 
-    await finalizeLead(WS_ID, { sessionId: 'sess-4', consentAccepted: true } as any)
+    await finalizeLead(WS_ID, { sessionId: 'sess-4', consentAccepted: true, consentVersion: 'v1' } as any)
 
     expect(emitMetaContactEvent).not.toHaveBeenCalled()
     expect(emitMetaLeadEvent).not.toHaveBeenCalled()
+  })
+
+  it('rechaza con 422 si consentVersion falta o está vacío aunque consentAccepted sea true', async () => {
+    const result = await finalizeLead(WS_ID, { sessionId: 'sess-5', consentAccepted: true, consentVersion: '' } as any)
+    expect(result).toEqual({ ok: false, status: 422, error: expect.any(String) })
+    expect(prisma.contact.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('preserva las claves de confirmación humana (qualifiedLeadConfirmedAt/By, qualificationVersion, nextStepConfirmed) al pasar de nuevo por finalizeLead', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({
+        id: 'c1', name: 'Roberto', email: 'roberto@test.cl', phone: null,
+        qualificationData: {
+          rawFields: { sessionId: 'sess-6' },
+          solarResV2Criteria: { serviceAreaMatch: true, ownerOrDecisionMaker: true, technicalFitPreliminary: true, billBandEligible: true },
+          qualificationVersion: 'solar_res_v2',
+          nextStepConfirmed: true,
+          qualifiedLeadConfirmedBy: 'user-1',
+          qualifiedLeadConfirmedAt: '2026-08-01T00:00:00.000Z'
+        }
+      } as any) // by sessionId
+      .mockResolvedValueOnce(null) // by email
+      .mockResolvedValueOnce(null) // by phone
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1', email: 'roberto@test.cl', phone: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    await finalizeLead(WS_ID, {
+      sessionId: 'sess-6', consentAccepted: true, consentVersion: 'v1', email: 'roberto@test.cl'
+    } as any)
+
+    const updateArgs = vi.mocked(prisma.contact.update).mock.calls.at(-1)?.[0] as any
+    expect(updateArgs.data.qualificationData).toEqual(expect.objectContaining({
+      qualificationVersion: 'solar_res_v2',
+      nextStepConfirmed: true,
+      qualifiedLeadConfirmedBy: 'user-1',
+      qualifiedLeadConfirmedAt: '2026-08-01T00:00:00.000Z'
+    }))
   })
 })

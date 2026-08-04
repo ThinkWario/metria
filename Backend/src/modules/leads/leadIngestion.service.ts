@@ -104,6 +104,7 @@ export async function resolveOrCreatePartialContact(
     })
   }
 
+  const existingQualificationData = (existing.qualificationData as object) ?? {}
   const existingRawFields = ((existing.qualificationData as any)?.rawFields ?? {}) as Record<string, unknown>
   const incomingFields = Object.fromEntries(
     Object.entries(payload).filter(([, v]) => v !== undefined && v !== '')
@@ -122,7 +123,7 @@ export async function resolveOrCreatePartialContact(
       ...(payload.nombre?.trim() ? { name: payload.nombre.trim() } : {}),
       ...(payload.email?.trim() ? { email: payload.email.trim() } : {}),
       ...(phone ? { phone } : {}),
-      qualificationData: { rawFields: mergedRawFields as Prisma.InputJsonValue },
+      qualificationData: { ...existingQualificationData, rawFields: mergedRawFields as Prisma.InputJsonValue },
       ...attributionUpdate
     }
   })
@@ -165,6 +166,9 @@ export async function finalizeLead(
   if (payload.consentAccepted !== true) {
     return { ok: false, status: 422, error: 'consentAccepted es requerido para completar el lead' }
   }
+  if (!payload.consentVersion?.trim()) {
+    return { ok: false, status: 422, error: 'consentVersion es requerido para completar el lead' }
+  }
 
   const bySession = await findContactBySession(workspaceId, payload.sessionId)
   const email = payload.email?.trim() || null
@@ -196,7 +200,13 @@ export async function finalizeLead(
   const solarResV2Criteria = evaluateSolarResV2Criteria(mergedRawFields)
   const leadTemperature = qualResult.qualificationStatus === 'CALIFICA' ? 'HOT'
     : qualResult.qualificationStatus === 'REVISAR' ? 'WARM' : 'COLD'
+  // Spreadea qualificationData existente ANTES de las claves nuevas — un
+  // segundo `complete` idempotente para el mismo sessionId no debe borrar
+  // qualifiedLeadConfirmedBy/At/qualificationVersion/nextStepConfirmed que
+  // confirmQualifiedLead (contact.service.ts) ya haya escrito.
+  const existingQualificationData = (bySession?.qualificationData as object) ?? {}
   const qualificationData = {
+    ...existingQualificationData,
     rawFields: mergedRawFields,
     qualificationStatus: qualResult.qualificationStatus,
     qualificationSummary: qualResult.qualificationSummary,
