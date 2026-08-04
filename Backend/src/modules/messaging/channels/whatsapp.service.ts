@@ -181,6 +181,25 @@ export function verifyWhatsAppSignature(
 }
 
 /**
+ * Normaliza una respuesta de texto libre a sí/no para la confirmación de
+ * visita técnica sin botones — quita tildes, espacios y puntuación final
+ * antes de comparar. Devuelve null si no matchea ninguno (el mensaje cae
+ * al procesamiento normal en vez de perderse en silencio).
+ */
+export function parseVisitConfirmationAnswer(text: string): 'yes' | 'no' | null {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[.,!¡¿?]+$/g, '')
+    .trim()
+  if (normalized === 'si') return 'yes'
+  if (normalized === 'no') return 'no'
+  return null
+}
+
+/**
  * Parse inbound WhatsApp webhook and process text messages.
  * Skips non-text messages and status updates silently.
  */
@@ -214,6 +233,35 @@ export async function parseWhatsAppUpdate(
       for (const msg of value.messages) {
         if (msg.type === 'text' && msg.text?.body) {
           try {
+            // Confirmación de visita técnica por texto libre (sí/no) desde
+            // notifyPhone — mismo criterio de origen que la rama de botones
+            // de abajo, pero sin depender de que la plantilla tenga quick-reply
+            // buttons aprobados por Meta. Si el remitente no es notifyPhone, si
+            // el texto no matchea sí/no, o si no hay ninguna cita esperando
+            // confirmación, cae al procesamiento normal de mensaje — nunca se
+            // pierde en silencio.
+            const workspaceForConfirmation = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
+            const notifyDigitsForConfirmation = (workspaceForConfirmation?.notifyPhone ?? '').replace(/\D/g, '')
+            if (notifyDigitsForConfirmation && msg.from === notifyDigitsForConfirmation) {
+              const answer = parseVisitConfirmationAnswer(msg.text.body)
+              if (answer) {
+                const pendingAppointment = await prisma.appointment.findFirst({
+                  where: {
+                    workspaceId,
+                    type: 'SITE_VISIT',
+                    status: { in: ['SCHEDULED', 'CONFIRMED'] },
+                    confirmationRequestedAt: { not: null }
+                  },
+                  orderBy: { confirmationRequestedAt: 'desc' }
+                })
+                if (pendingAppointment) {
+                  const { updateAppointmentStatus } = await import('../../scheduling/scheduling.service')
+                  await updateAppointmentStatus(workspaceId, pendingAppointment.id, answer === 'yes' ? 'COMPLETED' : 'NO_SHOW')
+                  continue
+                }
+              }
+            }
+
             // Check for referral/ref data in payload (if available)
             const metadata = msg.referral ? { campaign_id: msg.referral.ref } : {}
 

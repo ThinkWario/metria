@@ -10,7 +10,7 @@ vi.mock('../../ai-agent/providers/gemini.provider', () => ({
 }))
 
 vi.mock('../../../lib/prisma', () => ({
-  prisma: { workspace: { findUnique: vi.fn() } }
+  prisma: { workspace: { findUnique: vi.fn() }, appointment: { findFirst: vi.fn() } }
 }))
 vi.mock('../../scheduling/scheduling.service', () => ({
   updateAppointmentStatus: vi.fn(async () => ({}))
@@ -226,5 +226,75 @@ describe('parseWhatsAppUpdate — respuesta de confirmación de visita', () => {
     await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56999998888', 'confirm_visit:appt-1:yes'))
 
     expect(updateAppointmentStatus).not.toHaveBeenCalled()
+  })
+})
+
+describe('parseWhatsAppUpdate — confirmación de visita por texto libre (sin botones)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  function buildTextBody(from: string, text: string) {
+    return {
+      entry: [{ changes: [{ value: {
+        messages: [{ id: 'wamid.1', from, type: 'text', text: { body: text } }]
+      } }] }]
+    } as any
+  }
+
+  it('marca la cita COMPLETED cuando el técnico responde "sí" en texto libre desde notifyPhone', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'appt-1' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildTextBody('56900001111', 'Sí'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'COMPLETED')
+    expect(processInboundMessage).not.toHaveBeenCalled()
+  })
+
+  it('marca la cita NO_SHOW cuando responde "no", tolerando mayúsculas/puntuación', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'appt-1' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildTextBody('56900001111', 'No.'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'NO_SHOW')
+    expect(processInboundMessage).not.toHaveBeenCalled()
+  })
+
+  it('reconoce "si" sin tilde y con espacios', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'appt-2' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildTextBody('56900001111', '  si  '))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-2', 'COMPLETED')
+  })
+
+  it('cae al procesamiento normal si no hay ninguna cita pendiente de confirmación', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue(null)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildTextBody('56900001111', 'si'))
+
+    expect(updateAppointmentStatus).not.toHaveBeenCalled()
+    expect(processInboundMessage).toHaveBeenCalled()
+  })
+
+  it('cae al procesamiento normal si el texto no es sí/no, aunque venga de notifyPhone', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildTextBody('56900001111', 'hola, cómo va todo'))
+
+    expect(updateAppointmentStatus).not.toHaveBeenCalled()
+    expect(prisma.appointment.findFirst).not.toHaveBeenCalled()
+    expect(processInboundMessage).toHaveBeenCalled()
+  })
+
+  it('no intercepta texto de un número que no es el notifyPhone del workspace', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildTextBody('56999998888', 'si'))
+
+    expect(updateAppointmentStatus).not.toHaveBeenCalled()
+    expect(processInboundMessage).toHaveBeenCalled()
   })
 })
