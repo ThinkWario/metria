@@ -63,3 +63,45 @@ export function qualifySolarLead(data: Record<string, unknown>): SolarQualificat
     qualificationSummary: 'Faltan datos o la boleta está bajo el umbral mínimo — requiere revisión manual.'
   }
 }
+
+export interface SolarResV2Criteria {
+  serviceAreaMatch: boolean
+  ownerOrDecisionMaker: boolean
+  technicalFitPreliminary: boolean
+  billBandEligible: boolean
+}
+
+/**
+ * Allowlist leída en cada llamada (no cacheada a nivel de módulo) para que
+ * cambios de env var surtan efecto sin reiniciar el proceso y para que los
+ * tests puedan controlarla con process.env directamente. Vacía por diseño =
+ * fail-safe: sin comunas configuradas, ningún lead pasa service_area_match
+ * automáticamente — evita "calificar" por defecto por un env var olvidado.
+ */
+function isInServiceArea(comuna: string): boolean {
+  const allowlist = (process.env.SOLAR_SERVICE_AREA_COMUNAS ?? '')
+    .split(',').map(c => c.trim().toLowerCase()).filter(Boolean)
+  if (allowlist.length === 0) return false
+  return allowlist.includes(comuna.trim().toLowerCase())
+}
+
+/**
+ * Los 4 criterios automáticos del gate `solar_res_v2`
+ * (INSTRUCCIONES_DESARROLLADOR_TRACKING_METRIA_SOLAR_AGOSTO_2026.md §9) que
+ * SÍ se pueden derivar de StepData sin intervención humana. Los otros dos
+ * campos que ese documento exige — `next_step_confirmed` y la validación
+ * humana en sí — no se calculan aquí: los satisface el flujo de
+ * confirmación manual (contact.service.ts::confirmQualifiedLead, Task 6).
+ */
+export function evaluateSolarResV2Criteria(data: Record<string, unknown>): SolarResV2Criteria {
+  const comuna = String(data.comuna ?? '')
+  const ownershipType = String(data.ownershipType ?? '')
+  const montoBoleta = parseMontoBoleta(data.montoBoleta)
+
+  return {
+    serviceAreaMatch: isInServiceArea(comuna),
+    ownerOrDecisionMaker: ownershipType === 'dueño' || ownershipType === 'familiar',
+    technicalFitPreliminary: data.techoConfirmado === true,
+    billBandEligible: montoBoleta !== null && montoBoleta >= MIN_MONTHLY_BILL_CLP
+  }
+}

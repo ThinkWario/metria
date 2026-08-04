@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { qualifySolarLead } from '../solarQualifier'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { qualifySolarLead, evaluateSolarResV2Criteria } from '../solarQualifier'
 
 describe('qualifySolarLead', () => {
   it('califica cuando el dueño confirma techo y la boleta supera el umbral', () => {
@@ -48,5 +48,47 @@ describe('qualifySolarLead', () => {
     })
     expect(result.qualificationStatus).toBe('REVISAR')
     expect(result.qualificationSummary).toMatch(/sin reglas de calificación/i)
+  })
+})
+
+describe('evaluateSolarResV2Criteria', () => {
+  const ORIGINAL_ENV = process.env.SOLAR_SERVICE_AREA_COMUNAS
+
+  beforeEach(() => { process.env.SOLAR_SERVICE_AREA_COMUNAS = 'Providencia,Las Condes' })
+  afterEach(() => { process.env.SOLAR_SERVICE_AREA_COMUNAS = ORIGINAL_ENV })
+
+  it('los 4 criterios son true cuando el lead cumple todo', () => {
+    const result = evaluateSolarResV2Criteria({
+      comuna: 'Providencia', ownershipType: 'dueño', techoConfirmado: true, montoBoleta: '45000'
+    })
+    expect(result).toEqual({
+      serviceAreaMatch: true, ownerOrDecisionMaker: true, technicalFitPreliminary: true, billBandEligible: true
+    })
+  })
+
+  it('serviceAreaMatch es false cuando la comuna no está en el allowlist', () => {
+    const result = evaluateSolarResV2Criteria({ comuna: 'Puente Alto', ownershipType: 'dueño', techoConfirmado: true, montoBoleta: '45000' })
+    expect(result.serviceAreaMatch).toBe(false)
+  })
+
+  it('serviceAreaMatch es false cuando SOLAR_SERVICE_AREA_COMUNAS no está configurado (fail-safe)', () => {
+    process.env.SOLAR_SERVICE_AREA_COMUNAS = ''
+    const result = evaluateSolarResV2Criteria({ comuna: 'Providencia', ownershipType: 'dueño', techoConfirmado: true, montoBoleta: '45000' })
+    expect(result.serviceAreaMatch).toBe(false)
+  })
+
+  it('ownerOrDecisionMaker es false para arrendatario', () => {
+    const result = evaluateSolarResV2Criteria({ comuna: 'Providencia', ownershipType: 'arrendatario', techoConfirmado: true, montoBoleta: '45000' })
+    expect(result.ownerOrDecisionMaker).toBe(false)
+  })
+
+  it('technicalFitPreliminary es false cuando techoConfirmado no es exactamente true', () => {
+    const result = evaluateSolarResV2Criteria({ comuna: 'Providencia', ownershipType: 'dueño', montoBoleta: '45000' })
+    expect(result.technicalFitPreliminary).toBe(false)
+  })
+
+  it('billBandEligible es false bajo el umbral mínimo', () => {
+    const result = evaluateSolarResV2Criteria({ comuna: 'Providencia', ownershipType: 'dueño', techoConfirmado: true, montoBoleta: '15000' })
+    expect(result.billBandEligible).toBe(false)
   })
 })
