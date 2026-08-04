@@ -1,9 +1,9 @@
 import type { Contact, Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { normalizePhone } from '../../lib/phoneFormat'
-import { qualifySolarLead } from './solarQualifier'
+import { qualifySolarLead, evaluateSolarResV2Criteria } from './solarQualifier'
 import { prepareWhatsappConversation } from './whatsappHandoff'
-import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent, emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
+import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent } from '../meta-events/metaEvents.service'
 
 export const SOLAR_SOURCE = 'solar_direct'
 
@@ -193,12 +193,14 @@ export async function finalizeLead(
   // qualificationData.qualificationStatus + qualificationSummary directly,
   // never re-derives them, so they must be persisted, not just computed.
   const qualResult = qualifySolarLead(mergedRawFields)
+  const solarResV2Criteria = evaluateSolarResV2Criteria(mergedRawFields)
   const leadTemperature = qualResult.qualificationStatus === 'CALIFICA' ? 'HOT'
     : qualResult.qualificationStatus === 'REVISAR' ? 'WARM' : 'COLD'
   const qualificationData = {
     rawFields: mergedRawFields,
     qualificationStatus: qualResult.qualificationStatus,
-    qualificationSummary: qualResult.qualificationSummary
+    qualificationSummary: qualResult.qualificationSummary,
+    solarResV2Criteria: solarResV2Criteria as unknown as Prisma.InputJsonValue
   }
 
   const contact = bySession
@@ -261,20 +263,37 @@ export async function finalizeLead(
     })
   }
 
-  emitMetaContactEvent(workspaceId, contact, 'system_generated', undefined, payload.sessionId)
-    .catch(err => console.error('[LeadIngestion] Contact event failed:', err))
-  emitMetaLeadEvent(workspaceId, contact, 'system_generated', undefined, payload.sessionId)
-    .catch(err => console.error('[LeadIngestion] Lead event failed:', err))
+  // Contact/Lead/FinanceApplicationSubmitted se originan directamente en el
+  // wizard de solar.drillchile.cl — action_source='website'
+  // (INSTRUCCIONES_DESARROLLADOR_TRACKING_METRIA_SOLAR_AGOSTO_2026.md §12),
+  // no 'system_generated'. Solo se disparan si hay identidad verificable
+  // (aprobación dev3007 §2.G: "Contact solo si teléfono/email válido") —
+  // enviar user_data casi vacío a Meta no cumple esa exigencia.
+  const hasValidIdentity = !!(contact.email || contact.phone)
+  if (hasValidIdentity) {
+    emitMetaContactEvent(workspaceId, contact, 'website', undefined, payload.sessionId, payload.landingUrl)
+      .catch(err => console.error('[LeadIngestion] Contact event failed:', err))
+    emitMetaLeadEvent(workspaceId, contact, 'website', undefined, payload.sessionId, payload.landingUrl)
+      .catch(err => console.error('[LeadIngestion] Lead event failed:', err))
 
-  if (isFinancingApplication(payload)) {
-    emitMetaFinanceApplicationSubmittedEvent(workspaceId, contact, 'system_generated', payload.sessionId)
-      .catch(err => console.error('[LeadIngestion] FinanceApplicationSubmitted event failed:', err))
+    if (isFinancingApplication(payload)) {
+      emitMetaFinanceApplicationSubmittedEvent(workspaceId, contact, 'website', payload.sessionId, payload.landingUrl)
+        .catch(err => console.error('[LeadIngestion] FinanceApplicationSubmitted event failed:', err))
+    }
+  } else {
+    console.warn(`[LeadIngestion] Skipping Meta CAPI for contact ${contact.id}: no valid email/phone`)
   }
 
-  if (qualResult.qualificationStatus === 'CALIFICA') {
-    emitMetaQualifiedLeadEvent(workspaceId, contact, 'system_generated', { qualificationVersion: 'solar-v1' })
-      .catch(err => console.error('[LeadIngestion] QualifiedLead event failed:', err))
-  }
+  // QualifiedLead a Meta CAPI: NO se dispara automáticamente aquí. dev3007
+  // (ESPECIFICACION_CONSOLIDADA_TRACKING_METRIA_SOLAR.md v1.1 §3,
+  // RESPUESTA_DESARROLLADOR_APROBADO_CON_CORRECCIONES.md §QualifiedLead)
+  // exige la regla completa solar_res_v2 (los 4 criterios de
+  // qualificationData.solarResV2Criteria) MÁS validación humana autorizada
+  // antes de emitir — qualResult.qualificationStatus==='CALIFICA' por sí
+  // solo no basta, mismo criterio ya aplicado en
+  // contact.service.ts:227-229 y sheets.service.ts. La emisión real ocurre
+  // en contact.service.ts::confirmQualifiedLead (Task 6) cuando un humano
+  // confirma desde el Contact profile.
 
   if (phone) {
     const whatsappChannel = await prisma.channel.findFirst({
