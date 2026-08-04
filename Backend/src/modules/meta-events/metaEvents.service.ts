@@ -41,12 +41,13 @@ export async function emitMetaContactEvent(
   contact: ContactLike,
   actionSource: ActionSource,
   customData?: Record<string, string | number | boolean>,
-  sessionId?: string
+  sessionId?: string,
+  eventSourceUrl?: string | null
 ): Promise<void> {
   await emitConversionEvent({
     workspaceId, leadId: contact.id, eventName: 'Contact', actionSource,
     occurredAt: new Date(), contact: toContactData(contact), customData,
-    eventIdSubject: sessionId
+    eventIdSubject: sessionId, eventSourceUrl
   })
 }
 
@@ -55,12 +56,13 @@ export async function emitMetaLeadEvent(
   contact: ContactLike,
   actionSource: ActionSource,
   customData?: Record<string, string | number | boolean>,
-  sessionId?: string
+  sessionId?: string,
+  eventSourceUrl?: string | null
 ): Promise<void> {
   await emitConversionEvent({
     workspaceId, leadId: contact.id, eventName: 'Lead', actionSource,
     occurredAt: new Date(), contact: toContactData(contact), customData,
-    eventIdSubject: sessionId
+    eventIdSubject: sessionId, eventSourceUrl
   })
 }
 
@@ -68,12 +70,13 @@ export async function emitMetaFinanceApplicationSubmittedEvent(
   workspaceId: string,
   contact: ContactLike,
   actionSource: ActionSource,
-  sessionId?: string
+  sessionId?: string,
+  eventSourceUrl?: string | null
 ): Promise<void> {
   await emitConversionEvent({
     workspaceId, leadId: contact.id, eventName: 'FinanceApplicationSubmitted', actionSource,
     occurredAt: new Date(), contact: toContactData(contact),
-    eventIdSubject: sessionId
+    eventIdSubject: sessionId, eventSourceUrl
   })
 }
 
@@ -81,12 +84,16 @@ export async function emitMetaQualifiedLeadEvent(
   workspaceId: string,
   contact: ContactLike,
   actionSource: ActionSource,
-  params: { qualificationVersion: string; scoreBand?: string }
+  params: { qualificationVersion: string; scoreBand?: string; serviceAreaMatch?: boolean }
 ): Promise<void> {
   await emitConversionEvent({
     workspaceId, leadId: contact.id, eventName: 'QualifiedLead', actionSource,
     occurredAt: new Date(), contact: toContactData(contact),
-    customData: { qualification_version: params.qualificationVersion, ...(params.scoreBand && { score_band: params.scoreBand }) }
+    customData: {
+      qualification_version: params.qualificationVersion,
+      ...(params.scoreBand && { score_band: params.scoreBand }),
+      ...(params.serviceAreaMatch !== undefined && { service_area_match: params.serviceAreaMatch })
+    }
   })
 }
 
