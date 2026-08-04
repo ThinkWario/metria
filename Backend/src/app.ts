@@ -54,6 +54,7 @@ import sheetsRoutes from './modules/sheets/sheets.routes'
 import { startSheetsSyncCron } from './modules/sheets/sheets.cron'
 import metaEventsRoutes from './modules/meta-events/metaEvents.routes'
 import { startMetaEventsRetryCron } from './modules/meta-events/metaEvents.cron'
+import solarLeadRoutes from './modules/leads/solarLead.routes'
 
 const app = express()
 
@@ -147,6 +148,7 @@ app.use('/api', schedulingRoutes)
 app.use('/api/public', publicBookingRoutes)
 app.use('/api/public', publicFormsRoutes)
 app.use('/api/public', paymentLinksWebhook)
+app.use('/api/public', solarLeadRoutes)
 app.use('/api/composio', composioRoutes)
 app.use('/api/integrations/google-calendar', googleCalendarRoutes)
 app.use('/api', productsRoutes)
