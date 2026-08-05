@@ -162,6 +162,7 @@ export async function sendAndRecord(
   try {
     const res = await fetch(`https://graph.facebook.com/${CAPI_API_VERSION}/${pixelId}/events`, {
       method: 'POST',
+      signal: AbortSignal.timeout(10_000),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accessToken}`
