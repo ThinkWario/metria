@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../middleware/auth'
 import { createMetaTemplate, listMetaTemplates, deleteMetaTemplate } from './channels/whatsappTemplates.client'
-import { TEMPLATE_VARIABLE_CATALOG, isKnownVariableKey } from './templateVariables'
+import { TEMPLATE_VARIABLE_CATALOG, isKnownVariableKey, ROLE_VARIABLE_REQUIREMENTS, arraysEqual } from './templateVariables'
 
 async function getWhatsAppChannel(workspaceId: string) {
   return prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
@@ -163,6 +163,16 @@ export async function setOpeningTemplateHandler(req: Request, res: Response): Pr
     const template = await prisma.whatsAppTemplate.findFirst({ where: { id, channelId: channel.id } })
     if (!template) { res.status(404).json({ error: 'Plantilla no encontrada' }); return }
     if (template.status !== 'APPROVED') { res.status(400).json({ error: 'Solo una plantilla APPROVED puede usarse como saludo inicial' }); return }
+    if (template.variables !== null) {
+      const templateVars = template.variables as string[]
+      const required = ROLE_VARIABLE_REQUIREMENTS.openingTemplateId
+      if (!arraysEqual(templateVars, required)) {
+        res.status(400).json({
+          error: `Esta plantilla usa variables [${templateVars.join(', ')}] pero este rol requiere [${required.join(', ')}]`
+        })
+        return
+      }
+    }
 
     const config = channel.config as Record<string, string>
     const updated = await prisma.channel.update({
@@ -203,6 +213,16 @@ export async function setTemplateRoleHandler(req: Request, res: Response): Promi
       const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, channelId: channel.id } })
       if (!template) { res.status(404).json({ error: 'Plantilla no encontrada' }); return }
       if (template.status !== 'APPROVED') { res.status(400).json({ error: 'Solo una plantilla APPROVED puede asignarse' }); return }
+      if (template.variables !== null) {
+        const templateVars = template.variables as string[]
+        const required = ROLE_VARIABLE_REQUIREMENTS[role]
+        if (!arraysEqual(templateVars, required)) {
+          res.status(400).json({
+            error: `Esta plantilla usa variables [${templateVars.join(', ')}] pero este rol requiere [${required.join(', ')}]`
+          })
+          return
+        }
+      }
     }
 
     const config = channel.config as Record<string, string>
