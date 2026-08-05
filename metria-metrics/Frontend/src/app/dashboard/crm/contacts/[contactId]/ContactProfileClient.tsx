@@ -121,7 +121,7 @@ function SolarLeadCard({ contact }: { contact: Contact }) {
   const qualificationSummary = contact.qualificationData?.qualificationSummary as string | undefined
   const hasFinancing = FINANCING_FIELDS.some(([key]) => raw[key])
   const quoteUrl = contact.sessionId
-    ? safeExternalUrl(`https://solar.drillchile.cl/cotizaciones?session=${contact.sessionId}`)
+    ? safeExternalUrl(`https://solar.drillchile.cl/cotizaciones?sessionId=${contact.sessionId}`)
     : undefined
   const houseMapUrl = safeExternalUrl(raw.houseMapUrl)
   const meterMapUrl = safeExternalUrl(raw.meterMapUrl)
