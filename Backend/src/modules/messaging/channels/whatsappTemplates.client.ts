@@ -4,6 +4,8 @@
  * submitted here and approved by Meta before they can be sent.
  */
 
+import { getVariableExample } from '../templateVariables'
+
 const WA_API_VERSION = 'v26.0'
 
 export interface MetaTemplateResult {
@@ -41,7 +43,7 @@ async function metaFetch(path: string, accessToken: string, init?: RequestInit):
 export async function createMetaTemplate(
   wabaId: string,
   accessToken: string,
-  template: { name: string; language: string; category: string; bodyText: string }
+  template: { name: string; language: string; category: string; bodyText: string; variables?: string[] }
 ): Promise<MetaTemplateResult> {
   // Meta rejects with INVALID_FORMAT if the body has {{n}} placeholders but no
   // "example" sample value is provided for review.
@@ -49,7 +51,10 @@ export async function createMetaTemplate(
   const maxVar = varIndexes.length > 0 ? Math.max(...varIndexes) : 0
   const bodyComponent: Record<string, unknown> = { type: 'BODY', text: template.bodyText }
   if (maxVar > 0) {
-    bodyComponent.example = { body_text: [Array.from({ length: maxVar }, (_, i) => `Ejemplo${i + 1}`)] }
+    const exampleValues = template.variables && template.variables.length === maxVar
+      ? template.variables.map(key => getVariableExample(key))
+      : Array.from({ length: maxVar }, (_, i) => `Ejemplo${i + 1}`)
+    bodyComponent.example = { body_text: [exampleValues] }
   }
 
   const body = await metaFetch(`/${wabaId}/message_templates`, accessToken, {
