@@ -27,7 +27,7 @@ describe('templateVariables catalog', () => {
     expect(arraysEqual(['a'], ['a', 'b'])).toBe(false)
   })
 
-  it('ROLE_VARIABLE_REQUIREMENTS matches what each send call site already hardcodes', () => {
+  it('ROLE_VARIABLE_REQUIREMENTS pins the current role→variable contract (keep in sync with whatsappHandoff.ts, appointment-notifications.service.ts, visitConfirmation.cron.ts send-time arrays)', () => {
     expect(ROLE_VARIABLE_REQUIREMENTS.openingTemplateId).toEqual(['contact.name'])
     expect(ROLE_VARIABLE_REQUIREMENTS.technicalVisitTemplateId).toEqual(['contact.name', 'contact.phone', 'appointment.when'])
     expect(ROLE_VARIABLE_REQUIREMENTS.visitConfirmationTemplateId).toEqual(['contact.name'])

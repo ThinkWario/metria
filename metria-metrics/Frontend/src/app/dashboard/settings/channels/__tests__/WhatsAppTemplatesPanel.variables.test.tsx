@@ -17,11 +17,21 @@ const EMPTY_LIST = { templates: [], openingTemplateId: null, technicalVisitTempl
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockFetchAPI.mockImplementation((endpoint: string) => {
+  mockFetchAPI.mockImplementation((endpoint: string, options?: { method?: string }) => {
     if (endpoint === '/messaging/whatsapp/templates/variable-catalog') return Promise.resolve({ catalog: CATALOG })
+    if (endpoint === '/messaging/whatsapp/templates' && options?.method === 'POST') {
+      return Promise.resolve({ id: 'tpl-1', name: 'saludo_test', language: 'es', category: 'MARKETING', bodyText: 'Hola {{1}}', status: 'PENDING', variables: ['contact.name'] })
+    }
     if (endpoint === '/messaging/whatsapp/templates') return Promise.resolve(EMPTY_LIST)
     return Promise.resolve({})
   })
+  // jsdom doesn't implement the Pointer Events methods Radix's Select uses to
+  // open its portal content — without these, user.click() on a SelectTrigger
+  // never renders its options.
+  Element.prototype.hasPointerCapture = Element.prototype.hasPointerCapture ?? (() => false)
+  Element.prototype.setPointerCapture = Element.prototype.setPointerCapture ?? (() => {})
+  Element.prototype.releasePointerCapture = Element.prototype.releasePointerCapture ?? (() => {})
+  Element.prototype.scrollIntoView = Element.prototype.scrollIntoView ?? (() => {})
 })
 
 describe('WhatsAppTemplatesPanel — variable mapping', () => {
@@ -46,5 +56,28 @@ describe('WhatsAppTemplatesPanel — variable mapping', () => {
     await user.click(screen.getByRole('button', { name: /crear y enviar a revisión/i }))
 
     expect(mockFetchAPI).not.toHaveBeenCalledWith('/messaging/whatsapp/templates', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('POSTs variables as an ordered array of catalog keys on a successful submit', async () => {
+    const user = userEvent.setup()
+    render(<WhatsAppTemplatesPanel />)
+
+    await user.type(await screen.findByLabelText(/^Nombre$/i), 'saludo_test')
+    await user.type(await screen.findByLabelText(/Texto/i), 'Hola {{{{1}}')
+
+    const trigger = (await screen.findByText('Elegir variable')).closest('button')
+    await user.click(trigger!)
+    await user.click(await screen.findByRole('option', { name: 'Nombre del lead' }))
+
+    await user.click(screen.getByRole('button', { name: /crear y enviar a revisión/i }))
+
+    await waitFor(() => {
+      const postCall = mockFetchAPI.mock.calls.find(
+        ([endpoint, options]) => endpoint === '/messaging/whatsapp/templates' && options?.method === 'POST'
+      )
+      expect(postCall).toBeTruthy()
+      const body = JSON.parse(postCall![1].body)
+      expect(body.variables).toEqual(['contact.name'])
+    })
   })
 })

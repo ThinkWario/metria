@@ -39,6 +39,9 @@ const CATEGORY_OPTIONS = [
 
 const sanitizeName = (raw: string) => raw.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/_+/g, '_')
 
+const translateVariableKeys = (message: string, catalog: { key: string; label: string }[]) =>
+    catalog.reduce((msg, c) => msg.split(c.key).join(c.label), message)
+
 export const WhatsAppTemplatesPanel = () => {
     const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
     const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null)
@@ -81,7 +84,11 @@ export const WhatsAppTemplatesPanel = () => {
     useEffect(() => {
         fetchAPI('/messaging/whatsapp/templates/variable-catalog')
             .then(data => setCatalog(data.catalog ?? []))
-            .catch(() => {})
+            .catch(() => {
+                toast.error('No se pudo cargar el catálogo de variables', {
+                    description: 'Recarga la página para intentar de nuevo'
+                })
+            })
     }, [])
 
     useEffect(() => {
@@ -132,7 +139,7 @@ export const WhatsAppTemplatesPanel = () => {
             setTemplates(prev => [template, ...prev])
             setName(''); setBodyText(''); setVariableMap([])
             toast.success('Plantilla enviada a revisión de Meta', {
-                description: 'El estado cambiará a Aprobada u Rechazada en minutos u horas — usa "Sincronizar" para actualizarlo.'
+                description: 'El estado cambiará a Aprobada o Rechazada en minutos u horas — usa "Sincronizar" para actualizarlo.'
             })
         } catch (err: any) {
             toast.error('No se pudo crear la plantilla', { description: err.message })
@@ -159,7 +166,7 @@ export const WhatsAppTemplatesPanel = () => {
             setOpeningTemplateId(data.openingTemplateId ?? id)
             toast.success('Plantilla asignada como saludo inicial para leads de Google Sheets')
         } catch (err: any) {
-            toast.error('No se pudo asignar', { description: err.message })
+            toast.error('No se pudo asignar', { description: translateVariableKeys(err.message, catalog) })
         }
     }
 
@@ -172,7 +179,7 @@ export const WhatsAppTemplatesPanel = () => {
             setTechnicalVisitTemplateId(data.technicalVisitTemplateId ?? id)
             toast.success('Plantilla asignada para aviso de visita técnica')
         } catch (err: any) {
-            toast.error('No se pudo asignar', { description: err.message })
+            toast.error('No se pudo asignar', { description: translateVariableKeys(err.message, catalog) })
         }
     }
 
@@ -185,7 +192,7 @@ export const WhatsAppTemplatesPanel = () => {
             setVisitConfirmationTemplateId(data.visitConfirmationTemplateId ?? id)
             toast.success('Plantilla asignada para confirmación de visita')
         } catch (err: any) {
-            toast.error('No se pudo asignar', { description: err.message })
+            toast.error('No se pudo asignar', { description: translateVariableKeys(err.message, catalog) })
         }
     }
 
@@ -357,7 +364,7 @@ export const WhatsAppTemplatesPanel = () => {
                     <div className="space-y-1 pt-2 border-t border-border/50">
                         <p className="text-xs font-medium text-muted-foreground">Variables</p>
                         {viewingTemplate.variables.map((key, i) => (
-                            <p key={key} className="text-xs">
+                            <p key={i} className="text-xs">
                                 {`{{${i + 1}}}`} → {catalog.find(c => c.key === key)?.label ?? key}
                             </p>
                         ))}

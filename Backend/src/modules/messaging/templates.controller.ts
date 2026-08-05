@@ -216,7 +216,7 @@ export async function setTemplateRoleHandler(req: Request, res: Response): Promi
       if (template.variables !== null) {
         const templateVars = template.variables as string[]
         const required = ROLE_VARIABLE_REQUIREMENTS[role]
-        if (!arraysEqual(templateVars, required)) {
+        if (required && !arraysEqual(templateVars, required)) {
           res.status(400).json({
             error: `Esta plantilla usa variables [${templateVars.join(', ')}] pero este rol requiere [${required.join(', ')}]`
           })
