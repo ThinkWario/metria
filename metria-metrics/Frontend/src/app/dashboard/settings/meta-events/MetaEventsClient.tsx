@@ -14,12 +14,40 @@ interface EventCounts {
     duplicatesBlocked: number
 }
 
+interface FunnelStage {
+    eventName: string
+    label: string
+    contactCount: number
+}
+
+interface LostReason {
+    reason: string
+    count: number
+}
+
 interface Summary {
     windowHours: number
     byEvent: Record<string, EventCounts>
     totals: EventCounts
+    errorRatePct: number
+    eventsReceivedMismatchCount: number
     oldestPendingAgeSeconds: number
     queueBacklogAlert: boolean
+    funnel: FunnelStage[]
+    attribution: {
+        contactsInWindow: number
+        fbcOrFbpCoveragePct: number
+        utmCoveragePct: number
+    }
+    lostReasons: LostReason[]
+    avgFirstResponseSeconds: number | null
+    alerts: {
+        queueBacklog: boolean
+        errorRateOver1pct: boolean
+        eventsReceivedMismatch: boolean
+        contactsMissingConsentOrSession: boolean
+    }
+    contactsMissingConsent: number
     note: string
 }
 
@@ -84,11 +112,35 @@ export default function MetaEventsClient() {
                 </Card>
             ) : (
                 <>
-                    {summary.queueBacklogAlert && (
+                    {summary.alerts.queueBacklog && (
                         <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
                             <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
                             <p className="text-sm text-amber-600">
                                 Hay eventos pendientes hace más de 5 minutos (el más antiguo lleva {Math.floor(summary.oldestPendingAgeSeconds / 60)} min sin confirmarse). Revisa el cron de reintentos.
+                            </p>
+                        </div>
+                    )}
+                    {summary.alerts.errorRateOver1pct && (
+                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex gap-3 items-start">
+                            <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                            <p className="text-sm text-red-600">
+                                Tasa de error CAPI en {summary.errorRatePct}% (últimas {summary.windowHours}h), por sobre el umbral de 1%.
+                            </p>
+                        </div>
+                    )}
+                    {summary.alerts.eventsReceivedMismatch && (
+                        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
+                            <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                            <p className="text-sm text-amber-600">
+                                {summary.eventsReceivedMismatchCount} evento(s) enviados con <code>events_received</code> distinto de 1 — Meta pudo no haber confirmado la recepción real.
+                            </p>
+                        </div>
+                    )}
+                    {summary.alerts.contactsMissingConsentOrSession && (
+                        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
+                            <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                            <p className="text-sm text-amber-600">
+                                {summary.contactsMissingConsent} contacto(s) creado(s) sin <code>session_id</code> o sin consentimiento verificable.
                             </p>
                         </div>
                     )}
@@ -98,6 +150,84 @@ export default function MetaEventsClient() {
                         <StatCard label="Fallidos" value={summary.totals.failed} color="text-red-500" />
                         <StatCard label="Pendientes" value={summary.totals.pending} color="text-amber-500" />
                         <StatCard label="Duplicados bloqueados" value={summary.totals.duplicatesBlocked} color="text-muted-foreground" />
+                    </div>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">Embudo de conversión</CardTitle>
+                            <CardDescription className="text-xs">Contactos únicos que alcanzaron cada hito (histórico, vía CAPI confirmado).</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="flex flex-wrap items-center gap-2">
+                                {summary.funnel.map((stage, i) => (
+                                    <div key={stage.eventName} className="flex items-center gap-2">
+                                        <div className="text-center px-3 py-2 rounded-lg border border-border/50 bg-background/40 min-w-[90px]">
+                                            <p className="text-lg font-bold">{stage.contactCount}</p>
+                                            <p className="text-[10px] text-muted-foreground">{stage.label}</p>
+                                        </div>
+                                        {i < summary.funnel.length - 1 && <span className="text-muted-foreground text-xs">→</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base">Primera respuesta IA</CardTitle>
+                                <CardDescription className="text-xs">Promedio, conversaciones iniciadas en {summary.windowHours}h.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                {summary.avgFirstResponseSeconds === null ? (
+                                    <p className="text-sm text-muted-foreground text-center py-4">Sin conversaciones con respuesta IA en el período.</p>
+                                ) : (
+                                    <p className="text-2xl font-bold">
+                                        {summary.avgFirstResponseSeconds < 60
+                                            ? `${summary.avgFirstResponseSeconds}s`
+                                            : `${Math.round(summary.avgFirstResponseSeconds / 60)} min`}
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base">Cobertura de atribución</CardTitle>
+                                <CardDescription className="text-xs">Contactos creados en las últimas {summary.windowHours}h ({summary.attribution.contactsInWindow}).</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">fbc / fbp</span>
+                                    <Badge variant="outline" className="text-[10px]">{summary.attribution.fbcOrFbpCoveragePct}%</Badge>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-muted-foreground">UTM</span>
+                                    <Badge variant="outline" className="text-[10px]">{summary.attribution.utmCoveragePct}%</Badge>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base">Motivos de pérdida</CardTitle>
+                                <CardDescription className="text-xs">Deals perdidos en Metria — últimos 30 días.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                {summary.lostReasons.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground text-center py-4">Sin deals perdidos en el período.</p>
+                                ) : (
+                                    <div className="space-y-1.5">
+                                        {summary.lostReasons.map(lr => (
+                                            <div key={lr.reason} className="flex items-center justify-between text-sm">
+                                                <span className="text-muted-foreground">{lr.reason}</span>
+                                                <Badge variant="outline" className="text-[10px]">{lr.count}</Badge>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
                     </div>
 
                     <Card>
