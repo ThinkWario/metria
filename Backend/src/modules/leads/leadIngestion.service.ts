@@ -7,6 +7,13 @@ import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubm
 
 export const SOLAR_SOURCE = 'solar_direct'
 
+// Tag marking a Contact created by resolveOrCreatePartialContact (`save`
+// step) that never reached `finalizeLead` (`complete`) — an abandoned
+// wizard session, not a real lead. contact.service.ts::listContacts
+// excludes these by default so they don't inflate Total Contactos/Leads
+// Activos (QA_E2E_POST_FIXES_05AGO2026.md §10.4, opción 2).
+export const INCOMPLETE_LEAD_TAG = 'Incompleto'
+
 /**
  * Field names match solar's actual `StepData` shape verbatim
  * (`C:\repo\drillchile\solar\src\lib\types.ts`) — solar spreads
@@ -99,7 +106,7 @@ export async function resolveOrCreatePartialContact(
         status: 'LEAD',
         qualificationData: { rawFields: payload as Prisma.InputJsonValue },
         ...extractAttributionFields(payload),
-        tags: { create: { workspaceId, name: 'Incompleto', color: '#f97316' } }
+        tags: { create: { workspaceId, name: INCOMPLETE_LEAD_TAG, color: '#f97316' } }
       }
     })
   }
@@ -261,16 +268,29 @@ export async function finalizeLead(
         }
       })
 
-  await prisma.contactTag.deleteMany({ where: { contactId: contact.id, name: 'Incompleto' } })
+  await prisma.contactTag.deleteMany({ where: { contactId: contact.id, name: INCOMPLETE_LEAD_TAG } })
 
-  const existingDeal = await prisma.deal.findFirst({ where: { contactId: contact.id, pipelineId: SOLAR_PIPELINE_ID } })
-  if (!existingDeal) {
-    await prisma.deal.create({
-      data: {
-        workspaceId, contactId: contact.id, pipelineId: SOLAR_PIPELINE_ID, stageId: SOLAR_STAGE_ID,
-        title: `Lead Solar - ${contact.name}`, value: 0, currency: 'CLP', status: 'OPEN'
-      }
-    })
+  // Guarded like the Meta CAPI calls below: the Contact (the actual lead —
+  // identity, consent, attribution, qualification) is already durably
+  // persisted above. A misconfigured SOLAR_PIPELINE_ID/SOLAR_STAGE_ID or a
+  // transient DB error here must not turn into a 500 that makes the wizard
+  // tell the user their submission failed when it didn't
+  // (QA_E2E_POST_FIXES_05AGO2026.md §7 P0: "el fallo o demora ... no debe
+  // hacer perder el lead ni dejar al usuario bloqueado"). A retried
+  // `complete` for the same session will find `contact` via `bySession`
+  // and simply try the Deal again — no duplicate risk.
+  try {
+    const existingDeal = await prisma.deal.findFirst({ where: { contactId: contact.id, pipelineId: SOLAR_PIPELINE_ID } })
+    if (!existingDeal) {
+      await prisma.deal.create({
+        data: {
+          workspaceId, contactId: contact.id, pipelineId: SOLAR_PIPELINE_ID, stageId: SOLAR_STAGE_ID,
+          title: `Lead Solar - ${contact.name}`, value: 0, currency: 'CLP', status: 'OPEN'
+        }
+      })
+    }
+  } catch (err) {
+    console.error(`[LeadIngestion] Deal creation failed for contact ${contact.id} (SOLAR_PIPELINE_ID/SOLAR_STAGE_ID misconfigured?):`, err)
   }
 
   // Contact/Lead/FinanceApplicationSubmitted se originan directamente en el

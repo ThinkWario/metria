@@ -238,6 +238,28 @@ describe('finalizeLead', () => {
     expect(prepareWhatsappConversation).not.toHaveBeenCalled() // sin canal conectado
   })
 
+  it('sigue devolviendo ok:true si prisma.deal.create falla (SOLAR_PIPELINE_ID/STAGE_ID mal configurado) — el Contact ya quedó persistido', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({
+        id: 'c1', name: 'Lead Solar (sess-3)', email: null, phone: null,
+        qualificationData: { rawFields: {} }
+      } as any) // by sessionId
+      .mockResolvedValueOnce(null) // by email
+      .mockResolvedValueOnce(null) // by phone
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1', name: 'Roberto', phone: null, email: 'r@test.cl' } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.deal.create).mockRejectedValue(new Error('Foreign key constraint failed: pipelineId'))
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    const result = await finalizeLead(WS_ID, {
+      sessionId: 'sess-3', consentAccepted: true, consentVersion: 'v1', email: 'r@test.cl'
+    } as any)
+
+    expect(result.ok).toBe(true)
+    expect(result.contact).toEqual(expect.objectContaining({ id: 'c1' }))
+    expect(emitMetaContactEvent).toHaveBeenCalled() // CAPI sigue disparando aunque el Deal haya fallado
+  })
+
   it('dispara FinanceApplicationSubmitted cuando el payload trae datos de financiamiento', async () => {
     vi.mocked(prisma.contact.findUnique)
       .mockResolvedValueOnce({ id: 'c1', name: 'x', email: null, phone: null, qualificationData: { rawFields: {} } } as any)

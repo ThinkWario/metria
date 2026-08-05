@@ -71,6 +71,23 @@ describe('listContacts', () => {
       })
     )
   })
+
+  it('excludes contacts tagged Incompleto by default', async () => {
+    vi.mocked(prisma.contact.findMany).mockResolvedValue([])
+    await listContacts(WS, {})
+    expect(prisma.contact.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tags: { none: { name: 'Incompleto' } } })
+      })
+    )
+  })
+
+  it('includes contacts tagged Incompleto when includeIncomplete is true', async () => {
+    vi.mocked(prisma.contact.findMany).mockResolvedValue([])
+    await listContacts(WS, { includeIncomplete: true })
+    const arg = vi.mocked(prisma.contact.findMany).mock.calls[0][0] as any
+    expect(arg.where).not.toHaveProperty('tags')
+  })
 })
 
 describe('getContact', () => {

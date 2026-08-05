@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma'
-import { SOLAR_SOURCE } from '../leads/leadIngestion.service'
+import { SOLAR_SOURCE, INCOMPLETE_LEAD_TAG } from '../leads/leadIngestion.service'
 import { emitMetaQualifiedLeadEvent } from '../meta-events/metaEvents.service'
 import type { SolarResV2Criteria } from '../leads/solarQualifier'
 
@@ -10,6 +10,12 @@ export interface ListContactsOpts {
   leadType?: string
   limit?: number
   cursor?: string
+  // Wizard drafts (resolveOrCreatePartialContact) create a real Contact
+  // tagged Incompleto on every `save` step, most of which never finish —
+  // excluded by default so they don't inflate Total Contactos/Leads Activos
+  // on the CRM dashboard (QA_E2E_POST_FIXES_05AGO2026.md §10.4). Pass true
+  // to audit them (e.g. the cleanup cron, or a future "ver borradores" filter).
+  includeIncomplete?: boolean
 }
 
 export async function createContact(workspaceId: string, data: { name: string; email?: string; phone?: string; status?: string }) {
@@ -30,7 +36,7 @@ export async function createContact(workspaceId: string, data: { name: string; e
 }
 
 export async function listContacts(workspaceId: string, opts: ListContactsOpts = {}) {
-  const { search, status, leadTemperature, leadType, limit = 50, cursor } = opts
+  const { search, status, leadTemperature, leadType, limit = 50, cursor, includeIncomplete } = opts
   const safeLimit = Math.min(limit, 200)
   return prisma.contact.findMany({
     where: {
@@ -38,6 +44,7 @@ export async function listContacts(workspaceId: string, opts: ListContactsOpts =
       ...(status && { status }),
       ...(leadTemperature && { leadTemperature }),
       ...(leadType && { leadType }),
+      ...(!includeIncomplete && { tags: { none: { name: INCOMPLETE_LEAD_TAG } } }),
       ...(search && {
         OR: [
           { name: { contains: search, mode: 'insensitive' } },

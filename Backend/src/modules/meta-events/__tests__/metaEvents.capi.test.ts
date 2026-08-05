@@ -4,11 +4,11 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: {
     contact: { findUnique: vi.fn() },
     integration: { findUnique: vi.fn() },
-    conversionEvent: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn() }
+    conversionEvent: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() }
   }
 }))
 
-import { emitConversionEvent } from '../metaEvents.capi'
+import { emitConversionEvent, sendAndRecord, MAX_ATTEMPTS } from '../metaEvents.capi'
 import { prisma } from '../../../lib/prisma'
 
 const originalFetch = global.fetch
@@ -22,6 +22,7 @@ function mockHappyPath() {
   } as any)
   vi.mocked(prisma.conversionEvent.create).mockResolvedValue({ id: 'ce-1' } as any)
   vi.mocked(prisma.conversionEvent.update).mockResolvedValue({} as any)
+  vi.mocked(prisma.conversionEvent.findUnique).mockResolvedValue({ attemptCount: 0 } as any)
   global.fetch = vi.fn().mockResolvedValue({
     ok: true, status: 200, json: async () => ({ fbtrace_id: 'fb-1', events_received: 1 })
   }) as any
@@ -107,6 +108,41 @@ describe('emitConversionEvent — gate de consentimiento completo', () => {
     })
 
     expect(global.fetch).toHaveBeenCalled()
+  })
+})
+
+describe('sendAndRecord — estado pending/sent/failed/dead_letter (QA_E2E_POST_FIXES_05AGO2026.md §7 P1)', () => {
+  it('marca "retry" con nextRetryAt cuando quedan intentos disponibles', async () => {
+    vi.mocked(prisma.conversionEvent.findUnique).mockResolvedValue({ attemptCount: 0 } as any)
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }) as any
+
+    await sendAndRecord('ce-1', 'pix-1', 'tok-1', { data: [] })
+
+    expect(prisma.conversionEvent.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'retry', nextRetryAt: expect.any(Date) })
+    }))
+  })
+
+  it('marca "dead_letter" con nextRetryAt null cuando este intento agota MAX_ATTEMPTS', async () => {
+    vi.mocked(prisma.conversionEvent.findUnique).mockResolvedValue({ attemptCount: MAX_ATTEMPTS - 1 } as any)
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }) as any
+
+    await sendAndRecord('ce-1', 'pix-1', 'tok-1', { data: [] })
+
+    expect(prisma.conversionEvent.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'dead_letter', nextRetryAt: null })
+    }))
+  })
+
+  it('marca "dead_letter" (no "retry") cuando un error de red agota MAX_ATTEMPTS', async () => {
+    vi.mocked(prisma.conversionEvent.findUnique).mockResolvedValue({ attemptCount: MAX_ATTEMPTS - 1 } as any)
+    global.fetch = vi.fn().mockRejectedValue(new Error('network down')) as any
+
+    await sendAndRecord('ce-1', 'pix-1', 'tok-1', { data: [] })
+
+    expect(prisma.conversionEvent.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'dead_letter', nextRetryAt: null })
+    }))
   })
 })
 

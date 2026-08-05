@@ -56,6 +56,7 @@ import metaEventsRoutes from './modules/meta-events/metaEvents.routes'
 import { startMetaEventsRetryCron } from './modules/meta-events/metaEvents.cron'
 import { startVisitConfirmationCron } from './modules/scheduling/visitConfirmation.cron'
 import solarLeadRoutes from './modules/leads/solarLead.routes'
+import { startIncompleteLeadsCleanupCron } from './modules/leads/incompleteLeads.cron'
 
 const app = express()
 
@@ -165,6 +166,7 @@ startCampaignsCron()
 startSheetsSyncCron()
 startMetaEventsRetryCron()
 startVisitConfirmationCron()
+startIncompleteLeadsCleanupCron()
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

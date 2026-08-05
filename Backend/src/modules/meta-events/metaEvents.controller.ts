@@ -172,24 +172,39 @@ export async function getMetaEventsSummaryHandler(req: Request, res: Response): 
  * cada envío CAPI) — the summary above only aggregates counts; this exposes
  * the individual ConversionEvent rows (status, Meta's HTTP status,
  * fbtrace_id, error) already recorded by sendAndRecord().
+ *
+ * `contactId` scopes this to one lead's timeline — the per-contact/session
+ * observability QA_E2E_POST_FIXES_05AGO2026.md §7 P1 asked for ("event_id,
+ * estado pending/sent/failed/dead_letter, intentos, próxima ejecución,
+ * event_time, action_source, event_source_url, HTTP status, fbtrace_id").
+ * event_source_url isn't its own column — it only ever existed inside the
+ * stored request payload — so it's read back out of `payload` here instead
+ * of adding a migration for a value already persisted.
  */
 export async function getMetaEventsRecentHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
     const limit = Math.min(Number(req.query.limit) || 50, 200)
+    const contactId = typeof req.query.contactId === 'string' ? req.query.contactId : undefined
 
     const rows = await prisma.conversionEvent.findMany({
-      where: { workspaceId },
+      where: { workspaceId, ...(contactId && { leadId: contactId }) },
       orderBy: { createdAt: 'desc' },
       take: limit,
       select: {
-        id: true, eventName: true, eventId: true, status: true,
-        metaHttpStatus: true, metaEventsReceived: true, metaFbtraceId: true,
-        lastErrorCode: true, attemptCount: true, createdAt: true, sentAt: true
+        id: true, eventName: true, eventId: true, status: true, actionSource: true,
+        occurredAt: true, metaHttpStatus: true, metaEventsReceived: true, metaFbtraceId: true,
+        lastErrorCode: true, attemptCount: true, duplicateAttempts: true, nextRetryAt: true,
+        createdAt: true, sentAt: true, payload: true
       }
     })
 
-    res.json({ events: rows })
+    const events = rows.map(({ payload, ...row }) => ({
+      ...row,
+      eventSourceUrl: (payload as any)?.data?.[0]?.event_source_url ?? null
+    }))
+
+    res.json({ events })
   } catch (err) {
     console.error('[MetaEvents] recent error:', err)
     res.status(500).json({ error: 'Failed to load recent meta events' })

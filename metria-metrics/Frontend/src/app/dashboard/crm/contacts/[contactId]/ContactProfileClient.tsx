@@ -236,6 +236,115 @@ function SolarLeadCard({ contact }: { contact: Contact }) {
   )
 }
 
+interface MetaCapiEvent {
+  id: string
+  eventName: string
+  eventId: string
+  status: string
+  actionSource: string
+  occurredAt: string
+  eventSourceUrl: string | null
+  metaHttpStatus: number | null
+  metaEventsReceived: number | null
+  metaFbtraceId: string | null
+  lastErrorCode: string | null
+  attemptCount: number
+  duplicateAttempts: number
+  nextRetryAt: string | null
+  sentAt: string | null
+}
+
+const CAPI_STATUS_STYLE: Record<string, string> = {
+  sent: 'bg-emerald-100 text-emerald-700', pending: 'bg-amber-100 text-amber-700',
+  retry: 'bg-amber-100 text-amber-700', failed: 'bg-red-100 text-red-700'
+}
+
+/**
+ * Per-contact CAPI outbox timeline — QA_E2E_POST_FIXES_05AGO2026.md §7 P1
+ * ("event_id/outbox/idempotencia" was marked NO AUDITABLE): before this,
+ * the only place to see a Contact's ConversionEvent rows was a raw DB
+ * query. Reuses the same rows the workspace-wide /settings/meta-events
+ * dashboard already renders, filtered to this contact.
+ */
+function MetaEventsCard({ events, loading }: { events: MetaCapiEvent[] | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="rounded-lg border p-4 space-y-3 md:col-span-2">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Eventos Meta CAPI</h3>
+        <p className="text-sm text-muted-foreground">Cargando...</p>
+      </div>
+    )
+  }
+  if (!events || events.length === 0) {
+    return (
+      <div className="rounded-lg border p-4 space-y-2 md:col-span-2">
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Eventos Meta CAPI</h3>
+        <p className="text-sm text-muted-foreground">Sin eventos registrados para este contacto todavía.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border p-4 space-y-3 md:col-span-2">
+      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Eventos Meta CAPI</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-muted-foreground border-b">
+              <th className="py-1.5 pr-3">Evento</th>
+              <th className="py-1.5 pr-3">Estado</th>
+              <th className="py-1.5 pr-3">Origen</th>
+              <th className="py-1.5 pr-3">HTTP</th>
+              <th className="py-1.5 pr-3">Intentos</th>
+              <th className="py-1.5 pr-3">Próx. reintento</th>
+              <th className="py-1.5 pr-3">fbtrace_id</th>
+              <th className="py-1.5">Dedup Pixel</th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.map(ev => (
+              <tr key={ev.id} className="border-b last:border-0 align-top">
+                <td className="py-1.5 pr-3">
+                  <p className="font-medium">{ev.eventName}</p>
+                  <p className="text-[10px] text-muted-foreground font-mono break-all">{ev.eventId}</p>
+                  <p className="text-[10px] text-muted-foreground">{new Date(ev.occurredAt).toLocaleString('es-CL')}</p>
+                  {ev.eventSourceUrl && (
+                    <a href={safeExternalUrl(ev.eventSourceUrl)} target="_blank" rel="noopener noreferrer"
+                       className="text-[10px] text-primary underline underline-offset-2 break-all">
+                      {ev.eventSourceUrl}
+                    </a>
+                  )}
+                </td>
+                <td className="py-1.5 pr-3">
+                  <span className={`inline-block px-2 py-0.5 rounded-full font-medium ${CAPI_STATUS_STYLE[ev.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                    {ev.status}
+                  </span>
+                  {ev.lastErrorCode && <p className="text-[10px] text-red-600 mt-1">{ev.lastErrorCode}</p>}
+                </td>
+                <td className="py-1.5 pr-3">{ev.actionSource}</td>
+                <td className="py-1.5 pr-3">
+                  {ev.metaHttpStatus ?? '—'}
+                  {ev.metaEventsReceived !== null && <span className="text-muted-foreground"> ({ev.metaEventsReceived} recibido{ev.metaEventsReceived === 1 ? '' : 's'})</span>}
+                </td>
+                <td className="py-1.5 pr-3">
+                  {ev.attemptCount}
+                  {ev.duplicateAttempts > 0 && <span className="text-muted-foreground"> (+{ev.duplicateAttempts} dup.)</span>}
+                </td>
+                <td className="py-1.5 pr-3">{ev.nextRetryAt ? new Date(ev.nextRetryAt).toLocaleString('es-CL') : '—'}</td>
+                <td className="py-1.5 pr-3 font-mono">{ev.metaFbtraceId ?? '—'}</td>
+                <td className="py-1.5">
+                  {ev.eventId.match(/^dc:v2:[0-9a-f-]{36}:/i)
+                    ? <span className="text-emerald-700">sessionId ✓</span>
+                    : <span className="text-muted-foreground">contactId</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function Field({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null
   return (
@@ -392,6 +501,8 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
   const [editPhone, setEditPhone] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   const [duplicates, setDuplicates] = useState<DuplicateContact[]>([])
+  const [metaEvents, setMetaEvents] = useState<MetaCapiEvent[] | null>(null)
+  const [metaEventsLoading, setMetaEventsLoading] = useState(true)
   const [mergeCandidate, setMergeCandidate] = useState<DuplicateContact | null>(null)
   const [merging, setMerging] = useState(false)
   const [customFieldDefs, setCustomFieldDefs] = useState<CustomFieldDefinition[]>([])
@@ -439,6 +550,15 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
       .then(setDuplicates)
       .catch(() => setDuplicates([]))
   }, [mounted, contactId])
+
+  useEffect(() => {
+    if (!mounted) return
+    setMetaEventsLoading(true)
+    fetchAPI(`/meta-events/recent?contactId=${contactId}`)
+      .then(data => setMetaEvents(data.events ?? []))
+      .catch(() => setMetaEvents([]))
+      .finally(() => setMetaEventsLoading(false))
+  }, [mounted, contactId, reloadKey])
 
   useEffect(() => {
     if (!mounted) return
@@ -754,6 +874,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
             {contact.source === 'solar_direct' && (
               <>
                 <SolarLeadCard contact={contact} />
+                <MetaEventsCard events={metaEvents} loading={metaEventsLoading} />
                 <QualifiedLeadConfirmCard contact={contact} onConfirmed={(patch) => setContact(c => c ? { ...c, ...patch } : c)} />
               </>
             )}

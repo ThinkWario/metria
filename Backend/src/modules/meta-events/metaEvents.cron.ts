@@ -27,8 +27,11 @@ export async function retryPendingConversionEvents(): Promise<void> {
     await sendAndRecord(row.id, config.pixelId, config.accessToken, row.payload)
   }
 
-  const stuck = await prisma.conversionEvent.count({ where: { status: { in: ['pending', 'retry'] }, attemptCount: { gte: MAX_ATTEMPTS } } })
-  if (stuck > 0) console.warn(`[MetaEventsCron] ${stuck} event(s) exhausted retries and remain failed`)
+  // sendAndRecord already flips a row to 'dead_letter' the moment its
+  // attemptCount hits MAX_ATTEMPTS, so it drops out of `due` on its own —
+  // this is just the operator-facing signal that it happened.
+  const deadLettered = await prisma.conversionEvent.count({ where: { status: 'dead_letter' } })
+  if (deadLettered > 0) console.warn(`[MetaEventsCron] ${deadLettered} event(s) in dead_letter — exhausted ${MAX_ATTEMPTS} attempts`)
 }
 
 export function startMetaEventsRetryCron(): void {

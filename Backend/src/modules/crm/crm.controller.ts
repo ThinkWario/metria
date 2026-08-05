@@ -45,8 +45,12 @@ export async function setContactCustomFieldsHandler(req: AuthRequest, res: Respo
 export async function listContactsHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     const workspaceId = req.user!.workspaceId!
-    const { search, status, leadTemperature, leadType, cursor, limit } = req.query as Record<string, string>
-    res.json(await cs.listContacts(workspaceId, { search, status, leadTemperature, leadType, cursor, limit: limit ? parseInt(limit, 10) : undefined }))
+    const { search, status, leadTemperature, leadType, cursor, limit, includeIncomplete } = req.query as Record<string, string>
+    res.json(await cs.listContacts(workspaceId, {
+      search, status, leadTemperature, leadType, cursor,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      includeIncomplete: includeIncomplete === 'true'
+    }))
   } catch (err: any) { res.status(500).json({ error: err.message }) }
 }
 

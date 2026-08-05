@@ -75,6 +75,18 @@ describe('POST /api/public/solar/lead', () => {
 
     expect(res.status).toBe(422)
   })
+
+  it('devuelve 500 con trace_id (no "Error interno" sin correlación) si finalizeLead lanza inesperadamente', async () => {
+    vi.mocked(finalizeLead).mockRejectedValueOnce(new Error('DB connection lost'))
+
+    const res = await request(buildApp())
+      .post('/api/public/solar/lead')
+      .set('X-Solar-Api-Key', 'test-key')
+      .send({ action: 'complete', sessionId: 'sess-1', consentAccepted: true })
+
+    expect(res.status).toBe(500)
+    expect(res.body.trace_id).toMatch(/^[0-9a-f-]{36}$/)
+  })
 })
 
 describe('GET /api/public/solar/lead', () => {

@@ -152,6 +152,19 @@ export async function emitConversionEvent(params: EmitParams): Promise<void> {
   await sendAndRecord(rowId, config.pixelId, config.accessToken, payload)
 }
 
+/**
+ * A failed send after MAX_ATTEMPTS is not "still retrying" — the cron's
+ * `attemptCount: { lt: MAX_ATTEMPTS }` filter already excludes it from the
+ * sweep, but leaving status='retry' forever makes it invisible as anything
+ * other than "in progress" (QA_E2E_POST_FIXES_05AGO2026.md §7 P1: the
+ * expected state model is "pending/sent/failed/dead_letter", not an
+ * unbounded retry that silently stalls). `dead_letter` is a free-text
+ * value, not a Prisma enum, so this needed no migration.
+ */
+function statusAfterFailure(attemptCountAfterThisTry: number): string {
+  return attemptCountAfterThisTry >= MAX_ATTEMPTS ? 'dead_letter' : 'retry'
+}
+
 /** Shared by the initial send and the retry sweep so both hit Meta identically. */
 export async function sendAndRecord(
   rowId: string,
@@ -159,6 +172,9 @@ export async function sendAndRecord(
   accessToken: string,
   payload: unknown
 ): Promise<void> {
+  const current = await prisma.conversionEvent.findUnique({ where: { id: rowId }, select: { attemptCount: true } })
+  const attemptCountAfterThisTry = (current?.attemptCount ?? 0) + 1
+
   try {
     const res = await fetch(`https://graph.facebook.com/${CAPI_API_VERSION}/${pixelId}/events`, {
       method: 'POST',
@@ -172,34 +188,36 @@ export async function sendAndRecord(
     const body = await res.json().catch(() => ({} as Record<string, unknown>))
     const fbtraceId = (body as any)?.fbtrace_id as string | undefined
     const eventsReceived = (body as any)?.events_received as number | undefined
+    const status = res.ok ? 'sent' : statusAfterFailure(attemptCountAfterThisTry)
 
     await prisma.conversionEvent.update({
       where: { id: rowId },
       data: {
-        status: res.ok ? 'sent' : 'retry',
+        status,
         metaHttpStatus: res.status,
         metaEventsReceived: eventsReceived ?? null,
         metaFbtraceId: fbtraceId ?? null,
         attemptCount: { increment: 1 },
         sentAt: res.ok ? new Date() : null,
         lastErrorCode: res.ok ? null : ((body as any)?.error?.type ?? String(res.status)),
-        nextRetryAt: res.ok ? null : computeNextRetry(1)
+        nextRetryAt: status === 'retry' ? computeNextRetry(1) : null
       }
     })
     if (!res.ok) {
-      console.error(`[MetaEvents] send failed for event ${rowId}: ${res.status} ${JSON.stringify(body)}`)
+      console.error(`[MetaEvents] send failed for event ${rowId} (status=${status}): ${res.status} ${JSON.stringify(body)}`)
     }
   } catch (err) {
+    const status = statusAfterFailure(attemptCountAfterThisTry)
     await prisma.conversionEvent.update({
       where: { id: rowId },
       data: {
-        status: 'retry',
+        status,
         attemptCount: { increment: 1 },
         lastErrorCode: 'network_error',
-        nextRetryAt: computeNextRetry(1)
+        nextRetryAt: status === 'retry' ? computeNextRetry(1) : null
       }
     })
-    console.error(`[MetaEvents] send error for event ${rowId}:`, err)
+    console.error(`[MetaEvents] send error for event ${rowId} (status=${status}):`, err)
   }
 }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { simpleRateLimit } from '../../lib/rateLimit'
@@ -9,6 +10,17 @@ const router = Router()
 
 function getWorkspaceId(): string {
   return process.env.SOLAR_WORKSPACE_ID ?? ''
+}
+
+// QA_E2E_POST_FIXES_05AGO2026.md §7 P0: "el backend no puede ocultar la
+// causa operacional" — an unhandled exception here used to become a bare
+// {error:'Error interno'} with nothing to grep for in Vercel/Metria logs.
+// The UI keeps its friendly copy; trace_id is the correlation key between
+// what the user saw and the actual stack trace in these logs.
+function logAndRespondUnexpectedError(res: Response, context: string, err: unknown): void {
+  const traceId = randomUUID()
+  console.error(`[SolarLead] ${context} (trace_id=${traceId}):`, err)
+  res.status(500).json({ error: 'No pudimos procesar tu solicitud. Intenta de nuevo.', trace_id: traceId })
 }
 
 // 30 requests/min por IP — un wizard normal hace unas 10 llamadas de save,
@@ -39,8 +51,7 @@ router.post('/solar/lead', authenticateSolarApiKey, simpleRateLimit(60 * 1000, 3
 
     res.status(400).json({ error: 'action debe ser "save" o "complete"' })
   } catch (err: any) {
-    console.error('[SolarLead] Error en POST:', err)
-    res.status(500).json({ error: 'Error interno' })
+    logAndRespondUnexpectedError(res, `Error en POST (action=${req.body?.action}, sessionId=${req.body?.sessionId})`, err)
   }
 })
 
@@ -63,8 +74,7 @@ router.get('/solar/lead', authenticateSolarApiKey, simpleRateLimit(60 * 1000, 30
     const rawFields = ((contact.qualificationData as any)?.rawFields ?? {}) as Record<string, unknown>
     res.json({ status: 'success', data: rawFields, step: (rawFields.step as number) ?? 1 })
   } catch (err: any) {
-    console.error('[SolarLead] Error en GET:', err)
-    res.status(500).json({ error: 'Error interno' })
+    logAndRespondUnexpectedError(res, `Error en GET (sessionId=${req.query?.sessionId})`, err)
   }
 })
 
