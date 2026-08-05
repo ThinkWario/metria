@@ -109,3 +109,19 @@ describe('emitConversionEvent — gate de consentimiento completo', () => {
     expect(global.fetch).toHaveBeenCalled()
   })
 })
+
+describe('emitConversionEvent — token transport', () => {
+  it('envía el token en el header Authorization: Bearer, no en el body', async () => {
+    await emitConversionEvent({
+      workspaceId: 'ws-1', leadId: 'c-1', eventName: 'Contact', actionSource: 'website',
+      occurredAt: new Date(), contact: { email: 'a@b.cl' }
+    })
+
+    const call = vi.mocked(global.fetch).mock.calls[0]
+    const headers = call[1]!.headers as Record<string, string>
+    expect(headers['Authorization']).toBe('Bearer tok-1')
+
+    const body = JSON.parse(call[1]!.body as string)
+    expect(body.access_token).toBeUndefined()
+  })
+})

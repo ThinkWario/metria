@@ -162,8 +162,11 @@ export async function sendAndRecord(
   try {
     const res = await fetch(`https://graph.facebook.com/${CAPI_API_VERSION}/${pixelId}/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ access_token: accessToken, ...(payload as object) })
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(payload as object)
     })
     const body = await res.json().catch(() => ({} as Record<string, unknown>))
     const fbtraceId = (body as any)?.fbtrace_id as string | undefined
