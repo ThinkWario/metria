@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -48,6 +48,13 @@ export const WhatsAppTemplatesPanel = () => {
     const [language, setLanguage] = useState('es')
     const [category, setCategory] = useState('MARKETING')
     const [bodyText, setBodyText] = useState('')
+    const [catalog, setCatalog] = useState<{ key: string; label: string; example: string }[]>([])
+    const [variableMap, setVariableMap] = useState<string[]>([])
+
+    const detectedVariableCount = useMemo(() => {
+        const indexes = [...bodyText.matchAll(/\{\{(\d+)\}\}/g)].map(m => parseInt(m[1], 10))
+        return indexes.length > 0 ? Math.max(...indexes) : 0
+    }, [bodyText])
 
     const load = async () => {
         setLoading(true)
@@ -65,6 +72,21 @@ export const WhatsAppTemplatesPanel = () => {
     }
 
     useEffect(() => { load() }, [])
+
+    useEffect(() => {
+        fetchAPI('/messaging/whatsapp/templates/variable-catalog')
+            .then(data => setCatalog(data.catalog ?? []))
+            .catch(() => {})
+    }, [])
+
+    useEffect(() => {
+        setVariableMap(prev => {
+            if (prev.length === detectedVariableCount) return prev
+            const next = prev.slice(0, detectedVariableCount)
+            while (next.length < detectedVariableCount) next.push('')
+            return next
+        })
+    }, [detectedVariableCount])
 
     const handleSync = async () => {
         setSyncing(true)
@@ -86,14 +108,24 @@ export const WhatsAppTemplatesPanel = () => {
             toast.error('Nombre y texto de la plantilla son obligatorios')
             return
         }
+        if (detectedVariableCount > 0 && variableMap.some(v => !v)) {
+            toast.error('Selecciona una variable para cada {{n}} detectado en el texto')
+            return
+        }
         setCreating(true)
         try {
             const template = await fetchAPI('/messaging/whatsapp/templates', {
                 method: 'POST',
-                body: JSON.stringify({ name: cleanName, language, category, bodyText })
+                body: JSON.stringify({
+                    name: cleanName,
+                    language,
+                    category,
+                    bodyText,
+                    variables: detectedVariableCount > 0 ? variableMap : undefined
+                })
             })
             setTemplates(prev => [template, ...prev])
-            setName(''); setBodyText('')
+            setName(''); setBodyText(''); setVariableMap([])
             toast.success('Plantilla enviada a revisión de Meta', {
                 description: 'El estado cambiará a Aprobada u Rechazada en minutos u horas — usa "Sincronizar" para actualizarlo.'
             })
@@ -214,6 +246,29 @@ export const WhatsAppTemplatesPanel = () => {
                             className="text-xs min-h-[70px]"
                         />
                     </div>
+                    {detectedVariableCount > 0 && (
+                        <div className="grid gap-1.5">
+                            <Label className="text-xs">Variables detectadas</Label>
+                            {Array.from({ length: detectedVariableCount }, (_, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground shrink-0">{`{{${i + 1}}}`}</span>
+                                    <Select
+                                        value={variableMap[i] ?? ''}
+                                        onValueChange={(v) => setVariableMap(prev => {
+                                            const next = [...prev]
+                                            next[i] = v
+                                            return next
+                                        })}
+                                    >
+                                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Elegir variable" /></SelectTrigger>
+                                        <SelectContent>
+                                            {catalog.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                     <Button type="submit" size="sm" className="w-full h-8 text-xs" disabled={creating}>
                         {creating ? 'Enviando a Meta...' : 'Crear y enviar a revisión'}
                     </Button>
