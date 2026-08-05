@@ -281,14 +281,26 @@ export async function finalizeLead(
   // enviar user_data casi vacío a Meta no cumple esa exigencia.
   const hasValidIdentity = !!(contact.email || contact.phone)
   if (hasValidIdentity) {
-    emitMetaContactEvent(workspaceId, contact, 'website', undefined, payload.sessionId, payload.landingUrl)
-      .catch(err => console.error('[LeadIngestion] Contact event failed:', err))
-    emitMetaLeadEvent(workspaceId, contact, 'website', undefined, payload.sessionId, payload.landingUrl)
-      .catch(err => console.error('[LeadIngestion] Lead event failed:', err))
+    // Awaited (not fire-and-forget) — the outbox row must exist before this
+    // function returns, so a process restart right after the HTTP response
+    // can't silently drop an event that was never persisted.
+    try {
+      await emitMetaContactEvent(workspaceId, contact, 'website', undefined, payload.sessionId, payload.landingUrl)
+    } catch (err) {
+      console.error('[LeadIngestion] Contact event failed:', err)
+    }
+    try {
+      await emitMetaLeadEvent(workspaceId, contact, 'website', undefined, payload.sessionId, payload.landingUrl)
+    } catch (err) {
+      console.error('[LeadIngestion] Lead event failed:', err)
+    }
 
     if (isFinancingApplication(payload)) {
-      emitMetaFinanceApplicationSubmittedEvent(workspaceId, contact, 'website', payload.sessionId, payload.landingUrl)
-        .catch(err => console.error('[LeadIngestion] FinanceApplicationSubmitted event failed:', err))
+      try {
+        await emitMetaFinanceApplicationSubmittedEvent(workspaceId, contact, 'website', payload.sessionId, payload.landingUrl)
+      } catch (err) {
+        console.error('[LeadIngestion] FinanceApplicationSubmitted event failed:', err)
+      }
     }
   } else {
     console.warn(`[LeadIngestion] Skipping Meta CAPI for contact ${contact.id}: no valid email/phone`)

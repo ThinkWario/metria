@@ -344,4 +344,57 @@ describe('finalizeLead', () => {
       qualifiedLeadConfirmedAt: '2026-08-01T00:00:00.000Z'
     }))
   })
+
+  it('espera (await) los emit de CAPI antes de retornar — no los deja en fire-and-forget', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({
+        id: 'c1', name: 'Lead Solar (sess-1)', email: null, phone: null,
+        qualificationData: { rawFields: { sessionId: 'sess-1' } }
+      } as any) // by sessionId
+      .mockResolvedValueOnce(null) // by email
+      .mockResolvedValueOnce(null) // by phone
+    vi.mocked(prisma.contact.update).mockResolvedValue({
+      id: 'c1', name: 'Roberto Pérez', phone: '56912345678', email: null
+    } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.deal.create).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    let contactEventSettled = false
+    vi.mocked(emitMetaContactEvent).mockImplementationOnce(async () => {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      contactEventSettled = true
+    })
+
+    await finalizeLead(WS_ID, {
+      sessionId: 'sess-1', consentAccepted: true, consentVersion: 'v1',
+      nombre: 'Roberto Pérez', telefono: '+56 9 1234 5678'
+    } as any)
+
+    expect(contactEventSettled).toBe(true)
+  })
+
+  it('no crashea ni retorna ok:false si emitMetaContactEvent rechaza', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({
+        id: 'c1', name: 'Lead Solar (sess-1)', email: null, phone: null,
+        qualificationData: { rawFields: { sessionId: 'sess-1' } }
+      } as any)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    vi.mocked(prisma.contact.update).mockResolvedValue({
+      id: 'c1', name: 'Roberto Pérez', phone: '56912345678', email: null
+    } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.deal.create).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+    vi.mocked(emitMetaContactEvent).mockRejectedValueOnce(new Error('Meta down'))
+
+    const result = await finalizeLead(WS_ID, {
+      sessionId: 'sess-1', consentAccepted: true, consentVersion: 'v1',
+      nombre: 'Roberto Pérez', telefono: '+56 9 1234 5678'
+    } as any)
+
+    expect(result.ok).toBe(true)
+  })
 })
