@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { RefreshCw, Trash2, MessageSquareText } from 'lucide-react'
+import { RefreshCw, Trash2, MessageSquareText, Eye } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { fetchAPI } from '@/lib/api'
 
@@ -18,6 +19,7 @@ interface WhatsAppTemplate {
     bodyText: string
     status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAUSED'
     rejectedReason?: string | null
+    variables?: string[] | null
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -40,6 +42,7 @@ export const WhatsAppTemplatesPanel = () => {
     const [openingTemplateId, setOpeningTemplateId] = useState<string | null>(null)
     const [technicalVisitTemplateId, setTechnicalVisitTemplateId] = useState<string | null>(null)
     const [visitConfirmationTemplateId, setVisitConfirmationTemplateId] = useState<string | null>(null)
+    const [viewingTemplate, setViewingTemplate] = useState<WhatsAppTemplate | null>(null)
     const [loading, setLoading] = useState(true)
     const [syncing, setSyncing] = useState(false)
     const [creating, setCreating] = useState(false)
@@ -185,6 +188,7 @@ export const WhatsAppTemplatesPanel = () => {
     }
 
     return (
+        <>
         <Card className="bg-card/30 backdrop-blur-xl border border-border/50">
             <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -323,6 +327,13 @@ export const WhatsAppTemplatesPanel = () => {
                                             Usar en confirmación de visita
                                         </Button>
                                     )}
+                                    <Button
+                                        size="icon" variant="ghost" className="h-7 w-7"
+                                        aria-label={`Ver plantilla ${t.name}`}
+                                        onClick={() => setViewingTemplate(t)}
+                                    >
+                                        <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                                    </Button>
                                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(t.id)}>
                                         <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                                     </Button>
@@ -333,5 +344,25 @@ export const WhatsAppTemplatesPanel = () => {
                 )}
             </CardContent>
         </Card>
+        <Dialog open={!!viewingTemplate} onOpenChange={(open) => !open && setViewingTemplate(null)}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>{viewingTemplate?.name}</DialogTitle>
+                    <DialogDescription>{viewingTemplate?.language} · {viewingTemplate?.category}</DialogDescription>
+                </DialogHeader>
+                <p className="text-sm whitespace-pre-wrap">{viewingTemplate?.bodyText}</p>
+                {viewingTemplate?.variables && viewingTemplate.variables.length > 0 && (
+                    <div className="space-y-1 pt-2 border-t border-border/50">
+                        <p className="text-xs font-medium text-muted-foreground">Variables</p>
+                        {viewingTemplate.variables.map((key, i) => (
+                            <p key={key} className="text-xs">
+                                {`{{${i + 1}}}`} → {catalog.find(c => c.key === key)?.label ?? key}
+                            </p>
+                        ))}
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
+        </>
     )
 }
