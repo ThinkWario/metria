@@ -11,7 +11,7 @@ vi.mock('../../../lib/prisma', () => ({
 }))
 
 vi.mock('../../meta-events/metaEvents.service', () => ({
-  emitMetaPurchaseEvent: vi.fn()
+  emitMetaPurchaseEvent: vi.fn().mockResolvedValue(undefined)
 }))
 
 import { listPipelines, createPipeline, listDeals, createDeal, moveDeal, closeDeal } from '../pipeline.service'
@@ -106,6 +106,38 @@ describe('moveDeal', () => {
     )
     const callArgs = vi.mocked(prisma.deal.update).mock.calls[0][0]
     expect(callArgs.data).not.toHaveProperty('status')
+  })
+
+  it('NO dispara Purchase si el deal tiene todos los campos confirmados pero currency no es CLP', async () => {
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({
+      id: 'deal-1', pipelineId: 'p1', contactId: 'c1', title: 'Deal test',
+      contractId: 'ct-1', contractSignedAt: new Date(), initialPaymentConfirmedAt: new Date(),
+      confirmedContractValue: 1000000, currency: 'USD'
+    } as any)
+    vi.mocked(prisma.pipelineStage.findFirst).mockResolvedValue({ id: 'stage-won', name: 'Ganado', isWon: true, isLost: false } as any)
+    vi.mocked(prisma.deal.update).mockResolvedValue({} as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({ id: 'c1' } as any)
+
+    await moveDeal(WS, 'deal-1', 'stage-won')
+
+    const { emitMetaPurchaseEvent } = await import('../../meta-events/metaEvents.service')
+    expect(emitMetaPurchaseEvent).not.toHaveBeenCalled()
+  })
+
+  it('SÍ dispara Purchase cuando currency es CLP y el resto de campos están confirmados', async () => {
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({
+      id: 'deal-1', pipelineId: 'p1', contactId: 'c1', title: 'Deal test',
+      contractId: 'ct-1', contractSignedAt: new Date(), initialPaymentConfirmedAt: new Date(),
+      confirmedContractValue: 1000000, currency: 'CLP'
+    } as any)
+    vi.mocked(prisma.pipelineStage.findFirst).mockResolvedValue({ id: 'stage-won', name: 'Ganado', isWon: true, isLost: false } as any)
+    vi.mocked(prisma.deal.update).mockResolvedValue({} as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({ id: 'c1' } as any)
+
+    await moveDeal(WS, 'deal-1', 'stage-won')
+
+    const { emitMetaPurchaseEvent } = await import('../../meta-events/metaEvents.service')
+    expect(emitMetaPurchaseEvent).toHaveBeenCalledWith(WS, expect.objectContaining({ id: 'c1' }), 'deal-1', 1000000, 'CLP')
   })
 })
 

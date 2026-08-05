@@ -3,14 +3,19 @@ import { emitContactEvent } from '../automation/emit'
 import { emitMetaPurchaseEvent } from '../meta-events/metaEvents.service'
 
 // Purchase must not fire on a stage move alone — requires contrato firmado
-// + pago inicial confirmado (dc_events_v2_metria spec §10).
+// + pago inicial confirmado + currency=CLP
+// (INSTRUCCIONES_DESARROLLADOR_TRACKING_METRIA_SOLAR_AGOSTO_2026.md §9).
 function hasConfirmedPurchase(deal: {
   contractId: string | null
   contractSignedAt: Date | null
   initialPaymentConfirmedAt: Date | null
   confirmedContractValue: unknown
+  currency: string
 }): boolean {
-  return !!(deal.contractId && deal.contractSignedAt && deal.initialPaymentConfirmedAt && deal.confirmedContractValue)
+  return !!(
+    deal.contractId && deal.contractSignedAt && deal.initialPaymentConfirmedAt &&
+    deal.confirmedContractValue && deal.currency === 'CLP'
+  )
 }
 
 const DEFAULT_STAGES = [
