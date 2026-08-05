@@ -12,21 +12,29 @@ interface TemplateCounts {
     rejected: number
 }
 
+type SummaryState =
+    | { status: 'loading' }
+    | { status: 'error' }
+    | { status: 'loaded'; counts: TemplateCounts }
+
 export const WhatsAppTemplatesSummaryCard = () => {
-    const [counts, setCounts] = useState<TemplateCounts | null>(null)
+    const [state, setState] = useState<SummaryState>({ status: 'loading' })
 
     useEffect(() => {
         fetchAPI('/messaging/whatsapp/templates')
             .then(data => {
                 const templates = data.templates ?? []
-                setCounts({
-                    total: templates.length,
-                    approved: templates.filter((t: any) => t.status === 'APPROVED').length,
-                    pending: templates.filter((t: any) => t.status === 'PENDING').length,
-                    rejected: templates.filter((t: any) => t.status === 'REJECTED').length
+                setState({
+                    status: 'loaded',
+                    counts: {
+                        total: templates.length,
+                        approved: templates.filter((t: any) => t.status === 'APPROVED').length,
+                        pending: templates.filter((t: any) => t.status === 'PENDING').length,
+                        rejected: templates.filter((t: any) => t.status === 'REJECTED').length
+                    }
                 })
             })
-            .catch(() => setCounts({ total: 0, approved: 0, pending: 0, rejected: 0 }))
+            .catch(() => setState({ status: 'error' }))
     }, [])
 
     return (
@@ -37,9 +45,10 @@ export const WhatsAppTemplatesSummaryCard = () => {
                     Plantillas de WhatsApp (HSM)
                 </CardTitle>
                 <CardDescription className="text-xs mt-1">
-                    {counts === null
-                        ? 'Cargando...'
-                        : `${counts.total} plantilla(s) — ${counts.approved} aprobada(s), ${counts.pending} pendiente(s), ${counts.rejected} rechazada(s)`}
+                    {state.status === 'loading' && 'Cargando...'}
+                    {state.status === 'error' && 'No se pudieron cargar las plantillas'}
+                    {state.status === 'loaded' &&
+                        `${state.counts.total} plantilla(s) — ${state.counts.approved} aprobada(s), ${state.counts.pending} pendiente(s), ${state.counts.rejected} rechazada(s)`}
                 </CardDescription>
             </CardHeader>
             <CardContent>

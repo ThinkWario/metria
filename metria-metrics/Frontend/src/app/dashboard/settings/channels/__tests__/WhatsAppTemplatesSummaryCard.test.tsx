@@ -30,4 +30,17 @@ describe('WhatsAppTemplatesSummaryCard', () => {
     const link = screen.getByRole('link', { name: /gestionar plantillas/i })
     expect(link).toHaveAttribute('href', '/dashboard/settings/channels/templates')
   })
+
+  it('shows an error message instead of counts when the fetch fails', async () => {
+    mockFetchAPI.mockReset()
+    mockFetchAPI.mockRejectedValue(new Error('network error'))
+
+    render(<WhatsAppTemplatesSummaryCard />)
+
+    expect(await screen.findByText(/no se pudieron cargar las plantillas/i)).toBeInTheDocument()
+    expect(screen.queryByText(/plantilla\(s\)/i)).not.toBeInTheDocument()
+
+    const link = screen.getByRole('link', { name: /gestionar plantillas/i })
+    expect(link).toHaveAttribute('href', '/dashboard/settings/channels/templates')
+  })
 })
