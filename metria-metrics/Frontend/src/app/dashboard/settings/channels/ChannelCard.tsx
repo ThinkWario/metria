@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CheckCircle2, XCircle, Settings2, QrCode } from 'lucide-react'
 import { ChannelConfigForm } from './ChannelConfigForm'
-import { WhatsAppTemplatesPanel } from './WhatsAppTemplatesPanel'
+import { WhatsAppTemplatesSummaryCard } from './WhatsAppTemplatesSummaryCard'
 import { WhatsAppQRDialog } from '@/components/messaging/WhatsAppQRDialog'
 import { fetchAPI } from '@/lib/api'
 
@@ -154,7 +154,7 @@ export const ChannelCard = ({ platform, status, config, onRefresh }: ChannelCard
             )}
             {platform === 'whatsapp' && status === 'connected' && !config?.isNative && (
                 <div className="px-6 pb-6">
-                    <WhatsAppTemplatesPanel />
+                    <WhatsAppTemplatesSummaryCard />
                 </div>
             )}
         </Card>
