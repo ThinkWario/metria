@@ -273,11 +273,14 @@ export default function MetaEventsClient() {
                                         <thead>
                                             <tr className="text-left text-muted-foreground border-b border-border/50">
                                                 <th className="py-2 pr-3 font-medium">Evento</th>
+                                                <th className="py-2 pr-3 font-medium">event_id</th>
                                                 <th className="py-2 pr-3 font-medium">Estado</th>
                                                 <th className="py-2 pr-3 font-medium">HTTP</th>
+                                                <th className="py-2 pr-3 font-medium">events_received</th>
                                                 <th className="py-2 pr-3 font-medium">fbtrace_id</th>
                                                 <th className="py-2 pr-3 font-medium">Error</th>
                                                 <th className="py-2 pr-3 font-medium">Intentos</th>
+                                                <th className="py-2 pr-3 font-medium">Creado</th>
                                                 <th className="py-2 pr-3 font-medium">Enviado</th>
                                             </tr>
                                         </thead>
@@ -285,13 +288,16 @@ export default function MetaEventsClient() {
                                             {recent.map(ev => (
                                                 <tr key={ev.id} className="border-b border-border/30 last:border-0">
                                                     <td className="py-2 pr-3 font-medium">{ev.eventName}</td>
+                                                    <td className="py-2 pr-3 font-mono text-[10px] text-muted-foreground">{ev.eventId}</td>
                                                     <td className="py-2 pr-3">
                                                         <Badge variant="outline" className={`text-[10px] ${STATUS_STYLES[ev.status] ?? ''}`}>{ev.status}</Badge>
                                                     </td>
                                                     <td className="py-2 pr-3">{ev.metaHttpStatus ?? '—'}</td>
+                                                    <td className="py-2 pr-3">{ev.metaEventsReceived ?? '—'}</td>
                                                     <td className="py-2 pr-3 font-mono text-[10px] text-muted-foreground">{ev.metaFbtraceId ?? '—'}</td>
                                                     <td className="py-2 pr-3 text-red-500">{ev.lastErrorCode ?? '—'}</td>
                                                     <td className="py-2 pr-3">{ev.attemptCount}</td>
+                                                    <td className="py-2 pr-3 text-muted-foreground">{new Date(ev.createdAt).toLocaleString('es-CL')}</td>
                                                     <td className="py-2 pr-3 text-muted-foreground">{ev.sentAt ? new Date(ev.sentAt).toLocaleString('es-CL') : '—'}</td>
                                                 </tr>
                                             ))}
