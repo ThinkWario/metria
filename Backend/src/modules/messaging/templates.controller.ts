@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../middleware/auth'
 import { createMetaTemplate, listMetaTemplates, deleteMetaTemplate } from './channels/whatsappTemplates.client'
-import { TEMPLATE_VARIABLE_CATALOG } from './templateVariables'
+import { TEMPLATE_VARIABLE_CATALOG, isKnownVariableKey } from './templateVariables'
 
 async function getWhatsAppChannel(workspaceId: string) {
   return prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
@@ -39,6 +39,21 @@ export async function createTemplateHandler(req: Request, res: Response): Promis
     }
     if (!name || !bodyText) { res.status(400).json({ error: 'name y bodyText son obligatorios' }); return }
 
+    const varIndexes = [...bodyText.matchAll(/\{\{(\d+)\}\}/g)].map(m => parseInt(m[1], 10))
+    const maxVar = varIndexes.length > 0 ? Math.max(...varIndexes) : 0
+
+    if (variables !== undefined) {
+      if (variables.length !== maxVar) {
+        res.status(400).json({ error: `El texto tiene ${maxVar} variable(s) pero se mapearon ${variables.length}` })
+        return
+      }
+      const unknownKey = variables.find(key => !isKnownVariableKey(key))
+      if (unknownKey) {
+        res.status(400).json({ error: `Variable desconocida: ${unknownKey}` })
+        return
+      }
+    }
+
     const channel = await getWhatsAppChannel(workspaceId)
     if (!channel) { res.status(404).json({ error: 'No hay un canal WhatsApp conectado' }); return }
 
@@ -50,7 +65,7 @@ export async function createTemplateHandler(req: Request, res: Response): Promis
     const resolvedCategory = category || 'MARKETING'
 
     const meta = await createMetaTemplate(config.wabaId, config.accessToken, {
-      name, language: resolvedLanguage, category: resolvedCategory, bodyText
+      name, language: resolvedLanguage, category: resolvedCategory, bodyText, variables
     })
 
     const template = await prisma.whatsAppTemplate.create({
