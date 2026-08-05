@@ -1,0 +1,101 @@
+{
+  "$schema": "dc_events_v2_metria",
+  "description": "Canonical Meta CAPI event taxonomy for the solar_direct funnel (solar.drillchile.cl -> Metria). Source of truth for QA acceptance tests; keep this file in sync with Backend/src/modules/meta-events/metaEvents.service.ts and metaEvents.capi.ts — do not let them drift again.",
+  "current_transport": "direct_metria_api",
+  "transport_history": [
+    {
+      "name": "google_sheets_bridge",
+      "status": "retired",
+      "note": "5-minute cron import from a Google Sheet populated by Apps Script. Replaced by direct_metria_api (see docs/superpowers/specs/2026-08-01-solar-metria-direct-integration-design.md) to cut CAPI event latency and remove the Sheets single point of failure. sheets.service.ts / sheets.cron.ts remain in the codebase for other, non-solar integrations only."
+    },
+    {
+      "name": "direct_metria_api",
+      "status": "current",
+      "note": "solar's server actions (src/app/actions.ts, repo C:\\repo\\drillchile\\solar) POST directly to Backend's POST /api/public/solar/lead (Backend/src/modules/leads/solarLead.routes.ts), authenticated via X-Solar-Api-Key. leadIngestion.service.ts persists the Contact/Deal and fires CAPI inline on the `complete` action — no cron, no polling."
+    }
+  ],
+  "event_id_pattern": {
+    "format": "dc:v2:<subjectId>:<eventName>[:<suffix>]",
+    "builder": "Backend/src/modules/meta-events/metaEvents.capi.ts buildEventId()",
+    "subjectId_rule": "sessionId when known (Contact, Lead, FinanceApplicationSubmitted) so a future browser-side Pixel call using the same sessionId can dedupe against CAPI under the same event_id; falls back to Contact.id otherwise (QualifiedLead, TechnicalReviewCompleted).",
+    "suffix_rule": "appointmentId for Schedule, dealId for Purchase — lets multiple of those events exist per Contact without colliding on the same event_id."
+  },
+  "events": [
+    {
+      "name": "Contact",
+      "transport": "pixel+capi",
+      "owner": "capi: Backend emitMetaContactEvent (leadIngestion.service.ts finalizeLead); pixel: solar page.tsx fbq('track','Contact') gated on leadCompleted",
+      "trigger": "Wizard's 'complete' action (Contacto step confirmed) — the funnel's real conversion moment, not any earlier 'save' step.",
+      "action_source": "website",
+      "consent_gate": true
+    },
+    {
+      "name": "Lead",
+      "transport": "capi-only",
+      "owner": "Backend emitMetaLeadEvent (leadIngestion.service.ts finalizeLead)",
+      "trigger": "Same 'complete' action as Contact, fired immediately after it.",
+      "action_source": "website",
+      "consent_gate": true,
+      "decision": "CAPI-only, not Pixel+CAPI. An earlier contract draft required Pixel+CAPI; the implementation deliberately never added a Pixel-side Lead call because solar making its own Graph API calls produced a second, uncoordinated event_id for the same lead (dc:v1:<sessionId>:... from solar vs dc:v2:<Contact.id>:... from Metria) that Meta could never deduplicate (see actions.ts completeLead() doc comment). One emitter (Metria) is the durable rule going forward."
+    },
+    {
+      "name": "FinanceApplicationSubmitted",
+      "transport": "capi-only",
+      "owner": "Backend emitMetaFinanceApplicationSubmittedEvent (leadIngestion.service.ts finalizeLead, isFinancingApplication() gate)",
+      "trigger": "'complete' action when the payload includes any financing-step field (edad, estadoCivil, valorCasa, deudaCasa, ingresoMensual, profesion, deudaContribuciones, embargoVigente) — i.e. the lead filled the financing step, not merely a base quote.",
+      "action_source": "website",
+      "consent_gate": true,
+      "canonical_name_decision": "FinanceApplicationSubmitted is the one canonical name. Historical docs used SubmitApplication — that name is retired, not an alias; do not resurrect it (see commit 328ea3a1, 'chore(meta-events): remove dead SubmitApplication event name').",
+      "note": "No financial PII (RUT, income, debts, net worth, profession, marital status, garnishment) is ever sent to Meta — only the fact that the step was submitted."
+    },
+    {
+      "name": "QualifiedLead",
+      "transport": "capi-only",
+      "owner": "Backend emitMetaQualifiedLeadEvent (contact.service.ts confirmQualifiedLead)",
+      "trigger": "Explicit human confirmation in the CRM (sales agent marks a lead as qualified) — never fired automatically from finalizeLead regardless of the automated qualifier's result.",
+      "action_source": "system_generated",
+      "consent_gate": true
+    },
+    {
+      "name": "Schedule",
+      "transport": "capi-only",
+      "owner": "Backend emitMetaScheduleEvent (scheduling.service.ts)",
+      "trigger": "A visit/appointment is booked for the Contact.",
+      "action_source": "system_generated",
+      "consent_gate": true,
+      "event_id_suffix": "appointmentId"
+    },
+    {
+      "name": "TechnicalReviewCompleted",
+      "transport": "capi-only",
+      "owner": "Backend emitMetaTechnicalReviewCompletedEvent",
+      "trigger": "Technical site visit / review marked complete.",
+      "action_source": "system_generated",
+      "consent_gate": true
+    },
+    {
+      "name": "Purchase",
+      "transport": "capi-only",
+      "owner": "Backend emitMetaPurchaseEvent (pipeline.service.ts moveDeal/closeDeal via hasConfirmedPurchase gate)",
+      "trigger": "Deal reaches the WON pipeline stage AND contractId AND contractSignedAt AND initialPaymentConfirmedAt AND confirmedContractValue AND currency === 'CLP' are all set. Reaching WON alone is not sufficient evidence of a sale.",
+      "action_source": "system_generated",
+      "consent_gate": true,
+      "event_id_suffix": "dealId"
+    }
+  ],
+  "pixel_events": {
+    "PageView": "fires on every page load via the base snippet (src/app/MetaPixelScript.tsx in the solar repo).",
+    "ViewContent": "fires once the wizard reaches the results screen, gated on leadCompleted + consent + fbq being defined.",
+    "Contact": "see events[].Contact above — pixel side is the browser-visible half of the same funnel moment CAPI reports server-side."
+  },
+  "consent_gate": {
+    "rule": "No event of any kind reaches Meta (Pixel or CAPI) unless consent is recorded. Server-side: finalizeLead() rejects with 422 if consentAccepted !== true or consentVersion is missing/empty, before any Contact is resolved or CAPI call is attempted (Backend/src/modules/leads/leadIngestion.service.ts:166-171, regression-tested in leadIngestion.service.test.ts). consentStatus is never client-supplied — hardcoded to 'granted' server-side only after those checks pass.",
+    "verified": "QA_E2E_POST_FIXES_04AGO2026.md P0-6 asked this to be demonstrated — it already was, by the two existing 422-rejection tests in leadIngestion.service.test.ts ('rechaza con 422 si consentAccepted no es true' / '... si consentVersion falta o está vacío'), both of which assert prisma.contact.findUnique was never called."
+  },
+  "outbox_and_retry": {
+    "table": "ConversionEvent (Backend/prisma/schema.prisma) — one row per attempted event, audit trail + idempotency.",
+    "dedup": "Unique on (pixelId, eventName, eventId) at the DB level (metaEvents.capi.ts) — a retried finalizeLead for the same session is safe, P2002 violations are swallowed as an expected duplicate.",
+    "retry": "metaEvents.cron.ts retryPendingConversionEvents(), every 5 minutes, sweeps rows in status pending/retry with attemptCount < MAX_ATTEMPTS (5) whose nextRetryAt has elapsed. Regression-tested in metaEvents.cron.test.ts.",
+    "dashboard": "Settings -> Meta Events shows event_name, event_id, status, HTTP status, events_received, fbtrace_id, last_error, attempts, created_at, sent_at per event (MetaEventsClient.tsx)."
+  }
+}
