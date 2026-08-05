@@ -24,7 +24,8 @@ import {
   syncTemplatesHandler,
   deleteTemplateHandler,
   setOpeningTemplateHandler,
-  setTemplateRoleHandler
+  setTemplateRoleHandler,
+  getTemplateVariableCatalogHandler
 } from './templates.controller'
 
 const router = Router()
@@ -54,6 +55,7 @@ router.post('/messaging/whatsapp/disconnect', authenticate, requirePlan('PRO', '
 
 // WhatsApp Cloud API message templates (HSM)
 router.get('/messaging/whatsapp/templates', authenticate, requirePlan('PRO', 'SCALE'), listTemplatesHandler)
+router.get('/messaging/whatsapp/templates/variable-catalog', authenticate, requirePlan('PRO', 'SCALE'), getTemplateVariableCatalogHandler)
 router.post('/messaging/whatsapp/templates', authenticate, requirePlan('PRO', 'SCALE'), createTemplateHandler)
 router.post('/messaging/whatsapp/templates/sync', authenticate, requirePlan('PRO', 'SCALE'), syncTemplatesHandler)
 router.delete('/messaging/whatsapp/templates/:id', authenticate, requirePlan('PRO', 'SCALE'), deleteTemplateHandler)

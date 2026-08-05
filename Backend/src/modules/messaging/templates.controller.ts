@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { prisma } from '../../lib/prisma'
 import { AuthRequest } from '../../middleware/auth'
 import { createMetaTemplate, listMetaTemplates, deleteMetaTemplate } from './channels/whatsappTemplates.client'
+import { TEMPLATE_VARIABLE_CATALOG } from './templateVariables'
 
 async function getWhatsAppChannel(workspaceId: string) {
   return prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
@@ -199,4 +200,8 @@ export async function setTemplateRoleHandler(req: Request, res: Response): Promi
     console.error('[Templates] set role error:', err)
     res.status(500).json({ error: 'Error al asignar la plantilla' })
   }
+}
+
+export async function getTemplateVariableCatalogHandler(req: Request, res: Response): Promise<void> {
+  res.json({ catalog: TEMPLATE_VARIABLE_CATALOG })
 }
