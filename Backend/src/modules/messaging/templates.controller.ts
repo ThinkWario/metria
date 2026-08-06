@@ -219,11 +219,20 @@ export async function deleteTemplateHandler(req: Request, res: Response): Promis
     }
     await prisma.whatsAppTemplate.delete({ where: { id } })
 
-    if (config.openingTemplateId === id) {
-      await prisma.channel.update({
-        where: { id: channel.id },
-        data: { config: { ...config, openingTemplateId: null } }
-      })
+    // Clear any role pointer left dangling by the delete — a stale id here makes
+    // every future send for that role throw "Template not found" instead of the
+    // role simply falling back to unconfigured.
+    const roleKeys = ['openingTemplateId', 'technicalVisitTemplateId', 'visitConfirmationTemplateId'] as const
+    const clearedConfig = { ...config }
+    let hadDanglingRole = false
+    for (const key of roleKeys) {
+      if (clearedConfig[key] === id) {
+        clearedConfig[key] = null as unknown as string
+        hadDanglingRole = true
+      }
+    }
+    if (hadDanglingRole) {
+      await prisma.channel.update({ where: { id: channel.id }, data: { config: clearedConfig } })
     }
     res.status(204).send()
   } catch (err) {
