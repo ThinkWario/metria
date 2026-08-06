@@ -1,6 +1,19 @@
-import { prisma } from '../lib/prisma'
-import { normalizeRut } from '../lib/rutFormat'
-import { SOLAR_SOURCE } from '../modules/leads/leadIngestion.service'
+const { PrismaClient } = require('@prisma/client')
+const prisma = new PrismaClient()
+
+const SOLAR_SOURCE = 'solar_direct'
+
+// Mirrors src/lib/rutFormat.ts::normalizeRut — this folder runs as plain
+// CommonJS with `node` inside the production container (see Dockerfile:
+// only `dist/` and `scripts/` are copied into the runner image, `src/` and
+// `tsx` are not), so it can't import the TS module directly. Keep both in
+// sync if the normalization rule ever changes.
+function normalizeRut(raw) {
+  if (!raw) return null
+  const cleaned = String(raw).replace(/[.\s-]/g, '').toUpperCase()
+  if (!/^\d{7,8}[0-9K]$/.test(cleaned)) return null
+  return cleaned
+}
 
 /**
  * One-off backfill for `Contact.rut` — QA_REVALIDACION_POST_FIXES_
@@ -19,20 +32,17 @@ import { SOLAR_SOURCE } from '../modules/leads/leadIngestion.service'
  * per the QA report's explicit instruction not to merge/delete without a
  * documented reconciliation policy (§5.4).
  *
- * Run: npx tsx src/scripts/backfillContactRut.ts [--apply]
+ * Run inside the backend container (or locally with DATABASE_URL pointed
+ * at the target DB):
+ *   node scripts/backfill-contact-rut.js            # dry run
+ *   node scripts/backfill-contact-rut.js --apply     # writes the safe ones
  */
 
-interface Candidate {
-  id: string
-  workspaceId: string
-  rut: string
-}
-
-function extractRawRut(qualificationData: unknown): string | null {
+function extractRawRut(qualificationData) {
   if (!qualificationData || typeof qualificationData !== 'object') return null
-  const rawFields = (qualificationData as { rawFields?: unknown }).rawFields
+  const rawFields = qualificationData.rawFields
   if (!rawFields || typeof rawFields !== 'object') return null
-  const rut = (rawFields as { rut?: unknown }).rut
+  const rut = rawFields.rut
   return typeof rut === 'string' ? rut : null
 }
 
@@ -46,7 +56,7 @@ async function main() {
   })
   console.log(`Scanned ${rows.length} Contact(s) with source='${SOLAR_SOURCE}' and rut=NULL`)
 
-  const candidates: Candidate[] = []
+  const candidates = []
   let noRutInPayload = 0
   let invalidRutFormat = 0
 
@@ -64,7 +74,7 @@ async function main() {
 
   // Collisions AMONG the candidates themselves (two pre-fix Contacts that
   // share the same normalized RUT in the same workspace).
-  const byWorkspaceRut = new Map<string, Candidate[]>()
+  const byWorkspaceRut = new Map()
   for (const c of candidates) {
     const key = `${c.workspaceId}::${c.rut}`
     const list = byWorkspaceRut.get(key) ?? []
@@ -72,8 +82,8 @@ async function main() {
     byWorkspaceRut.set(key, list)
   }
 
-  const safeToBackfill: Candidate[] = []
-  const internalCollisions: Candidate[][] = []
+  let safeToBackfill = []
+  const internalCollisions = []
   for (const list of byWorkspaceRut.values()) {
     if (list.length === 1) safeToBackfill.push(list[0])
     else internalCollisions.push(list)
@@ -81,8 +91,7 @@ async function main() {
 
   // Collisions AGAINST an already-populated Contact.rut (e.g. a post-fix
   // session already claimed this RUT for a different Contact).
-  const alreadyBackfilled: Candidate[] = []
-  const externalCollisions: { candidate: Candidate; existingContactId: string }[] = []
+  const externalCollisions = []
   for (const c of safeToBackfill.slice()) {
     const existing = await prisma.contact.findUnique({
       where: { workspaceId_rut: { workspaceId: c.workspaceId, rut: c.rut } },
@@ -90,10 +99,7 @@ async function main() {
     })
     if (existing) {
       externalCollisions.push({ candidate: c, existingContactId: existing.id })
-      const idx = safeToBackfill.indexOf(c)
-      safeToBackfill.splice(idx, 1)
-    } else {
-      alreadyBackfilled.push(c)
+      safeToBackfill = safeToBackfill.filter(x => x.id !== c.id)
     }
   }
 
@@ -116,8 +122,16 @@ async function main() {
     return
   }
 
+  // Per-row, not batched in one $transaction: each UPDATE is independently
+  // atomic (a contact's rut is either fully set or untouched, never torn),
+  // and this list of "before" values doubles as the audit trail — a single
+  // giant transaction would also mean one unexpected failure rolls back
+  // every already-verified-safe row instead of just the one that failed
+  // (QA_REVALIDACION_POST_FIXES_DESARROLLADOR_06AGO2026.md §5.5: "backfill
+  // transaccional y auditable").
   let written = 0
   for (const c of safeToBackfill) {
+    console.log(`  backfilling contact=${c.id} workspace=${c.workspaceId} rut=${c.rut}`)
     await prisma.contact.update({ where: { id: c.id }, data: { rut: c.rut } })
     written++
   }
