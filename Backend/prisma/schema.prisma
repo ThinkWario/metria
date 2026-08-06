@@ -678,7 +678,7 @@ model Deal {
   confirmedContractValue     Decimal?  @db.Decimal(10, 2) @map("confirmed_contract_value")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
-  contact          Contact       @relation(fields: [contactId], references: [id])
+  contact          Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
   pipeline         Pipeline      @relation(fields: [pipelineId], references: [id])
   stage            PipelineStage @relation(fields: [stageId], references: [id])
   workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -702,7 +702,7 @@ model Ticket {
   resolvedAt       DateTime? @map("resolved_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
-  contact          Contact   @relation(fields: [contactId], references: [id])
+  contact          Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status, priority])
@@ -1152,7 +1152,7 @@ model Invoice {
   updatedAt   DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contact   Contact   @relation(fields: [contactId], references: [id])
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, number])
   @@index([workspaceId, createdAt])
