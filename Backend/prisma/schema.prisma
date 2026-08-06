@@ -415,6 +415,12 @@ model Contact {
   name               String
   email              String?
   phone              String?
+  // Chilean tax ID, normalized (digits + DV, no dots/dashes) — identity key
+  // alongside email/phone for solar_direct leads. Nullable/unique-per-workspace
+  // like email/phone: most non-solar contacts never have one
+  // (QA_CORROBORACION_DESARROLLADOR_05AGO2026.md §5.1: RUT needs an explicit
+  // uniqueness policy, not silent duplicate creation).
+  rut                String?
   avatarUrl          String?              @map("avatar_url")
   source             String
   // Onboarding session identity (dc_events_v2_metria) — same value the
@@ -474,6 +480,7 @@ model Contact {
 
   @@unique([workspaceId, email])
   @@unique([workspaceId, phone])
+  @@unique([workspaceId, rut])
   @@unique([workspaceId, source, sessionId])
   @@index([workspaceId, status])
   @@map("contacts")

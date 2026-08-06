@@ -139,6 +139,47 @@ describe('resolveOrCreatePartialContact', () => {
     expect(updateArgs.data.utmSource).toBeUndefined() // ya tenía 'google' — no se pisa
   })
 
+  it('no revienta con 500 si el RUT de un save colisiona con otro Contact (P2002) — reintenta sin rut', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create)
+      .mockRejectedValueOnce({ code: 'P2002' })
+      .mockResolvedValueOnce({ id: 'c1' } as any)
+
+    const result = await resolveOrCreatePartialContact(WS_ID, { sessionId: 'sess-1', rut: '11.999.999-5' })
+
+    expect(result).toEqual({ id: 'c1' })
+    expect(prisma.contact.create).toHaveBeenCalledTimes(2)
+    // Segundo intento: mismos datos, sin rut
+    const secondCallData = vi.mocked(prisma.contact.create).mock.calls[1][0] as any
+    expect(secondCallData.data.rut).toBeUndefined()
+  })
+
+  it('propaga el error si prisma.contact.create falla por otra razón distinta a P2002', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.contact.create).mockRejectedValueOnce(new Error('DB down'))
+
+    await expect(
+      resolveOrCreatePartialContact(WS_ID, { sessionId: 'sess-1', rut: '11.999.999-5' })
+    ).rejects.toThrow('DB down')
+  })
+
+  it('no revienta con 500 si el RUT de un save posterior colisiona con otro Contact (P2002 en update) — reintenta sin rut', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({
+      id: 'c1', name: 'Lead Solar (sess-1)', email: null, phone: null,
+      qualificationData: { rawFields: { sessionId: 'sess-1' } }
+    } as any)
+    vi.mocked(prisma.contact.update)
+      .mockRejectedValueOnce({ code: 'P2002' })
+      .mockResolvedValueOnce({ id: 'c1' } as any)
+
+    const result = await resolveOrCreatePartialContact(WS_ID, { sessionId: 'sess-1', rut: '11.999.999-5' })
+
+    expect(result).toEqual({ id: 'c1' })
+    expect(prisma.contact.update).toHaveBeenCalledTimes(2)
+    const secondCallData = vi.mocked(prisma.contact.update).mock.calls[1][0] as any
+    expect(secondCallData.data.rut).toBeUndefined()
+  })
+
   it('preserva claves de qualificationData ajenas a rawFields (ej. confirmación humana) al recibir un save posterior', async () => {
     vi.mocked(prisma.contact.findUnique).mockResolvedValue({
       id: 'c1',
@@ -186,6 +227,62 @@ describe('finalizeLead', () => {
 
     expect(result.ok).toBe(false)
     expect(result.status).toBe(409)
+    expect(result.code).toBe('IDENTITY_CONFLICT')
+  })
+
+  it('rechaza con 409 IDENTITY_CONFLICT si el RUT ya pertenece a otro Contact, aunque email y teléfono sean nuevos (QA_CORROBORACION_DESARROLLADOR_05AGO2026.md §3)', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce(null) // by sessionId — sesión nueva
+      .mockResolvedValueOnce(null) // by email — nuevo, sin conflicto
+      .mockResolvedValueOnce(null) // by phone — nuevo, sin conflicto
+      .mockResolvedValueOnce({ id: 'c-other-rut', rut: '119999995' } as any) // by rut — YA existe
+
+    const result = await finalizeLead(WS_ID, {
+      sessionId: 'sess-nueva', consentAccepted: true, consentVersion: 'v1',
+      email: 'nuevo@test.cl', telefono: '+56 9 4161 8959', rut: '11.999.999-5'
+    } as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(409)
+    expect(result.code).toBe('IDENTITY_CONFLICT')
+    expect(prisma.contact.create).not.toHaveBeenCalled()
+  })
+
+  it('devuelve 409 IDENTITY_CONFLICT (en vez de dejar reventar un 500) si el create colisiona por P2002 pese a pasar el pre-check (carrera entre dos sessions)', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce(null) // by sessionId — sesión nueva
+      .mockResolvedValueOnce(null) // by email — sin conflicto (todavía)
+      .mockResolvedValueOnce(null) // by phone
+      .mockResolvedValueOnce(null) // by rut
+    vi.mocked(prisma.contact.create).mockRejectedValueOnce({ code: 'P2002' })
+
+    const result = await finalizeLead(WS_ID, {
+      sessionId: 'sess-race', consentAccepted: true, consentVersion: 'v1', email: 'race@test.cl'
+    } as any)
+
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(409)
+    expect(result.code).toBe('IDENTITY_CONFLICT')
+  })
+
+  it('permite un RUT nuevo sin conflicto y lo persiste normalizado en el Contact', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce(null) // by sessionId
+      .mockResolvedValueOnce(null) // by email (no telefono en el payload -> no hay lookup by phone)
+      .mockResolvedValueOnce(null) // by rut — sin conflicto
+    vi.mocked(prisma.contact.create).mockResolvedValue({ id: 'c-new', email: null, phone: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    const result = await finalizeLead(WS_ID, {
+      sessionId: 'sess-nueva-2', consentAccepted: true, consentVersion: 'v1',
+      email: 'otro@test.cl', rut: '11.999.999-5'
+    } as any)
+
+    expect(result.ok).toBe(true)
+    expect(prisma.contact.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ rut: '119999995' })
+    }))
   })
 
   it('finaliza un lead nuevo: quita tag Incompleto, califica, crea Deal, dispara CAPI (website) y handoff WhatsApp — sin disparar QualifiedLead automáticamente', async () => {

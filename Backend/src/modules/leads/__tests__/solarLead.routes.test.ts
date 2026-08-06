@@ -14,7 +14,7 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: { contact: { findUnique: vi.fn() } }
 }))
 
-import solarLeadRouter from '../solarLead.routes'
+import solarLeadRouter, { __resetCompleteCoalescingForTests } from '../solarLead.routes'
 import { resolveOrCreatePartialContact, finalizeLead } from '../leadIngestion.service'
 import { prisma } from '../../../lib/prisma'
 
@@ -27,7 +27,14 @@ function buildApp() {
   return app
 }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  // Sin esto, reusar el mismo sessionId ('sess-1') entre tests quedaría
+  // atrapado por el coalescing de action=complete (ventana de 3s) y
+  // devolvería el resultado cacheado del test anterior en vez de invocar
+  // finalizeLead de nuevo.
+  __resetCompleteCoalescingForTests()
+})
 
 describe('POST /api/public/solar/lead', () => {
   it('responde 401 sin API key', async () => {
@@ -74,6 +81,46 @@ describe('POST /api/public/solar/lead', () => {
       .send({ action: 'complete', sessionId: 'sess-1', consentAccepted: false })
 
     expect(res.status).toBe(422)
+  })
+
+  it('action=complete propaga code:IDENTITY_CONFLICT en un 409', async () => {
+    vi.mocked(finalizeLead).mockResolvedValueOnce({
+      ok: false, status: 409, code: 'IDENTITY_CONFLICT', error: 'El email/teléfono/RUT de este lead ya pertenece a otro contacto'
+    })
+
+    const res = await request(buildApp())
+      .post('/api/public/solar/lead')
+      .set('X-Solar-Api-Key', 'test-key')
+      .send({ action: 'complete', sessionId: 'sess-1', consentAccepted: true, rut: '11.999.999-5' })
+
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('IDENTITY_CONFLICT')
+  })
+
+  it('coalesce dos POST action=complete casi simultáneos para el mismo sessionId en una sola llamada a finalizeLead', async () => {
+    const app = buildApp()
+    const [res1, res2] = await Promise.all([
+      request(app).post('/api/public/solar/lead').set('X-Solar-Api-Key', 'test-key')
+        .send({ action: 'complete', sessionId: 'sess-coalesce', consentAccepted: true }),
+      request(app).post('/api/public/solar/lead').set('X-Solar-Api-Key', 'test-key')
+        .send({ action: 'complete', sessionId: 'sess-coalesce', consentAccepted: true })
+    ])
+
+    expect(res1.status).toBe(200)
+    expect(res2.status).toBe(200)
+    expect(finalizeLead).toHaveBeenCalledTimes(1)
+  })
+
+  it('NO coalesce dos POST action=complete para sessionId distintos', async () => {
+    const app = buildApp()
+    await Promise.all([
+      request(app).post('/api/public/solar/lead').set('X-Solar-Api-Key', 'test-key')
+        .send({ action: 'complete', sessionId: 'sess-a', consentAccepted: true }),
+      request(app).post('/api/public/solar/lead').set('X-Solar-Api-Key', 'test-key')
+        .send({ action: 'complete', sessionId: 'sess-b', consentAccepted: true })
+    ])
+
+    expect(finalizeLead).toHaveBeenCalledTimes(2)
   })
 
   it('devuelve 500 con trace_id (no "Error interno" sin correlación) si finalizeLead lanza inesperadamente', async () => {

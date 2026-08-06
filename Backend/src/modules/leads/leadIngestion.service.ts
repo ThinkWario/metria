@@ -1,6 +1,7 @@
 import type { Contact, Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import { normalizePhone } from '../../lib/phoneFormat'
+import { normalizeRut } from '../../lib/rutFormat'
 import { qualifySolarLead, evaluateSolarResV2Criteria } from './solarQualifier'
 import { prepareWhatsappConversation } from './whatsappHandoff'
 import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent } from '../meta-events/metaEvents.service'
@@ -93,22 +94,34 @@ export async function resolveOrCreatePartialContact(
 ): Promise<Contact> {
   const existing = await findContactBySession(workspaceId, payload.sessionId)
   const phone = payload.telefono ? normalizePhone(payload.telefono) : null
+  const rut = normalizeRut(payload.rut)
 
   if (!existing) {
-    return prisma.contact.create({
-      data: {
-        workspaceId,
-        source: SOLAR_SOURCE,
-        sessionId: payload.sessionId,
-        name: payload.nombre?.trim() || `Lead Solar (${payload.sessionId.slice(0, 8)})`,
-        email: payload.email?.trim() || null,
-        phone: phone || null,
-        status: 'LEAD',
-        qualificationData: { rawFields: payload as Prisma.InputJsonValue },
-        ...extractAttributionFields(payload),
-        tags: { create: { workspaceId, name: INCOMPLETE_LEAD_TAG, color: '#f97316' } }
+    const createData = {
+      workspaceId,
+      source: SOLAR_SOURCE,
+      sessionId: payload.sessionId,
+      name: payload.nombre?.trim() || `Lead Solar (${payload.sessionId.slice(0, 8)})`,
+      email: payload.email?.trim() || null,
+      phone: phone || null,
+      status: 'LEAD',
+      qualificationData: { rawFields: payload as Prisma.InputJsonValue },
+      ...extractAttributionFields(payload),
+      tags: { create: { workspaceId, name: INCOMPLETE_LEAD_TAG, color: '#f97316' } }
+    }
+    try {
+      return await prisma.contact.create({ data: { ...createData, rut: rut || null } })
+    } catch (err: any) {
+      // `save` fires on every wizard step (~10x/session) as a best-effort
+      // autosave — it is NOT the identity-conflict gate (that's finalizeLead,
+      // 'complete' path). A restarted/abandoned session re-entering a RUT
+      // that already belongs to another Contact must not 500 a routine
+      // autosave; drop the rut here and let `complete` surface the real 409.
+      if (err?.code === 'P2002' && rut) {
+        return prisma.contact.create({ data: createData })
       }
-    })
+      throw err
+    }
   }
 
   const existingQualificationData = (existing.qualificationData as object) ?? {}
@@ -124,16 +137,23 @@ export async function resolveOrCreatePartialContact(
     Object.entries(extractAttributionFields(payload)).filter(([key]) => !(existing as any)[key])
   )
 
-  return prisma.contact.update({
-    where: { id: existing.id },
-    data: {
-      ...(payload.nombre?.trim() ? { name: payload.nombre.trim() } : {}),
-      ...(payload.email?.trim() ? { email: payload.email.trim() } : {}),
-      ...(phone ? { phone } : {}),
-      qualificationData: { ...existingQualificationData, rawFields: mergedRawFields as Prisma.InputJsonValue },
-      ...attributionUpdate
+  const updateData = {
+    ...(payload.nombre?.trim() ? { name: payload.nombre.trim() } : {}),
+    ...(payload.email?.trim() ? { email: payload.email.trim() } : {}),
+    ...(phone ? { phone } : {}),
+    qualificationData: { ...existingQualificationData, rawFields: mergedRawFields as Prisma.InputJsonValue },
+    ...attributionUpdate
+  }
+  try {
+    return await prisma.contact.update({ where: { id: existing.id }, data: { ...updateData, ...(rut ? { rut } : {}) } })
+  } catch (err: any) {
+    // Same rationale as the create branch above — don't 500 a routine
+    // autosave because this session's RUT now matches a different Contact.
+    if (err?.code === 'P2002' && rut) {
+      return prisma.contact.update({ where: { id: existing.id }, data: updateData })
     }
-  })
+    throw err
+  }
 }
 
 const SOLAR_PIPELINE_ID = process.env.SOLAR_PIPELINE_ID ?? ''
@@ -152,6 +172,12 @@ export interface FinalizeLeadResult {
   ok: boolean
   status?: number
   error?: string
+  // Machine-readable discriminator for the 409 identity-conflict case — the
+  // Spanish `error` string is for humans/logs, `code` is what a caller (the
+  // solar wizard, or any future consumer) should branch on
+  // (QA_CORROBORACION_DESARROLLADOR_05AGO2026.md §5 correction #2: "responder
+  // con un resultado estructurado, por ejemplo 409 IdentityConflict").
+  code?: 'IDENTITY_CONFLICT'
   contact?: Contact
 }
 
@@ -180,6 +206,7 @@ export async function finalizeLead(
   const bySession = await findContactBySession(workspaceId, payload.sessionId)
   const email = payload.email?.trim() || null
   const phone = payload.telefono ? normalizePhone(payload.telefono) : null
+  const rut = normalizeRut(payload.rut)
 
   const byEmail = email
     ? await prisma.contact.findUnique({ where: { workspaceId_email: { workspaceId, email } } })
@@ -187,12 +214,20 @@ export async function finalizeLead(
   const byPhone = phone
     ? await prisma.contact.findUnique({ where: { workspaceId_phone: { workspaceId, phone } } })
     : null
+  // A RUT reused under a brand-new email/phone is still the same identity
+  // colliding — without this check that case created a second, disconnected
+  // Contact instead of surfacing the collision
+  // (QA_CORROBORACION_DESARROLLADOR_05AGO2026.md §3: "El caso reutilizó un
+  // RUT existente con email y teléfono nuevos" while the UI showed success).
+  const byRut = rut
+    ? await prisma.contact.findUnique({ where: { workspaceId_rut: { workspaceId, rut } } })
+    : null
 
-  const conflicting = [byEmail, byPhone].find(c => c && c.id !== bySession?.id)
+  const conflicting = [byEmail, byPhone, byRut].find(c => c && c.id !== bySession?.id)
   if (conflicting) {
     return {
-      ok: false, status: 409,
-      error: `El email/teléfono de este lead ya pertenece a otro contacto (${conflicting.id}) — requiere resolución manual`
+      ok: false, status: 409, code: 'IDENTITY_CONFLICT',
+      error: `El email/teléfono/RUT de este lead ya pertenece a otro contacto (${conflicting.id}) — requiere resolución manual`
     }
   }
 
@@ -220,17 +255,34 @@ export async function finalizeLead(
     solarResV2Criteria: solarResV2Criteria as unknown as Prisma.InputJsonValue
   }
 
-  const contact = bySession
+  // Consent evidence is immutable once granted — a retried `complete` (e.g.
+  // the financing form re-invoking completeLead for the same session) is
+  // not a new acceptance and must not shift consentAt or replace the
+  // version the user actually agreed to
+  // (QA_E2E_INDEPENDIENTE_POST_MD_05AGO2026.md P1: "un reenvío financiero
+  // no constituye una nueva aceptación").
+  const alreadyConsented = bySession?.consentStatus === 'granted' && !!bySession.consentAt
+
+  // The byEmail/byPhone/byRut reads above and this write are not
+  // transactional — two sessions racing to `complete` with the same
+  // brand-new email/phone/RUT can both pass the pre-check before either
+  // row exists. Catching P2002 here turns that race into the same
+  // structured 409 instead of an uncaught unique-violation bubbling up as
+  // a generic 500.
+  let contact: Contact
+  try {
+    contact = bySession
     ? await prisma.contact.update({
         where: { id: bySession.id },
         data: {
           ...(payload.nombre?.trim() ? { name: payload.nombre.trim() } : {}),
           ...(email ? { email } : {}),
           ...(phone ? { phone } : {}),
+          ...(rut ? { rut } : {}),
           qualificationData,
           leadTemperature,
-          consentVersion: payload.consentVersion ?? null,
-          consentAt: new Date(),
+          consentVersion: alreadyConsented ? bySession.consentVersion : (payload.consentVersion ?? null),
+          consentAt: alreadyConsented ? bySession.consentAt : new Date(),
           consentStatus: 'granted',
           ...(payload.metaFbc ? { fbc: payload.metaFbc } : {}),
           ...(payload.metaFbp ? { fbp: payload.metaFbp } : {}),
@@ -253,7 +305,7 @@ export async function finalizeLead(
           source: SOLAR_SOURCE,
           sessionId: payload.sessionId,
           name: payload.nombre?.trim() || `Lead Solar (${payload.sessionId.slice(0, 8)})`,
-          email, phone,
+          email, phone, rut,
           status: 'LEAD',
           qualificationData,
           leadTemperature,
@@ -267,6 +319,15 @@ export async function finalizeLead(
           ...extractAttributionFields(payload)
         }
       })
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      return {
+        ok: false, status: 409, code: 'IDENTITY_CONFLICT',
+        error: 'El email/teléfono/RUT de este lead ya pertenece a otro contacto — requiere resolución manual'
+      }
+    }
+    throw err
+  }
 
   await prisma.contactTag.deleteMany({ where: { contactId: contact.id, name: INCOMPLETE_LEAD_TAG } })
 
