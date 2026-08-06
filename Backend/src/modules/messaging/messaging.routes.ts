@@ -26,7 +26,8 @@ import {
   setOpeningTemplateHandler,
   setTemplateRoleHandler,
   getTemplateVariableCatalogHandler,
-  listMetaTemplatesRawHandler
+  listMetaTemplatesRawHandler,
+  importMetaTemplateHandler
 } from './templates.controller'
 
 const router = Router()
@@ -60,6 +61,7 @@ router.get('/messaging/whatsapp/templates/variable-catalog', authenticate, requi
 router.post('/messaging/whatsapp/templates', authenticate, requirePlan('PRO', 'SCALE'), createTemplateHandler)
 router.post('/messaging/whatsapp/templates/sync', authenticate, requirePlan('PRO', 'SCALE'), syncTemplatesHandler)
 router.get('/messaging/whatsapp/templates/meta-raw', authenticate, requirePlan('PRO', 'SCALE'), listMetaTemplatesRawHandler)
+router.post('/messaging/whatsapp/templates/import', authenticate, requirePlan('PRO', 'SCALE'), importMetaTemplateHandler)
 router.delete('/messaging/whatsapp/templates/:id', authenticate, requirePlan('PRO', 'SCALE'), deleteTemplateHandler)
 router.patch('/messaging/whatsapp/templates/:id/opening', authenticate, requirePlan('PRO', 'SCALE'), setOpeningTemplateHandler)
 router.patch('/messaging/whatsapp/templates/role/:role', authenticate, requirePlan('PRO', 'SCALE'), setTemplateRoleHandler)

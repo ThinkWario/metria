@@ -106,6 +106,67 @@ export async function listMetaTemplatesRawHandler(req: Request, res: Response): 
   }
 }
 
+/**
+ * Adopts a template that exists on Meta but has no local row — happens when the
+ * client disconnects between the Meta create call succeeding and the Prisma
+ * insert running (createTemplateHandler does them sequentially, not atomically).
+ * Meta's template list doesn't return body text, so the caller supplies it —
+ * it must match what was actually submitted to Meta for the variables to be right.
+ */
+export async function importMetaTemplateHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { name, bodyText, variables } = req.body as { name?: string; bodyText?: string; variables?: string[] }
+    if (!name || !bodyText) { res.status(400).json({ error: 'name y bodyText son obligatorios' }); return }
+
+    const varIndexes = [...bodyText.matchAll(/\{\{(\d+)\}\}/g)].map(m => parseInt(m[1], 10))
+    const maxVar = varIndexes.length > 0 ? Math.max(...varIndexes) : 0
+    if (variables !== undefined) {
+      if (variables.length !== maxVar) {
+        res.status(400).json({ error: `El texto tiene ${maxVar} variable(s) pero se mapearon ${variables.length}` })
+        return
+      }
+      const unknownKey = variables.find(key => !isKnownVariableKey(key))
+      if (unknownKey) {
+        res.status(400).json({ error: `Variable desconocida: ${unknownKey}` })
+        return
+      }
+    }
+
+    const channel = await getWhatsAppChannel(workspaceId)
+    if (!channel) { res.status(404).json({ error: 'No hay un canal WhatsApp conectado' }); return }
+
+    const config = channel.config as Record<string, string>
+    if (!config.wabaId || !config.accessToken) { res.status(400).json({ error: 'Falta configurar wabaId/accessToken del canal' }); return }
+
+    const existing = await prisma.whatsAppTemplate.findFirst({ where: { channelId: channel.id, name } })
+    if (existing) { res.status(409).json({ error: 'Ya existe una plantilla local con ese nombre' }); return }
+
+    const remote = await listMetaTemplates(config.wabaId, config.accessToken)
+    const match = remote.find(r => r.name === name)
+    if (!match) { res.status(404).json({ error: 'No se encontró esa plantilla en Meta' }); return }
+
+    const template = await prisma.whatsAppTemplate.create({
+      data: {
+        workspaceId,
+        channelId: channel.id,
+        name: match.name,
+        language: match.language,
+        category: match.category,
+        bodyText,
+        variables: variables ?? undefined,
+        status: match.status,
+        metaTemplateId: match.id,
+        rejectedReason: match.rejectedReason ?? null
+      }
+    })
+    res.status(201).json(template)
+  } catch (err: any) {
+    console.error('[Templates] import error:', err)
+    res.status(500).json({ error: err?.message ?? 'Error al importar la plantilla' })
+  }
+}
+
 export async function syncTemplatesHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
