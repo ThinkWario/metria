@@ -39,11 +39,11 @@ async function metaFetch(path: string, accessToken: string, init?: RequestInit):
   return body
 }
 
-/** Submits a new template for Meta review. Body-only — no header/footer/buttons for now. */
+/** Submits a new template for Meta review. Body plus optional quick-reply buttons — no header/footer. */
 export async function createMetaTemplate(
   wabaId: string,
   accessToken: string,
-  template: { name: string; language: string; category: string; bodyText: string; variables?: string[] }
+  template: { name: string; language: string; category: string; bodyText: string; variables?: string[]; buttons?: string[] }
 ): Promise<MetaTemplateResult> {
   // Meta rejects with INVALID_FORMAT if the body has {{n}} placeholders but no
   // "example" sample value is provided for review.
@@ -57,13 +57,24 @@ export async function createMetaTemplate(
     bodyComponent.example = { body_text: [exampleValues] }
   }
 
+  const components: Record<string, unknown>[] = [bodyComponent]
+  if (template.buttons && template.buttons.length > 0) {
+    // Quick-reply only — matches the button components sendWhatsAppTemplateMessage
+    // attaches at send time (whatsapp.service.ts). Meta rejects a send with button
+    // components the approved template doesn't itself declare.
+    components.push({
+      type: 'BUTTONS',
+      buttons: template.buttons.map(text => ({ type: 'QUICK_REPLY', text }))
+    })
+  }
+
   const body = await metaFetch(`/${wabaId}/message_templates`, accessToken, {
     method: 'POST',
     body: JSON.stringify({
       name: template.name,
       language: template.language,
       category: template.category,
-      components: [bodyComponent]
+      components
     })
   })
   return { metaTemplateId: body.id, status: body.status ?? 'PENDING' }

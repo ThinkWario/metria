@@ -34,8 +34,8 @@ export async function listTemplatesHandler(req: Request, res: Response): Promise
 export async function createTemplateHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
-    const { name, language, category, bodyText, variables } = req.body as {
-      name?: string; language?: string; category?: string; bodyText?: string; variables?: string[]
+    const { name, language, category, bodyText, variables, buttons } = req.body as {
+      name?: string; language?: string; category?: string; bodyText?: string; variables?: string[]; buttons?: string[]
     }
     if (!name || !bodyText) { res.status(400).json({ error: 'name y bodyText son obligatorios' }); return }
 
@@ -65,7 +65,7 @@ export async function createTemplateHandler(req: Request, res: Response): Promis
     const resolvedCategory = category || 'MARKETING'
 
     const meta = await createMetaTemplate(config.wabaId, config.accessToken, {
-      name, language: resolvedLanguage, category: resolvedCategory, bodyText, variables
+      name, language: resolvedLanguage, category: resolvedCategory, bodyText, variables, buttons
     })
 
     const template = await prisma.whatsAppTemplate.create({
