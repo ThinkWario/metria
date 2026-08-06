@@ -5,8 +5,16 @@
 import crypto from 'crypto'
 import { processInboundMessage } from '../message.service'
 import { prisma } from '../../../lib/prisma'
+import { getIO } from '../../../lib/socket'
 
 const WA_API_VERSION = 'v26.0'
+
+interface WhatsAppStatusEvent {
+  id: string
+  status: 'sent' | 'delivered' | 'read' | 'failed'
+  timestamp?: string
+  errors?: Array<{ code?: number; title?: string; message?: string }>
+}
 
 export interface WhatsAppBody {
   entry?: Array<{
@@ -24,7 +32,7 @@ export interface WhatsAppBody {
           interactive?: { button_reply?: { id: string; title: string } }
           referral?: { ref: string }
         }>
-        statuses?: unknown[]
+        statuses?: WhatsAppStatusEvent[]
       }
     }>
   }>
@@ -199,9 +207,33 @@ export function parseVisitConfirmationAnswer(text: string): 'yes' | 'no' | null 
   return null
 }
 
+/** Maps a Meta delivery-status webhook event to our Message.status values. */
+const META_STATUS_MAP: Record<string, string> = { sent: 'SENT', delivered: 'DELIVERED', read: 'DELIVERED', failed: 'FAILED' }
+
+async function applyStatusUpdate(workspaceId: string, status: WhatsAppStatusEvent): Promise<void> {
+  const message = await prisma.message.findFirst({ where: { workspaceId, externalId: status.id } })
+  if (!message) return
+
+  const mapped = META_STATUS_MAP[status.status]
+  if (!mapped) return
+
+  const ts = status.timestamp ? new Date(parseInt(status.timestamp, 10) * 1000) : new Date()
+  const data: Record<string, unknown> = { status: mapped }
+  if (status.status === 'delivered') data.deliveredAt = ts
+  if (status.status === 'read') data.readAt = ts
+
+  const updated = await prisma.message.update({ where: { id: message.id }, data })
+  getIO().to(`workspace:${workspaceId}`).emit('message:status', {
+    id: updated.id,
+    status: updated.status,
+    deliveredAt: updated.deliveredAt,
+    readAt: updated.readAt
+  })
+}
+
 /**
- * Parse inbound WhatsApp webhook and process text messages.
- * Skips non-text messages and status updates silently.
+ * Parse inbound WhatsApp webhook: processes messages and delivery-status
+ * (sent/delivered/read/failed) updates.
  */
 export async function parseWhatsAppUpdate(
   workspaceId: string,
@@ -216,7 +248,19 @@ export async function parseWhatsAppUpdate(
 
     for (const change of entry.changes) {
       const value = change.value
-      if (!value || !value.messages || value.messages.length === 0) {
+      if (!value) continue
+
+      if (value.statuses && value.statuses.length > 0) {
+        for (const status of value.statuses) {
+          try {
+            await applyStatusUpdate(workspaceId, status)
+          } catch (err) {
+            console.error(`[WhatsApp] Failed to apply status update ${status.id}:`, err)
+          }
+        }
+      }
+
+      if (!value.messages || value.messages.length === 0) {
         continue
       }
 

@@ -12,6 +12,7 @@ import {
   handbackToBotHandler,
   changeStatusHandler,
   assignConversationHandler,
+  deleteConversationHandler,
   markAsReadHandler,
   markAsUnreadHandler,
   initWhatsAppSessionHandler,
@@ -48,6 +49,7 @@ router.post('/messaging/conversations/:conversationId/handover', authenticate, r
 router.post('/messaging/conversations/:conversationId/handback', authenticate, requirePlan('PRO', 'SCALE'), handbackToBotHandler)
 router.patch('/messaging/conversations/:conversationId/status', authenticate, requirePlan('PRO', 'SCALE'), changeStatusHandler)
 router.patch('/messaging/conversations/:conversationId/assign', authenticate, requirePlan('PRO', 'SCALE'), assignConversationHandler)
+router.delete('/messaging/conversations/:conversationId', authenticate, requirePlan('PRO', 'SCALE'), deleteConversationHandler)
 router.patch('/messaging/conversations/:conversationId/read', authenticate, requirePlan('PRO', 'SCALE'), markAsReadHandler)
 router.patch('/messaging/conversations/:conversationId/unread', authenticate, requirePlan('PRO', 'SCALE'), markAsUnreadHandler)
 

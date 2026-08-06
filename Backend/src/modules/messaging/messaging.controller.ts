@@ -10,6 +10,7 @@ import {
   sendMessage as _sendMessage,
   changeConversationStatus as _changeConversationStatus,
   assignConversation as _assignConversation,
+  deleteConversation as _deleteConversation,
   markConversationAsRead as _markConversationAsRead,
   markConversationAsUnread as _markConversationAsUnread,
   trackAiMetric,
@@ -94,6 +95,18 @@ export async function changeStatusHandler(req: Request, res: Response): Promise<
     }
     const conversation = await _changeConversationStatus(workspaceId, conversationId, status)
     res.json(conversation)
+  } catch (err: any) {
+    const status = err.message === 'Conversation not found' ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+}
+
+export async function deleteConversationHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+    await _deleteConversation(workspaceId, conversationId)
+    res.status(204).send()
   } catch (err: any) {
     const status = err.message === 'Conversation not found' ? 404 : 500
     res.status(status).json({ error: err.message })

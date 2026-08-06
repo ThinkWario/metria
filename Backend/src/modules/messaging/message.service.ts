@@ -232,10 +232,10 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       where: { id: data.contactId },
       data: { sourceCampaignId: data.metadata?.campaign_id || undefined }
     })
-  } else if (conversation) {
+  } else if (conversation?.contactId) {
     // Existing conversation → update its contact's phone to the clean version
     contact = await prisma.contact.update({
-      where: { id: conversation.contactId! },
+      where: { id: conversation.contactId },
       data: {
         phone: senderExternalId,
         name: senderName ?? undefined,
@@ -243,7 +243,8 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       }
     })
   } else {
-    // Truly new conversation → upsert contact by phone
+    // Truly new conversation, or an existing one whose contact was deleted
+    // (contactId went null) — resolve/create a contact by phone either way.
     contact = await prisma.contact.upsert({
       where: { workspaceId_phone: { workspaceId, phone: senderExternalId } },
       create: {
@@ -258,6 +259,9 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
         sourceCampaignId: data.metadata?.campaign_id || undefined
       }
     })
+    if (conversation && conversation.contactId !== contact.id) {
+      await prisma.conversation.update({ where: { id: conversation.id }, data: { contactId: contact.id } })
+    }
   }
 
   if (!conversation) {
