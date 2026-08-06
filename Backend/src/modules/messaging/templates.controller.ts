@@ -88,6 +88,24 @@ export async function createTemplateHandler(req: Request, res: Response): Promis
   }
 }
 
+/** Debug: returns the raw Meta template list (all statuses), including rows never saved locally. */
+export async function listMetaTemplatesRawHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const channel = await getWhatsAppChannel(workspaceId)
+    if (!channel) { res.status(404).json({ error: 'No hay un canal WhatsApp conectado' }); return }
+
+    const config = channel.config as Record<string, string>
+    if (!config.wabaId || !config.accessToken) { res.status(400).json({ error: 'Falta configurar wabaId/accessToken del canal' }); return }
+
+    const remote = await listMetaTemplates(config.wabaId, config.accessToken)
+    res.json({ templates: remote })
+  } catch (err: any) {
+    console.error('[Templates] meta-raw error:', err)
+    res.status(502).json({ error: err?.message ?? 'Error al listar plantillas de Meta' })
+  }
+}
+
 export async function syncTemplatesHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string
