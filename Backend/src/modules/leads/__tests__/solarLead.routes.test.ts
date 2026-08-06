@@ -13,10 +13,22 @@ vi.mock('../leadIngestion.service', () => ({
 vi.mock('../../../lib/prisma', () => ({
   prisma: { contact: { findUnique: vi.fn() } }
 }))
+// Defaults: no cached cross-instance result, lock always acquired (NX
+// succeeds) — i.e. "you're the only instance", so pre-existing tests that
+// don't care about the cross-instance path behave exactly as before this
+// mock existed.
+vi.mock('../../../lib/redis', () => ({
+  redis: {
+    get: vi.fn(async () => null),
+    set: vi.fn(async () => 'OK'),
+    del: vi.fn(async () => 1)
+  }
+}))
 
 import solarLeadRouter, { __resetCompleteCoalescingForTests } from '../solarLead.routes'
 import { resolveOrCreatePartialContact, finalizeLead } from '../leadIngestion.service'
 import { prisma } from '../../../lib/prisma'
+import { redis } from '../../../lib/redis'
 
 function buildApp() {
   process.env.SOLAR_API_KEY = 'test-key'
@@ -98,6 +110,18 @@ describe('POST /api/public/solar/lead', () => {
   })
 
   it('coalesce dos POST action=complete casi simultáneos para el mismo sessionId en una sola llamada a finalizeLead', async () => {
+    // Con mocks 100% instantáneos, la cadena de awaits del primer request
+    // (redis.get → redis.set NX → finalizeLead → redis.set cache) puede
+    // drenar por completo antes de que el segundo request llegue al
+    // handler — dando un falso negativo de coalescing por timing de test,
+    // no por un bug real. Un pequeño delay en finalizeLead deja la primera
+    // llamada realmente "en vuelo" cuando llega la segunda, como en
+    // producción (donde nada de esto es instantáneo).
+    vi.mocked(finalizeLead).mockImplementationOnce(async () => {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      return { ok: true, contact: { id: 'c1' } } as any
+    })
+
     const app = buildApp()
     const [res1, res2] = await Promise.all([
       request(app).post('/api/public/solar/lead').set('X-Solar-Api-Key', 'test-key')
@@ -121,6 +145,74 @@ describe('POST /api/public/solar/lead', () => {
     ])
 
     expect(finalizeLead).toHaveBeenCalledTimes(2)
+  })
+
+  it('cachea el resultado exitoso en Redis (para otras instancias) bajo una llave por sessionId con TTL corto', async () => {
+    const res = await request(buildApp())
+      .post('/api/public/solar/lead')
+      .set('X-Solar-Api-Key', 'test-key')
+      .send({ action: 'complete', sessionId: 'sess-cache', consentAccepted: true })
+
+    expect(res.status).toBe(200)
+    const resultCacheCall = vi.mocked(redis.set).mock.calls.find(call => call[0] === 'solar:complete:result:sess-cache')
+    expect(resultCacheCall).toBeDefined()
+    expect(JSON.parse(resultCacheCall![1] as string)).toEqual({ ok: true })
+  })
+
+  it('reusa un resultado exitoso ya cacheado en Redis por otra instancia en vez de llamar finalizeLead de nuevo', async () => {
+    vi.mocked(redis.get).mockResolvedValueOnce(JSON.stringify({ ok: true })) // cache-check inicial
+
+    const res = await request(buildApp())
+      .post('/api/public/solar/lead')
+      .set('X-Solar-Api-Key', 'test-key')
+      .send({ action: 'complete', sessionId: 'sess-other-instance', consentAccepted: true })
+
+    expect(res.status).toBe(200)
+    expect(finalizeLead).not.toHaveBeenCalled()
+  })
+
+  it('si el lock NX lo tiene otra instancia, espera (polling) el resultado en vez de duplicar finalizeLead', async () => {
+    vi.mocked(redis.get)
+      .mockResolvedValueOnce(null) // cache-check inicial: nada aún
+      .mockResolvedValueOnce(JSON.stringify({ ok: true })) // primer poll: la otra instancia ya terminó
+    vi.mocked(redis.set).mockResolvedValueOnce(null) // NX falla: otra instancia tiene el lock
+
+    const res = await request(buildApp())
+      .post('/api/public/solar/lead')
+      .set('X-Solar-Api-Key', 'test-key')
+      .send({ action: 'complete', sessionId: 'sess-locked-elsewhere', consentAccepted: true })
+
+    expect(res.status).toBe(200)
+    expect(finalizeLead).not.toHaveBeenCalled()
+  })
+
+  it('si Redis no responde, degrada con gracia y llama finalizeLead directamente (sin coalescing esta vez)', async () => {
+    vi.mocked(redis.get).mockRejectedValueOnce(new Error('ECONNREFUSED'))
+    vi.mocked(redis.set)
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+    vi.mocked(redis.del).mockRejectedValueOnce(new Error('ECONNREFUSED'))
+
+    const res = await request(buildApp())
+      .post('/api/public/solar/lead')
+      .set('X-Solar-Api-Key', 'test-key')
+      .send({ action: 'complete', sessionId: 'sess-redis-down', consentAccepted: true })
+
+    expect(res.status).toBe(200)
+    expect(finalizeLead).toHaveBeenCalled()
+  })
+
+  it('NO cachea en Redis un resultado fallido (409/422) — un reenvío corregido no debe recibir el error viejo', async () => {
+    vi.mocked(finalizeLead).mockResolvedValueOnce({ ok: false, status: 409, code: 'IDENTITY_CONFLICT', error: 'conflicto' })
+
+    const res = await request(buildApp())
+      .post('/api/public/solar/lead')
+      .set('X-Solar-Api-Key', 'test-key')
+      .send({ action: 'complete', sessionId: 'sess-failed', consentAccepted: true, rut: '11.999.999-5' })
+
+    expect(res.status).toBe(409)
+    const resultCacheCall = vi.mocked(redis.set).mock.calls.find(call => call[0] === 'solar:complete:result:sess-failed')
+    expect(resultCacheCall).toBeUndefined()
   })
 
   it('devuelve 500 con trace_id (no "Error interno" sin correlación) si finalizeLead lanza inesperadamente', async () => {

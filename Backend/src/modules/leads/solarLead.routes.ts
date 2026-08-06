@@ -3,8 +3,9 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { simpleRateLimit } from '../../lib/rateLimit'
 import { authenticateSolarApiKey } from '../../middleware/solarApiKey'
-import { resolveOrCreatePartialContact, finalizeLead, SOLAR_SOURCE } from './leadIngestion.service'
+import { resolveOrCreatePartialContact, finalizeLead, SOLAR_SOURCE, type FinalizeLeadResult } from './leadIngestion.service'
 import { prisma } from '../../lib/prisma'
+import { redis } from '../../lib/redis'
 
 const router = Router()
 
@@ -16,51 +17,132 @@ function getWorkspaceId(): string {
 // double-click, a client-side retry-on-timeout) into one real finalizeLead
 // run — mitigates the redundant CAPI invocations QA_CORROBORACION_
 // DESARROLLADOR_05AGO2026.md §4.3 flagged (+4/+4/+3 dup. vs. the +2/+2/+1
-// the two legitimate financing resubmits should have produced). Per-process
-// only (no cross-instance lock) — a deliberate, distinct financing resubmit
-// tens of seconds later still runs normally, only requests within the same
-// short window collapse. The ConversionEvent unique index stays the real
-// (cross-process) idempotency guarantee; this is just cheap upstream noise
-// reduction, same pattern as simpleRateLimit (lib/rateLimit.ts).
+// the two legitimate financing resubmits should have produced).
+//
+// Two layers:
+//   1. In-process: an in-flight Promise map, shared instantly (no I/O) when
+//      two requests land on the same Node process.
+//   2. Cross-process: a Redis lock (SET NX) + a short-lived cache of the
+//      SUCCESS result only — so a second app instance handling the same
+//      sessionId within the window reuses the first instance's outcome
+//      instead of re-running finalizeLead (and re-attempting CAPI). Only
+//      successes are cached: caching a 409/422 would serve a stale error to
+//      a user who fixed their data and immediately resubmitted, which is
+//      worse than the redundant-invocation problem this exists to reduce.
+// Redis is a soft dependency here — any Redis error/timeout just skips
+// coalescing for that round and calls finalizeLead directly. The
+// ConversionEvent unique index (ok result) and the identity unique
+// constraints + P2002 handling (error result) are what actually guarantee
+// correctness; this whole module is upstream noise reduction on top of that.
 const COMPLETE_COALESCE_WINDOW_MS = 3_000
-const inFlightCompletions = new Map<string, Promise<import('./leadIngestion.service').FinalizeLeadResult>>()
-const recentCompletions = new Map<string, { result: import('./leadIngestion.service').FinalizeLeadResult; at: number }>()
+const COMPLETE_LOCK_TTL_MS = 8_000
+const COMPLETE_LOCK_POLL_INTERVAL_MS = 200
+const COMPLETE_LOCK_POLL_ATTEMPTS = 10 // ~2s ceiling waiting on another instance
+const REDIS_OP_TIMEOUT_MS = 300 // a stalled Redis must never meaningfully delay lead submission
 
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of recentCompletions) {
-    if (now - entry.at > COMPLETE_COALESCE_WINDOW_MS) recentCompletions.delete(key)
-  }
-}, 60_000).unref()
+const inFlightCompletions = new Map<string, Promise<FinalizeLeadResult>>()
 
-// Test-only escape hatch — the coalescing maps are module-level state, so
-// without this, reusing the same sessionId across test cases in the same
-// file would leak a cached result from one test into the next.
-export function __resetCompleteCoalescingForTests(): void {
-  inFlightCompletions.clear()
-  recentCompletions.clear()
+function completeResultKey(sessionId: string): string {
+  return `solar:complete:result:${sessionId}`
+}
+function completeLockKey(sessionId: string): string {
+  return `solar:complete:lock:${sessionId}`
 }
 
-async function finalizeLeadCoalesced(workspaceId: string, payload: Record<string, unknown>, sessionId: string) {
-  const recent = recentCompletions.get(sessionId)
-  if (recent && Date.now() - recent.at < COMPLETE_COALESCE_WINDOW_MS) {
-    return recent.result
+async function withRedisTimeout<T>(op: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('redis_timeout')), REDIS_OP_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([op, timeout])
+  } finally {
+    clearTimeout(timer!)
+  }
+}
+
+async function readCachedSuccess(resultKey: string): Promise<FinalizeLeadResult | null> {
+  try {
+    const cached = await withRedisTimeout(redis.get(resultKey))
+    return cached ? (JSON.parse(cached) as FinalizeLeadResult) : null
+  } catch {
+    return null
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// Test-only escape hatch — inFlightCompletions is module-level state, so
+// without this, reusing the same sessionId across test cases in the same
+// file would leak a pending/settled promise from one test into the next.
+export function __resetCompleteCoalescingForTests(): void {
+  inFlightCompletions.clear()
+}
+
+async function finalizeLeadAcrossInstances(
+  workspaceId: string, payload: Record<string, unknown>, sessionId: string
+): Promise<FinalizeLeadResult> {
+  const resultKey = completeResultKey(sessionId)
+  const lockKey = completeLockKey(sessionId)
+
+  const cached = await readCachedSuccess(resultKey)
+  if (cached) return cached
+
+  let holdsLock = true
+  try {
+    const acquired = await withRedisTimeout(redis.set(lockKey, '1', 'PX', COMPLETE_LOCK_TTL_MS, 'NX'))
+    holdsLock = acquired === 'OK'
+  } catch {
+    // Redis unreachable — can't coordinate with other instances, so this
+    // one just runs finalizeLead itself rather than block the request.
+    holdsLock = true
   }
 
-  let promise = inFlightCompletions.get(sessionId)
-  if (!promise) {
-    promise = finalizeLead(workspaceId, payload as any)
-    inFlightCompletions.set(sessionId, promise)
-    // .finally()'s return value is a second, distinct promise — if it's
-    // left dangling and `promise` rejects, Node reports an *additional*
-    // unhandled rejection for it even though the real error is already
-    // caught below via `await promise`. Swallow that second one explicitly.
-    promise.finally(() => inFlightCompletions.delete(sessionId)).catch(() => {})
+  if (!holdsLock) {
+    // Another instance already claimed this sessionId — poll for its
+    // published success instead of triggering a second CAPI round.
+    for (let attempt = 0; attempt < COMPLETE_LOCK_POLL_ATTEMPTS; attempt++) {
+      await sleep(COMPLETE_LOCK_POLL_INTERVAL_MS)
+      const polled = await readCachedSuccess(resultKey)
+      if (polled) return polled
+    }
+    // Timed out (or the lock holder's attempt failed, so nothing was ever
+    // published) — run it ourselves rather than hang the request forever.
   }
 
-  const result = await promise
-  recentCompletions.set(sessionId, { result, at: Date.now() })
-  return result
+  try {
+    const result = await finalizeLead(workspaceId, payload as any)
+    if (result.ok) {
+      try {
+        await withRedisTimeout(
+          redis.set(resultKey, JSON.stringify({ ok: true }), 'PX', COMPLETE_COALESCE_WINDOW_MS)
+        )
+      } catch { /* best-effort cache write — must not fail the request */ }
+    }
+    return result
+  } finally {
+    if (holdsLock) {
+      redis.del(lockKey).catch(() => {}) // self-expires via TTL either way
+    }
+  }
+}
+
+function finalizeLeadCoalesced(
+  workspaceId: string, payload: Record<string, unknown>, sessionId: string
+): Promise<FinalizeLeadResult> {
+  const inFlight = inFlightCompletions.get(sessionId)
+  if (inFlight) return inFlight
+
+  const promise = finalizeLeadAcrossInstances(workspaceId, payload, sessionId)
+  inFlightCompletions.set(sessionId, promise)
+  // .finally()'s return value is a second, distinct promise — if it's left
+  // dangling and `promise` rejects, Node reports an *additional* unhandled
+  // rejection for it even though the real error is already caught by
+  // whoever awaits `promise` directly. Swallow that second one explicitly.
+  promise.finally(() => inFlightCompletions.delete(sessionId)).catch(() => {})
+  return promise
 }
 
 // QA_E2E_POST_FIXES_05AGO2026.md §7 P0: "el backend no puede ocultar la
