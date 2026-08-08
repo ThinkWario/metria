@@ -10,15 +10,17 @@ vi.mock('../../../lib/prisma', () => ({
 
 vi.mock('../../messaging/message.service', () => ({
   sendPlatformMessage: vi.fn(async () => {}),
-  sendOutboundPlatformMessage: vi.fn(async () => {})
+  sendOutboundPlatformMessage: vi.fn(async () => {}),
+  sendInternalWhatsAppTemplate: vi.fn(async () => {})
 }))
 
 import { notifyAppointmentEvent } from '../appointment-notifications.service'
 import { prisma } from '../../../lib/prisma'
-import { sendPlatformMessage, sendOutboundPlatformMessage } from '../../messaging/message.service'
+import { sendPlatformMessage, sendOutboundPlatformMessage, sendInternalWhatsAppTemplate } from '../../messaging/message.service'
 
 const sendPlatformMessageMock = sendPlatformMessage as any
 const sendOutboundPlatformMessageMock = sendOutboundPlatformMessage as any
+const sendInternalWhatsAppTemplateMock = sendInternalWhatsAppTemplate as any
 
 const WS = 'ws-1'
 const CHANNEL = { id: 'ch-1', platform: 'WHATSAPP', config: { phoneNumberId: 'pn-1', accessToken: 'tok' } }
@@ -39,6 +41,29 @@ describe('notifyAppointmentEvent', () => {
 
     expect(sendPlatformMessageMock).toHaveBeenCalledWith('WHATSAPP', CHANNEL.config, '56999998888', expect.stringContaining('Nueva cita'), WS)
     expect(sendOutboundPlatformMessageMock).toHaveBeenCalledWith(WS, 'conv-1', expect.stringContaining('quedó agendada'))
+  })
+
+  it('sends the internal alert as a tracked template (visible in the Metria inbox) when a technicalVisitTemplateId is configured for a SITE_VISIT', async () => {
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue({
+      ...CHANNEL, config: { ...CHANNEL.config, technicalVisitTemplateId: 'tpl-1' }
+    } as any)
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56999998888' } as any)
+
+    await notifyAppointmentEvent(WS, { contact: CONTACT, appointment: APPT, kind: 'created', conversationId: 'conv-1' })
+
+    expect(sendInternalWhatsAppTemplateMock).toHaveBeenCalledWith(
+      WS, 'ch-1', '56999998888', 'tpl-1', [CONTACT.name, CONTACT.phone, expect.any(String)]
+    )
+    expect(sendPlatformMessageMock).not.toHaveBeenCalledWith('WHATSAPP', expect.anything(), '56999998888', expect.anything(), WS)
+  })
+
+  it('falls back to a plain-text alert (no CRM trace) when there is no technicalVisitTemplateId', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56999998888' } as any)
+
+    await notifyAppointmentEvent(WS, { contact: CONTACT, appointment: APPT, kind: 'created', conversationId: 'conv-1' })
+
+    expect(sendInternalWhatsAppTemplateMock).not.toHaveBeenCalled()
+    expect(sendPlatformMessageMock).toHaveBeenCalledWith('WHATSAPP', CHANNEL.config, '56999998888', expect.stringContaining('Nueva cita'), WS)
   })
 
   it('sends a raw WhatsApp message to the lead when there is no conversation (public booking path)', async () => {

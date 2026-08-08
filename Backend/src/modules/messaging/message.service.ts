@@ -153,6 +153,81 @@ export async function sendWhatsAppTemplateToPhone(
 }
 
 /**
+ * Like sendWhatsAppTemplateToPhone, but for an internal/staff number (e.g.
+ * the technical-visit notifyPhone) that should show up as a real chat in the
+ * Metria inbox instead of leaving no trace. Finds or creates a Contact +
+ * Conversation for `to` on this channel, then persists the sent message and
+ * broadcasts it — same shape as an inbox-visible outbound send.
+ */
+export async function sendInternalWhatsAppTemplate(
+  workspaceId: string,
+  channelId: string,
+  to: string,
+  templateId: string,
+  params: string[] = [],
+  contactName = 'Encargado de visitas'
+): Promise<void> {
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } })
+  if (!channel || channel.platform !== 'WHATSAPP') throw new Error('WhatsApp channel not found')
+  const config = channel.config as Record<string, any>
+
+  const template = await prisma.whatsAppTemplate.findFirst({
+    where: { id: templateId, channelId, status: 'APPROVED' }
+  })
+  if (!template) throw new Error(`Template ${templateId} not found or not APPROVED for this channel`)
+
+  const contact = await prisma.contact.upsert({
+    where: { workspaceId_phone: { workspaceId, phone: to } },
+    create: { workspaceId, name: contactName, phone: to, source: 'INTERNAL', status: 'LEAD' },
+    update: {}
+  })
+
+  let conversation = await prisma.conversation.findUnique({
+    where: { workspaceId_channelId_externalId: { workspaceId, channelId, externalId: to } }
+  })
+  const isNewConversation = !conversation
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
+      data: { workspaceId, channelId, contactId: contact.id, externalId: to, status: 'PENDING', isHandledByBot: false }
+    })
+  }
+
+  await sendWhatsAppTemplateMessage(config.phoneNumberId, config.accessToken, to, template.name, template.language, params)
+
+  const content = params.reduce((text, p, i) => text.replace(`{{${i + 1}}}`, p), template.bodyText)
+  const message = await prisma.message.create({
+    data: { workspaceId, conversationId: conversation.id, direction: 'OUTBOUND', senderType: 'BOT', content, status: 'SENT' }
+  })
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: new Date(), messageCount: { increment: 1 } }
+  })
+
+  const io = getIO()
+  const room = `workspace:${workspaceId}`
+  if (isNewConversation) {
+    io.to(room).emit('conversation:new', {
+      id: conversation.id,
+      channelId,
+      externalId: to,
+      status: conversation.status,
+      contact: { id: contact.id, name: contact.name, phone: contact.phone },
+      channel: { id: channelId, platform: channel.platform, name: channel.name },
+      createdAt: conversation.createdAt
+    })
+  }
+  io.to(room).emit('message:new', {
+    id: message.id,
+    conversationId: conversation.id,
+    direction: 'OUTBOUND',
+    senderType: 'BOT',
+    content,
+    sentAt: message.sentAt,
+    status: 'SENT'
+  })
+}
+
+/**
  * Handles both sides of a handoff to a human: tells the customer (free text —
  * this reply lands within the 24h window since they just messaged, so no
  * template is needed there), and separately alerts the assigned bot agent's

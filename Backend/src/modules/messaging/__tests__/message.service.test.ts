@@ -10,7 +10,8 @@ vi.mock('../../../lib/prisma', () => ({
       update: vi.fn()
     },
     message: { create: vi.fn(), findFirst: vi.fn(async () => null) },
-    botAgent: { findFirst: vi.fn() }
+    botAgent: { findFirst: vi.fn() },
+    whatsAppTemplate: { findFirst: vi.fn() }
   }
 }))
 
@@ -31,7 +32,10 @@ vi.mock('../../ai-agent/followup.service', () => ({
 vi.mock('../inbox.service', () => ({ trackAiMetric: vi.fn(async () => undefined) }))
 vi.mock('../../bot/flow.engine', () => ({ tryRunBotFlows: vi.fn(async () => undefined) }))
 vi.mock('../../crm/lifecycle.service', () => ({ LifecycleService: { handleSignal: vi.fn(async () => undefined) } }))
-vi.mock('../channels/whatsapp.service', () => ({ sendWhatsAppMessage: vi.fn(async () => undefined) }))
+vi.mock('../channels/whatsapp.service', () => ({
+  sendWhatsAppMessage: vi.fn(async () => undefined),
+  sendWhatsAppTemplateMessage: vi.fn(async () => undefined)
+}))
 vi.mock('../channels/instagram.service', () => ({ sendInstagramMessage: vi.fn(async () => undefined) }))
 vi.mock('../channels/telegram.service', () => ({ sendTelegramMessage: vi.fn(async () => undefined) }))
 const nativeSendMessage = vi.fn(async () => 'wa-out-99')
@@ -39,11 +43,12 @@ vi.mock('../../../lib/whatsapp/WhatsAppManager', () => ({
   WhatsAppSessionManager: { getInstance: () => ({ sendMessage: nativeSendMessage }) }
 }))
 
-import { processInboundMessage, sendOutboundPlatformMessage } from '../message.service'
+import { processInboundMessage, sendOutboundPlatformMessage, sendInternalWhatsAppTemplate } from '../message.service'
 import { prisma } from '../../../lib/prisma'
 import { getIO } from '../../../lib/socket'
 import { scheduleAiReply } from '../../ai-agent/aiResponder'
 import { tryRunBotFlows } from '../../bot/flow.engine'
+import { sendWhatsAppTemplateMessage } from '../channels/whatsapp.service'
 
 const WORKSPACE_ID = 'ws-1'
 const CHANNEL_ID = 'ch-1'
@@ -274,5 +279,69 @@ describe('sendOutboundPlatformMessage', () => {
         senderType: 'BOT', content: 'Hola', status: 'SENT', externalId: undefined
       }
     })
+  })
+})
+
+describe('sendInternalWhatsAppTemplate', () => {
+  const CHANNEL = { id: CHANNEL_ID, platform: 'WHATSAPP', name: 'WhatsApp Principal', config: { phoneNumberId: 'pn-1', accessToken: 'tok' } }
+  const TEMPLATE = { id: 'tpl-1', name: 'aviso_visita_tecnica', language: 'es', bodyText: 'Nueva visita: {{1}} — {{2}} — {{3}}', status: 'APPROVED' }
+  const TO = '56921789410'
+
+  beforeEach(() => {
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(CHANNEL as any)
+    vi.mocked(prisma.whatsAppTemplate.findFirst).mockResolvedValue(TEMPLATE as any)
+    vi.mocked(prisma.contact.upsert).mockResolvedValue({ id: 'ct-tech', name: 'Encargado de visitas', phone: TO } as any)
+    vi.mocked(prisma.message.create).mockResolvedValue({ id: 'msg-tech', sentAt: new Date() } as any)
+    const mockIO = { to: vi.fn().mockReturnThis(), emit: vi.fn() }
+    vi.mocked(getIO).mockReturnValue(mockIO as any)
+  })
+
+  it('creates a Contact + Conversation and broadcasts both when none exist yet', async () => {
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.conversation.create).mockResolvedValue({ id: 'conv-tech', status: 'PENDING', createdAt: new Date() } as any)
+
+    await sendInternalWhatsAppTemplate(WORKSPACE_ID, CHANNEL_ID, TO, 'tpl-1', ['Alexis', '56942597739', '10 de agosto a las 09:00'])
+
+    expect(prisma.contact.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { workspaceId_phone: { workspaceId: WORKSPACE_ID, phone: TO } },
+      create: expect.objectContaining({ phone: TO, source: 'INTERNAL' })
+    }))
+    expect(prisma.conversation.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ contactId: 'ct-tech', externalId: TO, channelId: CHANNEL_ID })
+    }))
+    expect(sendWhatsAppTemplateMessage).toHaveBeenCalledWith(
+      'pn-1', 'tok', TO, 'aviso_visita_tecnica', 'es', ['Alexis', '56942597739', '10 de agosto a las 09:00']
+    )
+    expect(prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ conversationId: 'conv-tech', content: 'Nueva visita: Alexis — 56942597739 — 10 de agosto a las 09:00' })
+    }))
+    const mockIO = vi.mocked(getIO).mock.results[0].value
+    expect(mockIO.emit).toHaveBeenCalledWith('conversation:new', expect.objectContaining({ id: 'conv-tech' }))
+    expect(mockIO.emit).toHaveBeenCalledWith('message:new', expect.objectContaining({ id: 'msg-tech' }))
+  })
+
+  it('reuses an existing Conversation without re-emitting conversation:new', async () => {
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({ id: 'conv-existing', status: 'OPEN' } as any)
+
+    await sendInternalWhatsAppTemplate(WORKSPACE_ID, CHANNEL_ID, TO, 'tpl-1', ['Alexis', '56942597739', 'hoy'])
+
+    expect(prisma.conversation.create).not.toHaveBeenCalled()
+    const mockIO = vi.mocked(getIO).mock.results[0].value
+    expect(mockIO.emit).not.toHaveBeenCalledWith('conversation:new', expect.anything())
+    expect(mockIO.emit).toHaveBeenCalledWith('message:new', expect.objectContaining({ conversationId: 'conv-existing' }))
+  })
+
+  it('throws when the template is not APPROVED for this channel', async () => {
+    vi.mocked(prisma.whatsAppTemplate.findFirst).mockResolvedValue(null)
+
+    await expect(sendInternalWhatsAppTemplate(WORKSPACE_ID, CHANNEL_ID, TO, 'tpl-missing'))
+      .rejects.toThrow('not found or not APPROVED')
+  })
+
+  it('throws when the channel is not a connected WhatsApp channel', async () => {
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(null)
+
+    await expect(sendInternalWhatsAppTemplate(WORKSPACE_ID, CHANNEL_ID, TO, 'tpl-1'))
+      .rejects.toThrow('WhatsApp channel not found')
   })
 })
