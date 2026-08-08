@@ -16,6 +16,7 @@ import {
   trackAiMetric,
   type ConversationStatus
 } from './inbox.service'
+import { sendOutboundWhatsAppTemplate } from './message.service'
 import { verifyWhatsAppSignature, parseWhatsAppUpdate } from './channels/whatsapp.service'
 import { verifyInstagramSignature, parseInstagramUpdate } from './channels/instagram.service'
 import { verifyMessengerSignature, parseMessengerUpdate } from './channels/messenger.service'
@@ -78,6 +79,20 @@ export async function sendMessageHandler(req: Request, res: Response): Promise<v
     res.status(201).json({ ok: true })
   } catch (err: any) {
     const status = err.message === 'Conversation not found' ? 404 : 500
+    res.status(status).json({ error: err.message })
+  }
+}
+
+export async function sendTemplateHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+    const { templateId } = req.body as { templateId?: string }
+    if (!templateId) { res.status(400).json({ error: 'templateId is required' }); return }
+    const message = await sendOutboundWhatsAppTemplate(workspaceId, conversationId, templateId)
+    res.status(201).json(message)
+  } catch (err: any) {
+    const status = err.message === 'Conversation not found' ? 404 : 400
     res.status(status).json({ error: err.message })
   }
 }

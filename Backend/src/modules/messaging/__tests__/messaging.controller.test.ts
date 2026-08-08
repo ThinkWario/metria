@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Request, Response } from 'express'
-import { messengerWebhookVerify, messengerWebhook } from '../messaging.controller'
+import { messengerWebhookVerify, messengerWebhook, sendTemplateHandler } from '../messaging.controller'
 import { prisma } from '../../../lib/prisma'
 import * as messengerService from '../channels/messenger.service'
+import * as messageService from '../message.service'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
@@ -15,6 +16,10 @@ vi.mock('../../../lib/prisma', () => ({
 vi.mock('../channels/messenger.service', () => ({
   verifyMessengerSignature: vi.fn(),
   parseMessengerUpdate: vi.fn().mockResolvedValue(undefined)
+}))
+
+vi.mock('../message.service', () => ({
+  sendOutboundWhatsAppTemplate: vi.fn()
 }))
 
 describe('MessagingController - Messenger Webhooks', () => {
@@ -143,6 +148,59 @@ describe('MessagingController - Messenger Webhooks', () => {
 
       expect(res.status).toHaveBeenCalledWith(404)
       expect(res.json).toHaveBeenCalledWith({ error: 'Channel not found' })
+    })
+  })
+
+  describe('sendTemplateHandler', () => {
+    function makeReq(body: any) {
+      return {
+        params: { conversationId: 'conv-1' },
+        body,
+        user: { workspaceId: 'ws-1', id: 'user-1' }
+      } as any
+    }
+
+    it('sends the template and returns the created message', async () => {
+      const req = makeReq({ templateId: 'tpl-1' })
+      const sentMessage = { id: 'msg-1', content: 'Hola Roberto' }
+      vi.mocked(messageService.sendOutboundWhatsAppTemplate).mockResolvedValue(sentMessage as any)
+
+      await sendTemplateHandler(req, res)
+
+      expect(messageService.sendOutboundWhatsAppTemplate).toHaveBeenCalledWith('ws-1', 'conv-1', 'tpl-1')
+      expect(res.status).toHaveBeenCalledWith(201)
+      expect(res.json).toHaveBeenCalledWith(sentMessage)
+    })
+
+    it('returns 400 when templateId is missing', async () => {
+      const req = makeReq({})
+
+      await sendTemplateHandler(req, res)
+
+      expect(messageService.sendOutboundWhatsAppTemplate).not.toHaveBeenCalled()
+      expect(res.status).toHaveBeenCalledWith(400)
+      expect(res.json).toHaveBeenCalledWith({ error: 'templateId is required' })
+    })
+
+    it('returns 404 when the conversation is not found', async () => {
+      const req = makeReq({ templateId: 'tpl-1' })
+      vi.mocked(messageService.sendOutboundWhatsAppTemplate).mockRejectedValue(new Error('Conversation not found'))
+
+      await sendTemplateHandler(req, res)
+
+      expect(res.status).toHaveBeenCalledWith(404)
+      expect(res.json).toHaveBeenCalledWith({ error: 'Conversation not found' })
+    })
+
+    it('returns 400 when the template is not approved for this channel', async () => {
+      const req = makeReq({ templateId: 'tpl-1' })
+      vi.mocked(messageService.sendOutboundWhatsAppTemplate).mockRejectedValue(
+        new Error('Template tpl-1 not found or not APPROVED for this channel')
+      )
+
+      await sendTemplateHandler(req, res)
+
+      expect(res.status).toHaveBeenCalledWith(400)
     })
   })
 })

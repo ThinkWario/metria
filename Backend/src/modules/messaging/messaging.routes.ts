@@ -6,6 +6,7 @@ import {
   getConversationsHandler,
   getMessagesHandler,
   sendMessageHandler,
+  sendTemplateHandler,
   getChannelsHandler,
   upsertChannelConfigHandler,
   handoverToHumanHandler,
@@ -45,6 +46,7 @@ router.post('/messaging/channels/:platform/config', authenticate, requirePlan('P
 router.get('/messaging/conversations', authenticate, requirePlan('PRO', 'SCALE'), getConversationsHandler)
 router.get('/messaging/conversations/:conversationId/messages', authenticate, requirePlan('PRO', 'SCALE'), getMessagesHandler)
 router.post('/messaging/conversations/:conversationId/messages', authenticate, requirePlan('PRO', 'SCALE'), sendMessageHandler)
+router.post('/messaging/conversations/:conversationId/template', authenticate, requirePlan('PRO', 'SCALE'), sendTemplateHandler)
 router.post('/messaging/conversations/:conversationId/handover', authenticate, requirePlan('PRO', 'SCALE'), handoverToHumanHandler)
 router.post('/messaging/conversations/:conversationId/handback', authenticate, requirePlan('PRO', 'SCALE'), handbackToBotHandler)
 router.patch('/messaging/conversations/:conversationId/status', authenticate, requirePlan('PRO', 'SCALE'), changeStatusHandler)

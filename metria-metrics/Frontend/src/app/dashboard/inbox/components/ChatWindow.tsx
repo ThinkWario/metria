@@ -1,11 +1,12 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import type { Conversation, Message, ConversationStatus, WorkspaceUser } from '@/hooks/useInbox'
+import { fetchAPI } from '@/lib/api'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   Send, MoreVertical, Phone, Video, Search, ShieldCheck, Bot, Hand, Sparkles,
-  Lock, Check, CheckCheck, Clock, AlertCircle, UserPlus, ChevronDown, MessageSquare, StickyNote
+  Lock, Check, CheckCheck, Clock, AlertCircle, UserPlus, ChevronDown, MessageSquare, StickyNote, FileText
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -27,11 +28,19 @@ const STATUS_META: Record<ConversationStatus, { label: string; dot: string }> = 
   CLOSED: { label: 'Cerrada', dot: 'bg-muted-foreground' },
 }
 
+interface WhatsAppTemplate {
+  id: string
+  name: string
+  language: string
+  status: string
+}
+
 interface Props {
   conversation: Conversation | null
   messages: Message[]
   loading: boolean
   onSend: (content: string, isInternal?: boolean) => Promise<void>
+  onSendTemplate?: (templateId: string) => Promise<void>
   onHandover?: (conversationId: string) => Promise<void>
   onHandback?: (conversationId: string) => Promise<void>
   onChangeStatus?: (conversationId: string, status: ConversationStatus) => Promise<void>
@@ -53,12 +62,14 @@ function DeliveryStatus({ msg, light }: { msg: Message; light: boolean }) {
 }
 
 export function ChatWindow({
-  conversation, messages, loading, onSend, onHandover, onHandback, onChangeStatus, onAssign, users = []
+  conversation, messages, loading, onSend, onSendTemplate, onHandover, onHandback, onChangeStatus, onAssign, users = []
 }: Props) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [noteMode, setNoteMode] = useState(false)
+  const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
+  const [sendingTemplateId, setSendingTemplateId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pickerRef = useRef<QuickReplyPickerHandle>(null)
@@ -69,6 +80,16 @@ export function ChatWindow({
 
   // Reset the composer mode when switching conversations.
   useEffect(() => { setNoteMode(false); setInput('') }, [conversation?.id])
+
+  // Approved templates are only sendable on WhatsApp — fetch once per channel.
+  useEffect(() => {
+    if (!onSendTemplate || conversation?.channel.platform !== 'WHATSAPP') { setTemplates([]); return }
+    fetchAPI('/messaging/whatsapp/templates')
+      .then((data: { templates?: WhatsAppTemplate[] }) => {
+        setTemplates((data.templates ?? []).filter(t => t.status === 'APPROVED'))
+      })
+      .catch(() => setTemplates([]))
+  }, [conversation?.channel.id, conversation?.channel.platform, onSendTemplate])
 
   // The "/" slash-command mode is active when the composer starts with "/".
   const slashActive = input.startsWith('/')
@@ -90,6 +111,19 @@ export function ChatWindow({
       toast.error(err?.message || 'No se pudo enviar el mensaje')
     } finally {
       setSending(false)
+    }
+  }
+
+  async function handleSendTemplate(templateId: string) {
+    if (!onSendTemplate || sendingTemplateId) return
+    setSendingTemplateId(templateId)
+    try {
+      await onSendTemplate(templateId)
+      toast.success('Plantilla enviada')
+    } catch (err: any) {
+      toast.error(err?.message || 'No se pudo enviar la plantilla')
+    } finally {
+      setSendingTemplateId(null)
     }
   }
 
@@ -350,7 +384,8 @@ export function ChatWindow({
       {/* Input Area */}
       <div className="p-6 bg-card/50 backdrop-blur-xl border-t border-border/40 shrink-0">
         {/* Mode toggle: reply to the customer vs. private internal note */}
-        <div className="max-w-4xl mx-auto mb-3 flex items-center gap-1 p-1 rounded-xl bg-muted/40 border border-border/40 w-fit">
+        <div className="max-w-4xl mx-auto mb-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/40 border border-border/40 w-fit">
             <button
                 onClick={() => setNoteMode(false)}
                 aria-pressed={!noteMode}
@@ -371,6 +406,40 @@ export function ChatWindow({
             >
                 <StickyNote className="w-3 h-3" /> Nota interna
             </button>
+          </div>
+
+          {templates.length > 0 && (
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 rounded-xl border-border/40 gap-1.5 px-2.5 text-[11px] font-bold"
+                        disabled={sendingTemplateId !== null}
+                    >
+                        <FileText className="w-3.5 h-3.5" />
+                        Plantilla
+                        <ChevronDown className="w-3 h-3 opacity-50" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64 rounded-xl">
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground font-black">
+                        Enviar plantilla aprobada
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {templates.map(t => (
+                        <DropdownMenuItem
+                            key={t.id}
+                            className="text-xs rounded-lg"
+                            disabled={sendingTemplateId !== null}
+                            onSelect={() => handleSendTemplate(t.id)}
+                        >
+                            {t.name} <span className="text-muted-foreground ml-1">({t.language})</span>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         <div className="relative flex items-end gap-2 max-w-4xl mx-auto">

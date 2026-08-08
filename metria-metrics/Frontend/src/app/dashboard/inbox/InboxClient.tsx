@@ -18,6 +18,7 @@ export function InboxClient() {
     loadingConvs,
     loadingMsgs,
     sendMessage,
+    sendTemplate,
     handoverToHuman,
     handbackToBot,
     markAsRead,
@@ -82,6 +83,7 @@ export function InboxClient() {
           messages={messages}
           loading={loadingMsgs}
           onSend={sendMessage}
+          onSendTemplate={sendTemplate}
           onHandover={handoverToHuman}
           onHandback={handbackToBot}
           onChangeStatus={changeStatus}

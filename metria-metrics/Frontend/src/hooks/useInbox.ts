@@ -215,6 +215,19 @@ export function useInbox() {
     setSendingMessage(false)
   }, [selectedId])
 
+  const sendTemplate = useCallback(async (templateId: string) => {
+    if (!selectedId) return
+    setSendingMessage(true)
+    try {
+      await fetchAPI(`/messaging/conversations/${selectedId}/template`, {
+        method: 'POST',
+        body: JSON.stringify({ templateId })
+      })
+    } finally {
+      setSendingMessage(false)
+    }
+  }, [selectedId])
+
   const handoverToHuman = useCallback(async (conversationId: string) => {
     try {
       await fetchAPI(`/messaging/conversations/${conversationId}/handover`, { method: 'POST' })
@@ -331,6 +344,7 @@ export function useInbox() {
     loadingMsgs,
     sendingMessage,
     sendMessage,
+    sendTemplate,
     handoverToHuman,
     handbackToBot,
     markAsRead,
