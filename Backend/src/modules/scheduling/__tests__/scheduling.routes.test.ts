@@ -38,20 +38,29 @@ describe('GET /api/scheduling/booking-config', () => {
 })
 
 describe('PATCH /api/scheduling/booking-config', () => {
-  it('saves a trimmed notifyPhone', async () => {
+  it('normalizes notifyPhone to digits-only before saving — the Cloud API rejects a leading "+"', async () => {
     vi.mocked(prisma.workspace.update).mockResolvedValue({
-      bookingSlug: 'drillchile', bookingTitle: null, bookingDurationMin: 30, notifyPhone: '+56912345678'
+      bookingSlug: 'drillchile', bookingTitle: null, bookingDurationMin: 30, notifyPhone: '56912345678'
     } as any)
 
     const res = await request(buildApp())
       .patch('/api/scheduling/booking-config')
-      .send({ notifyPhone: '  +56912345678  ' })
+      .send({ notifyPhone: '  +56 9 1234 5678  ' })
 
     expect(res.status).toBe(200)
     expect(prisma.workspace.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ notifyPhone: '+56912345678' }) })
+      expect.objectContaining({ data: expect.objectContaining({ notifyPhone: '56912345678' }) })
     )
-    expect(res.body.notifyPhone).toBe('+56912345678')
+    expect(res.body.notifyPhone).toBe('56912345678')
+  })
+
+  it('rejects a notifyPhone that does not parse as a valid number', async () => {
+    const res = await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ notifyPhone: 'not a phone' })
+
+    expect(res.status).toBe(400)
+    expect(prisma.workspace.update).not.toHaveBeenCalled()
   })
 
   it('clears notifyPhone when sent as an empty string', async () => {

@@ -1,5 +1,4 @@
 import 'dotenv/config'
-console.log('DEBUG: DATABASE_URL =', process.env.DATABASE_URL)
 import { createServer } from 'http'
 import app from './app'
 import { initSocket } from './lib/socket'

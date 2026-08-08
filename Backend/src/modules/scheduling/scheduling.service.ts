@@ -9,12 +9,12 @@ import type { ActionSource } from '../meta-events/metaEvents.capi'
  * same `toLocaleString` technique as businessHours.service. When no timezone is
  * configured we fall back to server-local time (previous behavior).
  */
-async function getWorkspaceTimezone(workspaceId: string): Promise<string | undefined> {
+async function getWorkspaceTimezone(workspaceId: string): Promise<string> {
   try {
     const bh = await prisma.businessHours.findUnique({ where: { workspaceId }, select: { timezone: true } })
-    return bh?.timezone || undefined
+    return bh?.timezone || 'America/Santiago'
   } catch {
-    return undefined
+    return 'America/Santiago'
   }
 }
 
@@ -226,6 +226,15 @@ export async function rescheduleAppointment(
     where: { id: appointmentId },
     data: { scheduledAt: newScheduledAt, durationMin: duration / 60_000 }
   })
+
+  if (updated.googleEventId) {
+    const { updateCalendarEvent } = await import('./google-calendar.service')
+    updateCalendarEvent(workspaceId, updated.googleEventId, {
+      startAt: newScheduledAt,
+      durationMin: updated.durationMin
+    }).catch(err => console.error('[Scheduling] Calendar update after reschedule failed (non-blocking):', err))
+  }
+
   return { ...updated, oldScheduledAt }
 }
 

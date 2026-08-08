@@ -14,9 +14,13 @@ vi.mock('../../../lib/prisma', () => ({
 // factory runs at hoist-time, before any non-hoisted const would be initialized —
 // vi.hoisted() is required here (unlike a plain `const x = vi.fn()` above vi.mock,
 // which only works when the mocked module is imported dynamically elsewhere).
-const { getFreeBusyMock } = vi.hoisted(() => ({ getFreeBusyMock: vi.fn() }))
+const { getFreeBusyMock, updateCalendarEventMock } = vi.hoisted(() => ({
+  getFreeBusyMock: vi.fn(),
+  updateCalendarEventMock: vi.fn(async () => {})
+}))
 vi.mock('../google-calendar.service', () => ({
-  getFreeBusy: getFreeBusyMock
+  getFreeBusy: getFreeBusyMock,
+  updateCalendarEvent: updateCalendarEventMock
 }))
 const { emitMetaScheduleEventMock } = vi.hoisted(() => ({ emitMetaScheduleEventMock: vi.fn(async () => {}) }))
 vi.mock('../../meta-events/metaEvents.service', () => ({
@@ -36,7 +40,7 @@ beforeEach(() => {
   // Only Date is faked, leaving timers/promises real.
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-06-14T00:00:00Z'))
-  // no timezone configured by default → server-local math (legacy behavior)
+  // no BusinessHours row by default → falls back to the America/Santiago default
   vi.mocked(prisma.businessHours.findUnique).mockResolvedValue(null)
 })
 afterEach(() => {
@@ -95,6 +99,23 @@ describe('getAvailableSlots', () => {
     expect(slots.map(s => s.toISOString())).toEqual([
       '2026-06-15T00:00:00.000Z',
       '2026-06-15T01:00:00.000Z'
+    ])
+  })
+
+  it('defaults to America/Santiago when no BusinessHours row exists — regression: previously fell back to raw server-local math, silently booking every appointment off by the server/Chile UTC offset', async () => {
+    vi.mocked(prisma.businessHours.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.availabilityRule.findMany).mockResolvedValue([
+      { dayOfWeek: 1, startTime: '09:00', endTime: '11:00', slotMinutes: 60, apptType: 'SITE_VISIT' }
+    ] as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+
+    const from = new Date('2026-06-15T00:00:00Z')
+    const slots = await getAvailableSlots(WS, 'SITE_VISIT', from, 7)
+
+    // Monday 09:00 and 10:00 Santiago (UTC-4 in June) == 13:00Z and 14:00Z
+    expect(slots.map(s => s.toISOString())).toEqual([
+      '2026-06-15T13:00:00.000Z',
+      '2026-06-15T14:00:00.000Z'
     ])
   })
 })
@@ -230,6 +251,37 @@ describe('rescheduleAppointment', () => {
       where: { id: 'a1' },
       data: { scheduledAt: new Date('2026-06-15T14:00:00'), durationMin: 60 }
     })
+  })
+
+  it('syncs the linked Google Calendar event when the appointment has one', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({
+      id: 'a1', workspaceId: WS, type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-15T10:00:00')
+    } as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+    vi.mocked(prisma.appointment.update).mockResolvedValue({
+      id: 'a1', scheduledAt: new Date('2026-06-15T14:00:00'), durationMin: 60, googleEventId: 'gcal-evt-1'
+    } as any)
+
+    await rescheduleAppointment(WS, 'a1', new Date('2026-06-15T14:00:00'))
+    await vi.waitFor(() => expect(updateCalendarEventMock).toHaveBeenCalled())
+
+    expect(updateCalendarEventMock).toHaveBeenCalledWith(WS, 'gcal-evt-1', {
+      startAt: new Date('2026-06-15T14:00:00'), durationMin: 60
+    })
+  })
+
+  it('skips the Calendar sync when the appointment has no linked event', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({
+      id: 'a1', workspaceId: WS, type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-15T10:00:00')
+    } as any)
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([])
+    vi.mocked(prisma.appointment.update).mockResolvedValue({
+      id: 'a1', scheduledAt: new Date('2026-06-15T14:00:00'), durationMin: 60, googleEventId: null
+    } as any)
+
+    await rescheduleAppointment(WS, 'a1', new Date('2026-06-15T14:00:00'))
+
+    expect(updateCalendarEventMock).not.toHaveBeenCalled()
   })
 
   it('rejects rescheduling a CANCELLED appointment', async () => {

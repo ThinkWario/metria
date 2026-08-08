@@ -4,6 +4,7 @@ import { requirePlan } from '../../middleware/planGate'
 import { prisma } from '../../lib/prisma'
 import { getAvailableSlots, listAppointments, scheduleAppointment, updateAppointmentStatus } from './scheduling.service'
 import { slugify } from './booking.service'
+import { normalizePhone } from '../../lib/phoneFormat'
 
 const router = Router()
 const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
@@ -153,8 +154,14 @@ router.patch('/scheduling/booking-config', ...auth, async (req: any, res) => {
       data.bookingDurationMin = Math.round(dur)
     }
     if (notifyPhone !== undefined) {
-      const trimmed = notifyPhone === null ? '' : String(notifyPhone).trim().slice(0, 40)
-      data.notifyPhone = trimmed || null
+      const trimmed = notifyPhone === null ? '' : String(notifyPhone).trim()
+      if (!trimmed) {
+        data.notifyPhone = null
+      } else {
+        const normalized = normalizePhone(trimmed)
+        if (!normalized) return res.status(400).json({ error: 'Número de notificación inválido' })
+        data.notifyPhone = normalized
+      }
     }
 
     try {
