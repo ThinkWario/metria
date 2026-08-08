@@ -119,7 +119,7 @@ describe('syncSheet WhatsApp-linking', () => {
           workspaceId: WS_ID,
           channelId: 'ch-whatsapp',
           contactId: 'c1',
-          externalId: '56912345678@c.us',
+          externalId: '56912345678',
           status: 'PENDING',
           isHandledByBot: false
         })

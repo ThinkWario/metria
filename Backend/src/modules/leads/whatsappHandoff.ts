@@ -19,6 +19,13 @@ import { sendWhatsAppTemplateMessage } from '../messaging/channels/whatsapp.serv
  * (contact.phone, already validated by normalizePhone) — this is a fresh
  * outbound-initiated contact with no prior WhatsApp message, so there is no
  * lid involved anywhere in this path.
+ *
+ * The "@c.us" suffix is a whatsapp-web.js (native session) chat-id
+ * convention — Cloud API's inbound webhook identifies the sender by bare
+ * digits (`msg.from`, see whatsapp.service.ts). Suffixing it unconditionally
+ * used to make every Cloud API lead get a conversation row that the
+ * customer's real first reply could never match by externalId, silently
+ * spawning a second, duplicate conversation the moment they answered.
  */
 export async function prepareWhatsappConversation(
   workspaceId: string,
@@ -28,7 +35,8 @@ export async function prepareWhatsappConversation(
 ): Promise<void> {
   if (!contact.phone) return
   const channelId = channel.id
-  const externalId = `${contact.phone}@c.us`
+  const isNative = !!(channel.config as any)?.isNative
+  const externalId = isNative ? `${contact.phone}@c.us` : contact.phone
 
   const existing = await prisma.conversation.findUnique({
     where: { workspaceId_channelId_externalId: { workspaceId, channelId, externalId } }
