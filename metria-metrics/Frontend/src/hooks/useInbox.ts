@@ -270,9 +270,10 @@ export function useInbox() {
     }
   }, [])
 
-  /** Optimistically removes a conversation from the list; rolls back on failure. */
+  /** Optimistically removes a conversation from the list; rolls back (at its original index) on failure. */
   const deleteConversation = useCallback(async (conversationId: string) => {
-    const backup = conversations.find(c => c.id === conversationId)
+    const backupIndex = conversations.findIndex(c => c.id === conversationId)
+    const backup = backupIndex !== -1 ? conversations[backupIndex] : undefined
     setConversations(prev => prev.filter(c => c.id !== conversationId))
     if (selectedIdRef.current === conversationId) {
       selectedIdRef.current = null
@@ -281,8 +282,8 @@ export function useInbox() {
     try {
       await fetchAPI(`/messaging/conversations/${conversationId}`, { method: 'DELETE' })
     } catch (err) {
-      if (backup) {
-        setConversations(prev => [backup, ...prev])
+      if (backup && backupIndex !== -1) {
+        setConversations(prev => [...prev.slice(0, backupIndex), backup, ...prev.slice(backupIndex)])
       }
       throw err
     }

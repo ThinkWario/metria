@@ -52,7 +52,7 @@ describe('useInbox — deleteConversation', () => {
 
     mockFetchAPI.mockImplementationOnce(() => Promise.reject(new Error('403 plan not allowed')))
     await act(async () => {
-      await expect(result.current.deleteConversation('conv-1')).rejects.toThrow('403 plan not allowed')
+      await expect(result.current.deleteConversation('conv-2')).rejects.toThrow('403 plan not allowed')
     })
 
     expect(result.current.conversations.map(c => c.id)).toEqual(['conv-1', 'conv-2'])
