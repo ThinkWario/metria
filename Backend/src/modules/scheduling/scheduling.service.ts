@@ -9,7 +9,7 @@ import type { ActionSource } from '../meta-events/metaEvents.capi'
  * same `toLocaleString` technique as businessHours.service. When no timezone is
  * configured we fall back to server-local time (previous behavior).
  */
-async function getWorkspaceTimezone(workspaceId: string): Promise<string> {
+export async function getWorkspaceTimezone(workspaceId: string): Promise<string> {
   try {
     const bh = await prisma.businessHours.findUnique({ where: { workspaceId }, select: { timezone: true } })
     return bh?.timezone || 'America/Santiago'

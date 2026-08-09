@@ -85,6 +85,7 @@ function renderPrompt(
 
 REGLAS DURAS:${qualifierBullet}
 - No inventes precios, plazos ni garantías que no estén en OFERTA o CONOCIMIENTO.${handoverBullet}
+- Al ofrecer o confirmar horarios de citas, usa siempre el texto "label" que entregan get_available_slots/schedule_appointment/reschedule_appointment tal cual — nunca calcules, conviertas ni reescribas la hora tú mismo.
 - Sé conciso: mensajes cortos estilo WhatsApp.${!profile ? '\n- Ayuda al cliente y trata de cerrar una venta.' : ''}`)
 
   return sections.join('\n\n')

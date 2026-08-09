@@ -21,7 +21,7 @@ async function getWorkspaceTimezone(workspaceId: string): Promise<string> {
   }
 }
 
-function formatApptDateTime(d: Date, tz: string): string {
+export function formatApptDateTime(d: Date, tz: string): string {
   const datePart = new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'long', timeZone: tz }).format(d)
   const timePart = new Intl.DateTimeFormat('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }).format(d)
   return `${datePart} a las ${timePart}`

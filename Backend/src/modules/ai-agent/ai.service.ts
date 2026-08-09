@@ -5,7 +5,8 @@ import { createDeal, moveDeal } from '../crm/pipeline.service'
 import { getProvider } from './providers/provider.factory'
 import { compileSystemPrompt, compileResponderPrompt, compileQualifierPrompt, type AgentProfile, type CompileInput } from './promptCompiler'
 import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
-import { getAvailableSlots, filterSlotsByCalendarBusy, scheduleAppointment, rescheduleAppointment } from '../scheduling/scheduling.service'
+import { getAvailableSlots, filterSlotsByCalendarBusy, scheduleAppointment, rescheduleAppointment, getWorkspaceTimezone } from '../scheduling/scheduling.service'
+import { formatApptDateTime } from '../scheduling/appointment-notifications.service'
 import { sanitizeResponse } from './responseSanitizer'
 import { stripUnknownUrls, collectUrls } from './urlGuard'
 import { blockLeakedInternals } from './codeLeakGuard'
@@ -105,7 +106,7 @@ const toolDeclarations = [
   },
   {
     name: 'get_available_slots',
-    description: 'Returns the next available appointment slots. Use BEFORE offering times to the customer.',
+    description: 'Returns the next available appointment slots. Use BEFORE offering times to the customer. Each slot has isoDateTime (a UTC timestamp -- never read, quote, or do arithmetic on this, it is NOT in the customer\'s local time) and label (the same slot already formatted in the customer\'s local time, e.g. "10 de agosto a las 09:00"). ALWAYS say the label to the customer verbatim -- never compute your own time of day from isoDateTime.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: { type: { type: SchemaType.STRING, description: 'SITE_VISIT | CALL' } },
@@ -114,12 +115,12 @@ const toolDeclarations = [
   },
   {
     name: 'schedule_appointment',
-    description: 'Books an appointment at a confirmed time. isoDateTime MUST be copied verbatim from one of the strings get_available_slots just returned -- never retype, reformat, or recompute it from the human-readable time you told the customer, or it will be rejected.',
+    description: 'Books an appointment at a confirmed time. isoDateTime MUST be copied verbatim from the isoDateTime field of one of the slot objects get_available_slots just returned (never the label field, never retyped/reformatted/recomputed), or it will be rejected. The result includes a label -- use that verbatim in your confirmation to the customer, never restate the time yourself.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         contactId: { type: SchemaType.STRING },
-        isoDateTime: { type: SchemaType.STRING, description: 'One exact ISO 8601 string copied from get_available_slots output' },
+        isoDateTime: { type: SchemaType.STRING, description: 'The isoDateTime field (not label) copied verbatim from a get_available_slots slot object' },
         type: { type: SchemaType.STRING, description: 'SITE_VISIT | CALL' }
       },
       required: ['contactId', 'isoDateTime', 'type']
@@ -127,11 +128,11 @@ const toolDeclarations = [
   },
   {
     name: 'reschedule_appointment',
-    description: "Reschedules the customer's existing appointment to a new confirmed time. newIsoDateTime MUST be copied verbatim from one of the strings get_available_slots just returned -- never retype, reformat, or recompute it, or it will be rejected.",
+    description: "Reschedules the customer's existing appointment to a new confirmed time. newIsoDateTime MUST be copied verbatim from the isoDateTime field of one of the slot objects get_available_slots just returned (never the label field, never retyped/reformatted/recomputed), or it will be rejected. The result includes a label -- use that verbatim in your confirmation to the customer, never restate the time yourself.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        newIsoDateTime: { type: SchemaType.STRING, description: 'One exact ISO 8601 string copied from get_available_slots output' }
+        newIsoDateTime: { type: SchemaType.STRING, description: 'The isoDateTime field (not label) copied verbatim from a get_available_slots slot object' }
       },
       required: ['newIsoDateTime']
     }
@@ -593,7 +594,10 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         const type = args.type ?? 'SITE_VISIT'
         const rawSlots = await getAvailableSlots(workspaceId, type, new Date(), 14)
         const slots = await filterSlotsByCalendarBusy(workspaceId, type, rawSlots)
-        return { slots: slots.slice(0, 6).map(s => s.toISOString()) }
+        const tz = await getWorkspaceTimezone(workspaceId)
+        return {
+          slots: slots.slice(0, 6).map(s => ({ isoDateTime: s.toISOString(), label: formatApptDateTime(s, tz) }))
+        }
       }
 
       case 'schedule_appointment': {
@@ -652,7 +656,8 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         }
 
         await logAiAction(workspaceId, conversationId, `Agendó cita ${args.type} para ${args.isoDateTime}`)
-        return { success: true, appointmentId: appt.id, scheduledAt: appt.scheduledAt }
+        const tz = await getWorkspaceTimezone(workspaceId)
+        return { success: true, appointmentId: appt.id, scheduledAt: appt.scheduledAt, label: formatApptDateTime(appt.scheduledAt, tz) }
       }
 
       case 'reschedule_appointment': {
@@ -706,7 +711,11 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         }
 
         await logAiAction(workspaceId, conversationId, `Reagendó cita ${rescheduled.type} para ${args.newIsoDateTime}`)
-        return { success: true, appointmentId: rescheduled.id, scheduledAt: rescheduled.scheduledAt }
+        const rescheduleTz = await getWorkspaceTimezone(workspaceId)
+        return {
+          success: true, appointmentId: rescheduled.id, scheduledAt: rescheduled.scheduledAt,
+          label: formatApptDateTime(rescheduled.scheduledAt, rescheduleTz)
+        }
       }
 
       default:

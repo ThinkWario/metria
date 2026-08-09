@@ -14,15 +14,19 @@ vi.mock('../../../lib/prisma', () => ({
     appointment: { findFirst: vi.fn() }
   }
 }))
-const syncAppointmentToCalendarMock = vi.fn(async () => {})
-const updateCalendarEventMock = vi.fn(async () => {})
+const { syncAppointmentToCalendarMock, updateCalendarEventMock, notifyAppointmentEventMock, formatApptDateTimeMock } = vi.hoisted(() => ({
+  syncAppointmentToCalendarMock: vi.fn(async () => {}),
+  updateCalendarEventMock: vi.fn(async () => {}),
+  notifyAppointmentEventMock: vi.fn(async () => {}),
+  formatApptDateTimeMock: vi.fn((d: Date) => `formatted:${d.toISOString()}`)
+}))
 vi.mock('../../scheduling/google-calendar.service', () => ({
   syncAppointmentToCalendar: syncAppointmentToCalendarMock,
   updateCalendarEvent: updateCalendarEventMock
 }))
-const notifyAppointmentEventMock = vi.fn(async () => {})
 vi.mock('../../scheduling/appointment-notifications.service', () => ({
-  notifyAppointmentEvent: notifyAppointmentEventMock
+  notifyAppointmentEvent: notifyAppointmentEventMock,
+  formatApptDateTime: formatApptDateTimeMock
 }))
 const chatMock = vi.fn()
 const extractMock = vi.fn()
@@ -44,7 +48,8 @@ vi.mock('../../scheduling/scheduling.service', () => ({
   rescheduleAppointment: vi.fn(async () => ({
     id: 'a1', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-16T10:00:00'),
     durationMin: 60, googleEventId: null, oldScheduledAt: new Date('2026-06-15T10:00:00')
-  }))
+  })),
+  getWorkspaceTimezone: vi.fn(async () => 'America/Santiago')
 }))
 vi.mock('../../crm/pipeline.service', () => ({ createDeal: vi.fn(), moveDeal: vi.fn() }))
 
@@ -112,7 +117,10 @@ describe('processAiResponse (rewired)', () => {
     expect(scheduleAppointment).toHaveBeenCalled()
     expect(syncAppointmentToCalendarMock).toHaveBeenCalledWith(WS, 'a1', expect.objectContaining({ bookerName: 'Ana' }))
     expect(submit).toHaveBeenCalledWith([
-      expect.objectContaining({ name: 'schedule_appointment', response: expect.objectContaining({ success: true }) })
+      expect.objectContaining({
+        name: 'schedule_appointment',
+        response: expect.objectContaining({ success: true, label: expect.stringMatching(/^formatted:/) })
+      })
     ])
     expect(result).toBe('Agendado')
   })
@@ -147,6 +155,26 @@ describe('processAiResponse (rewired)', () => {
     ])
   })
 
+  it('returns each slot as {isoDateTime, label} instead of a bare string — the model must never reformat isoDateTime itself', async () => {
+    const slotDate = new Date('2026-06-15T10:00:00')
+    vi.mocked(filterSlotsByCalendarBusy).mockResolvedValueOnce([slotDate])
+    const submit = vi.fn(async () => ({ text: 'Estos horarios tengo libres', toolCalls: [], submitToolResults: vi.fn() }))
+    chatMock.mockResolvedValue({
+      text: null,
+      toolCalls: [{ name: 'get_available_slots', args: { type: 'SITE_VISIT' } }],
+      submitToolResults: submit
+    })
+
+    await processAiResponse(WS, CONV, '¿qué horarios hay?')
+
+    expect(submit).toHaveBeenCalledWith([
+      expect.objectContaining({
+        name: 'get_available_slots',
+        response: { slots: [{ isoDateTime: slotDate.toISOString(), label: `formatted:${slotDate.toISOString()}` }] }
+      })
+    ])
+  })
+
   it('notifies on schedule_appointment (new booking)', async () => {
     const submit = vi.fn(async () => ({ text: 'Agendado', toolCalls: [], submitToolResults: vi.fn() }))
     chatMock.mockResolvedValue({
@@ -175,7 +203,10 @@ describe('processAiResponse (rewired)', () => {
     expect(rescheduleAppointment).toHaveBeenCalledWith(WS, 'a1', new Date('2026-06-16T10:00:00'))
     expect(notifyAppointmentEventMock).toHaveBeenCalledWith(WS, expect.objectContaining({ kind: 'rescheduled', conversationId: CONV }))
     expect(submit).toHaveBeenCalledWith([
-      expect.objectContaining({ name: 'reschedule_appointment', response: expect.objectContaining({ success: true }) })
+      expect.objectContaining({
+        name: 'reschedule_appointment',
+        response: expect.objectContaining({ success: true, label: expect.stringMatching(/^formatted:/) })
+      })
     ])
     expect(result).toBe('Reagendado')
   })
