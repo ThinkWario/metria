@@ -18,6 +18,7 @@ import {
 import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign, MoreVertical, Trash2, X } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { LeadQualificationBadge } from '@/components/crm/LeadQualificationBadge'
 import { toast } from 'sonner'
 
@@ -489,7 +490,12 @@ export default function CrmContactsClient() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center gap-4">
-                          <ActivityBadge icon={MessageSquare} count={contact._count?.conversations ?? 0} tooltip="Conversaciones" />
+                          <ActivityBadge
+                            icon={MessageSquare}
+                            count={contact._count?.conversations ?? 0}
+                            tooltip="Abrir chat"
+                            onClick={() => router.push('/dashboard/inbox?contactId=' + contact.id)}
+                          />
                           <ActivityBadge icon={Ticket}       count={contact._count?.tickets ?? 0}       tooltip="Tickets" />
                           <ActivityBadge icon={DollarSign}   count={contact._count?.deals ?? 0}         tooltip="Oportunidades" />
                         </div>
@@ -604,12 +610,32 @@ function MetricCard({ title, value, icon: Icon, color }: { title: string; value:
   )
 }
 
-function ActivityBadge({ icon: Icon, count, tooltip }: { icon: any; count: number; tooltip: string }) {
+function ActivityBadge({ icon: Icon, count, tooltip, onClick }: { icon: any; count: number; tooltip: string; onClick?: () => void }) {
   if (count === 0) return <div className="text-muted-foreground/30 opacity-40"><Icon className="w-4 h-4" /></div>
+  if (!onClick) {
+    return (
+      <div className="flex items-center gap-1 text-muted-foreground group/item" title={tooltip}>
+        <Icon className="w-4 h-4 group-hover/item:text-primary transition-colors" />
+        <span className="text-xs font-bold">{count}</span>
+      </div>
+    )
+  }
   return (
-    <div className="flex items-center gap-1 text-muted-foreground group/item" title={tooltip}>
-      <Icon className="w-4 h-4 group-hover/item:text-primary transition-colors" />
-      <span className="text-xs font-bold">{count}</span>
-    </div>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={tooltip}
+            onClick={e => { e.stopPropagation(); onClick() }}
+            className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors group/item"
+          >
+            <Icon className="w-4 h-4" />
+            <span className="text-xs font-bold">{count}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">{tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
