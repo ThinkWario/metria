@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ContactProfileClient, { getActiveChannels } from '../app/dashboard/crm/contacts/[contactId]/ContactProfileClient'
+import ContactProfileClient from '../app/dashboard/crm/contacts/[contactId]/ContactProfileClient'
+import { getActiveChannels } from '../app/dashboard/crm/contacts/[contactId]/getActiveChannels'
 import { fetchAPI } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({ fetchAPI: vi.fn() }))

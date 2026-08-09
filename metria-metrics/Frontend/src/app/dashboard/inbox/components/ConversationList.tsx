@@ -9,17 +9,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { PLATFORM_ICONS } from '@/lib/platformIcons'
 import { MessageSquare, MoreVertical, Search, UserCheck, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-
-const PLATFORM_ICONS: Record<string, string> = {
-  WHATSAPP: 'https://cdn-icons-png.flaticon.com/512/733/733585.png',
-  INSTAGRAM: 'https://cdn-icons-png.flaticon.com/512/174/174855.png',
-  MESSENGER: 'https://cdn-icons-png.flaticon.com/512/5968/5968771.png',
-  TELEGRAM: 'https://cdn-icons-png.flaticon.com/512/2111/2111646.png',
-  TIKTOK: 'https://cdn-icons-png.flaticon.com/512/3046/3046121.png'
-}
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'OPEN', label: 'Abiertas' },

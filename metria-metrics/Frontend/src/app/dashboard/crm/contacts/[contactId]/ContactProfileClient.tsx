@@ -2,6 +2,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
+import { PLATFORM_ICONS } from '@/lib/platformIcons'
+import { getActiveChannels, type ContactConversationSummary } from './getActiveChannels'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import ContactTimeline from '@/components/crm/ContactTimeline'
 import ContactTasks from '@/components/crm/ContactTasks'
@@ -62,12 +64,8 @@ const TICKET_PRIORITY_COLOR: Record<string, string> = {
   MEDIUM: 'bg-yellow-100 text-yellow-700', LOW: 'bg-gray-100 text-gray-700'
 }
 const PLATFORM_LABEL: Record<string, string> = {
-  WHATSAPP: 'WhatsApp', INSTAGRAM: 'Instagram', TELEGRAM: 'Telegram'
-}
-const PLATFORM_ICONS: Record<string, string> = {
-  WHATSAPP: 'https://cdn-icons-png.flaticon.com/512/733/733585.png',
-  INSTAGRAM: 'https://cdn-icons-png.flaticon.com/512/174/174855.png',
-  TELEGRAM: 'https://cdn-icons-png.flaticon.com/512/2111/2111646.png',
+  WHATSAPP: 'WhatsApp', INSTAGRAM: 'Instagram', MESSENGER: 'Messenger',
+  TELEGRAM: 'Telegram', TIKTOK: 'TikTok'
 }
 const TEMP_COLOR: Record<string, string> = {
   COLD: 'bg-blue-100 text-blue-700', WARM: 'bg-orange-100 text-orange-700', HOT: 'bg-red-100 text-red-700'
@@ -456,14 +454,6 @@ function QualifiedLeadConfirmCard({ contact, onConfirmed }: { contact: Contact; 
   )
 }
 
-interface ContactConversationSummary {
-  id: string
-  status: string
-  messageCount: number
-  lastMessageAt: string | null
-  channel: { platform: string; name: string }
-}
-
 interface Contact {
   id: string; name: string; email: string | null; phone: string | null; status: string
   ltv: string; healthScore: number | null; source: string; createdAt: string
@@ -481,26 +471,6 @@ interface Contact {
   fbclid: string | null; landingUrl: string | null; referrer: string | null
   consentVersion: string | null; consentAt: string | null; consentStatus: string | null
   capiDelivered?: boolean
-}
-
-/**
- * One entry per distinct channel platform the contact has ever talked through,
- * pointing at that platform's most recently active conversation. Presence here
- * means "has a conversation record" — independent of messageCount, so a
- * WhatsApp template sent with no reply yet still counts as active.
- */
-export function getActiveChannels(conversations: ContactConversationSummary[]): { platform: string; conversationId: string }[] {
-  const byPlatform = new Map<string, { conversationId: string; lastMessageAt: string | null }>()
-  for (const conv of conversations) {
-    const platform = conv.channel.platform
-    const existing = byPlatform.get(platform)
-    const existingTime = existing?.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : -1
-    const convTime = conv.lastMessageAt ? new Date(conv.lastMessageAt).getTime() : -1
-    if (!existing || convTime > existingTime) {
-      byPlatform.set(platform, { conversationId: conv.id, lastMessageAt: conv.lastMessageAt })
-    }
-  }
-  return [...byPlatform.entries()].map(([platform, v]) => ({ platform, conversationId: v.conversationId }))
 }
 
 interface CustomFieldDefinition {
@@ -809,7 +779,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={() => router.push(`/dashboard/inbox?conversationId=${conversationId}`)}
+                      onClick={() => router.push(`/dashboard/inbox?conversationId=${encodeURIComponent(conversationId)}`)}
                       aria-label={`Abrir chat de ${PLATFORM_LABEL[platform] ?? platform}`}
                       className="w-7 h-7 rounded-full border border-border/60 bg-muted/40 hover:bg-primary/10 hover:border-primary/40 flex items-center justify-center transition-colors"
                     >
