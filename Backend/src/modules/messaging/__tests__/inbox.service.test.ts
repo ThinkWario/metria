@@ -29,7 +29,7 @@ vi.mock('../../../lib/whatsapp/WhatsAppManager', () => ({
   WhatsAppSessionManager: { getInstance: () => ({ sendMessage: nativeSendMessage }) }
 }))
 
-import { getConversations, getMessages, sendMessage } from '../inbox.service'
+import { getConversations, getMessages, sendMessage, deleteConversation } from '../inbox.service'
 import { prisma } from '../../../lib/prisma'
 
 const WS_ID = 'ws-1'
@@ -59,6 +59,18 @@ describe('getConversations', () => {
     expect(prisma.conversation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ workspaceId: WS_ID, status: 'PENDING' })
+      })
+    )
+  })
+
+  it('excludes soft-deleted conversations from the where clause', async () => {
+    vi.mocked(prisma.conversation.findMany).mockResolvedValue([])
+
+    await getConversations(WS_ID, {})
+
+    expect(prisma.conversation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workspaceId: WS_ID, deletedAt: null })
       })
     )
   })
@@ -182,6 +194,26 @@ describe('sendMessage', () => {
     expect(prisma.message.update).toHaveBeenCalledWith({
       where: { id: 'msg-out' },
       data: { status: 'SENT', externalId: undefined }
+    })
+  })
+})
+
+describe('deleteConversation', () => {
+  it('throws if conversation not found in workspace', async () => {
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue(null)
+
+    await expect(deleteConversation(WS_ID, 'conv-x')).rejects.toThrow('Conversation not found')
+  })
+
+  it('soft-deletes by setting deletedAt instead of removing the row', async () => {
+    vi.mocked(prisma.conversation.findFirst).mockResolvedValue({ id: 'conv-1' } as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue({} as any)
+
+    await deleteConversation(WS_ID, 'conv-1')
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith({
+      where: { id: 'conv-1' },
+      data: { deletedAt: expect.any(Date) }
     })
   })
 })

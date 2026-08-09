@@ -725,6 +725,7 @@ model Conversation {
   lastMessageAt    DateTime?         @map("last_message_at")
   firstResponseAt  DateTime?         @map("first_response_at")
   resolvedAt       DateTime?         @map("resolved_at")
+  deletedAt        DateTime?         @map("deleted_at")
   csatScore        Int?              @map("csat_score")
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")

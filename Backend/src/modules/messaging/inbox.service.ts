@@ -22,6 +22,7 @@ export async function getConversations(workspaceId: string, opts: GetConversatio
   const rows = await prisma.conversation.findMany({
     where: {
       workspaceId,
+      deletedAt: null,
       ...(status && status !== 'ALL' && { status }),
       ...(channelId && { channelId }),
       ...(platform && platform !== 'ALL' && { channel: { platform: platform.toUpperCase() } }),
@@ -118,13 +119,6 @@ export async function changeConversationStatus(
   return conversation
 }
 
-/**
- * Hard-deletes a conversation and its messages (cascade). Frees up the
- * externalId so the next inbound/outbound contact on that phone is treated
- * as a brand-new conversation again — used for test-number resets, since
- * prepareWhatsappConversation only sends the opening template when no
- * conversation already exists for that externalId. Leaves the Contact intact.
- */
 export async function deleteConversation(workspaceId: string, conversationId: string): Promise<void> {
   const existing = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },
@@ -132,7 +126,10 @@ export async function deleteConversation(workspaceId: string, conversationId: st
   })
   if (!existing) throw new Error('Conversation not found')
 
-  await prisma.conversation.delete({ where: { id: conversationId } })
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { deletedAt: new Date() }
+  })
 }
 
 /**
