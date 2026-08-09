@@ -120,7 +120,10 @@ export async function sendOutboundWhatsAppTemplate(
   const message = await prisma.message.create({
     data: { workspaceId, conversationId, direction: 'OUTBOUND', senderType: 'BOT', content, status: 'SENT' }
   })
-  await prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } })
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { lastMessageAt: new Date(), messageCount: { increment: 1 } }
+  })
   getIO().to(`workspace:${workspaceId}`).emit('message:new', {
     conversationId, direction: 'OUTBOUND', senderType: 'BOT', content, sentAt: message.sentAt, status: 'SENT'
   })

@@ -43,7 +43,7 @@ vi.mock('../../../lib/whatsapp/WhatsAppManager', () => ({
   WhatsAppSessionManager: { getInstance: () => ({ sendMessage: nativeSendMessage }) }
 }))
 
-import { processInboundMessage, sendOutboundPlatformMessage, sendInternalWhatsAppTemplate } from '../message.service'
+import { processInboundMessage, sendOutboundPlatformMessage, sendInternalWhatsAppTemplate, sendOutboundWhatsAppTemplate } from '../message.service'
 import { prisma } from '../../../lib/prisma'
 import { getIO } from '../../../lib/socket'
 import { scheduleAiReply } from '../../ai-agent/aiResponder'
@@ -343,5 +343,32 @@ describe('sendInternalWhatsAppTemplate', () => {
 
     await expect(sendInternalWhatsAppTemplate(WORKSPACE_ID, CHANNEL_ID, TO, 'tpl-1'))
       .rejects.toThrow('WhatsApp channel not found')
+  })
+})
+
+describe('sendOutboundWhatsAppTemplate', () => {
+  it('increments conversation.messageCount when the template send succeeds', async () => {
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+      id: 'conv-1',
+      channelId: CHANNEL_ID,
+      externalId: '56912345678',
+      channel: { platform: 'WHATSAPP', config: { phoneNumberId: 'pn-1', accessToken: 'token-1' } },
+      contact: { name: 'Herbert Orrego' }
+    } as any)
+    vi.mocked(prisma.whatsAppTemplate.findFirst).mockResolvedValue({
+      id: 'tpl-1', channelId: CHANNEL_ID, status: 'APPROVED',
+      name: 'confirmacion_visita', language: 'es', bodyText: 'Hola {{1}}, gracias por tu interés.'
+    } as any)
+    vi.mocked(prisma.message.create).mockResolvedValue({
+      id: 'msg-1', conversationId: 'conv-1', direction: 'OUTBOUND', senderType: 'BOT',
+      content: 'Hola Herbert Orrego, gracias por tu interés.', status: 'SENT', sentAt: new Date('2026-08-09T12:00:00.000Z')
+    } as any)
+
+    await sendOutboundWhatsAppTemplate(WORKSPACE_ID, 'conv-1', 'tpl-1')
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith({
+      where: { id: 'conv-1' },
+      data: expect.objectContaining({ messageCount: { increment: 1 } })
+    })
   })
 })
