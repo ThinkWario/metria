@@ -65,21 +65,34 @@ describe('InboxClient — deep link resolution', () => {
   it('widens the status filter to ALL when the conversation is not visible under the current filter, then selects it once loaded', async () => {
     mockUseSearchParams.mockReturnValue(new URLSearchParams({ conversationId: 'conv-closed' }))
     const closedConv = { ...conv1, id: 'conv-closed', status: 'CLOSED' }
-    mockUseInbox
-      .mockReturnValueOnce(baseInboxState({ conversations: [conv1] })) // first render: not found under OPEN
-      .mockReturnValue(baseInboxState({ conversations: [conv1, closedConv], statusFilter: 'ALL' }))
+    // Same array identity across phases A and B: the real hook flips statusFilter
+    // to ALL a render before the widened fetch replaces the list.
+    const preWidenList = [conv1]
 
+    // Phase A — not found under OPEN, so the filter widens to ALL.
+    mockUseInbox.mockReturnValue(baseInboxState({ conversations: preWidenList }))
     const { rerender } = render(<InboxClient />)
 
     await waitFor(() => expect(mockSetStatusFilter).toHaveBeenCalledWith('ALL'))
 
-    // Simulate useInbox() picking up the widened filter (real hook would re-render
-    // on its own; here we force it since useInbox is fully mocked).
+    // Phase B — filter is now ALL but the widened fetch hasn't landed, so the
+    // list is unchanged. Must wait, not declare the conversation missing.
+    mockUseInbox.mockReturnValue(baseInboxState({ conversations: preWidenList, statusFilter: 'ALL' }))
+    rerender(<InboxClient />)
+
+    await waitFor(() => expect(mockSetStatusFilter).toHaveBeenCalledWith('ALL'))
+    expect(mockToastError).not.toHaveBeenCalled()
+    expect(mockSetSelectedId).not.toHaveBeenCalled()
+    expect(mockRouterReplace).not.toHaveBeenCalled()
+
+    // Phase C — widened fetch lands with a genuinely new list.
+    mockUseInbox.mockReturnValue(baseInboxState({ conversations: [conv1, closedConv], statusFilter: 'ALL' }))
     rerender(<InboxClient />)
 
     await waitFor(() => expect(mockSetSelectedId).toHaveBeenCalledWith('conv-closed'))
     expect(mockMarkAsRead).toHaveBeenCalledWith('conv-closed')
     expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/inbox')
+    expect(mockToastError).not.toHaveBeenCalled()
   })
 
   it('resolves contactId to the contact\'s conversation and selects it', async () => {

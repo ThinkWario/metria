@@ -1,8 +1,8 @@
 'use client'
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { useInbox } from '@/hooks/useInbox'
+import { useInbox, type Conversation } from '@/hooks/useInbox'
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
 import { ContactPanel } from './components/ContactPanel'
@@ -18,6 +18,7 @@ function InboxContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [deepLinkResolved, setDeepLinkResolved] = useState(false)
+  const preWidenListRef = useRef<Conversation[] | null>(null)
 
   const {
     conversations,
@@ -70,9 +71,13 @@ function InboxContent() {
       return
     }
     if (statusFilter !== 'ALL') {
+      preWidenListRef.current = conversations
       setStatusFilter('ALL')
       return
     }
+    // The widened filter re-renders us before its refetch starts, so an unchanged
+    // list here means the ALL results haven't landed yet — keep waiting.
+    if (preWidenListRef.current === conversations) return
     toast.error('Conversación no encontrada')
     setDeepLinkResolved(true)
     router.replace('/dashboard/inbox')
