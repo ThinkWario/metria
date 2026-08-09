@@ -7,6 +7,7 @@ import ContactTimeline from '@/components/crm/ContactTimeline'
 import ContactTasks from '@/components/crm/ContactTasks'
 import { Trophy, Wallet, ShoppingBag, GitBranch, Pencil, TrendingUp } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
 /** Compact CLP formatter — mirrors PipelineForecast / PipelinesClient idiom. */
@@ -62,6 +63,11 @@ const TICKET_PRIORITY_COLOR: Record<string, string> = {
 }
 const PLATFORM_LABEL: Record<string, string> = {
   WHATSAPP: 'WhatsApp', INSTAGRAM: 'Instagram', TELEGRAM: 'Telegram'
+}
+const PLATFORM_ICONS: Record<string, string> = {
+  WHATSAPP: 'https://cdn-icons-png.flaticon.com/512/733/733585.png',
+  INSTAGRAM: 'https://cdn-icons-png.flaticon.com/512/174/174855.png',
+  TELEGRAM: 'https://cdn-icons-png.flaticon.com/512/2111/2111646.png',
 }
 const TEMP_COLOR: Record<string, string> = {
   COLD: 'bg-blue-100 text-blue-700', WARM: 'bg-orange-100 text-orange-700', HOT: 'bg-red-100 text-red-700'
@@ -450,6 +456,14 @@ function QualifiedLeadConfirmCard({ contact, onConfirmed }: { contact: Contact; 
   )
 }
 
+interface ContactConversationSummary {
+  id: string
+  status: string
+  messageCount: number
+  lastMessageAt: string | null
+  channel: { platform: string; name: string }
+}
+
 interface Contact {
   id: string; name: string; email: string | null; phone: string | null; status: string
   ltv: string; healthScore: number | null; source: string; createdAt: string
@@ -458,7 +472,7 @@ interface Contact {
   contactNotes: { id: string; content: string; createdAt: string; userId: string }[]
   deals: { id: string; title: string; value: string; status: string; stage: { name: string; color: string } }[]
   tickets: { id: string; title: string; status: string; priority: string; createdAt: string; slaDeadline: string | null }[]
-  conversations: { id: string; status: string; messageCount: number; lastMessageAt: string | null; channel: { platform: string; name: string } }[]
+  conversations: ContactConversationSummary[]
   customFields?: Record<string, string> | null
   sessionId: string | null
   qualificationData: Record<string, unknown> | null
@@ -467,6 +481,26 @@ interface Contact {
   fbclid: string | null; landingUrl: string | null; referrer: string | null
   consentVersion: string | null; consentAt: string | null; consentStatus: string | null
   capiDelivered?: boolean
+}
+
+/**
+ * One entry per distinct channel platform the contact has ever talked through,
+ * pointing at that platform's most recently active conversation. Presence here
+ * means "has a conversation record" — independent of messageCount, so a
+ * WhatsApp template sent with no reply yet still counts as active.
+ */
+export function getActiveChannels(conversations: ContactConversationSummary[]): { platform: string; conversationId: string }[] {
+  const byPlatform = new Map<string, { conversationId: string; lastMessageAt: string | null }>()
+  for (const conv of conversations) {
+    const platform = conv.channel.platform
+    const existing = byPlatform.get(platform)
+    const existingTime = existing?.lastMessageAt ? new Date(existing.lastMessageAt).getTime() : -1
+    const convTime = conv.lastMessageAt ? new Date(conv.lastMessageAt).getTime() : -1
+    if (!existing || convTime > existingTime) {
+      byPlatform.set(platform, { conversationId: conv.id, lastMessageAt: conv.lastMessageAt })
+    }
+  }
+  return [...byPlatform.entries()].map(([platform, v]) => ({ platform, conversationId: v.conversationId }))
 }
 
 interface CustomFieldDefinition {
@@ -729,6 +763,8 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
     { key: 'tareas', label: 'Tareas' },
   ]
 
+  const activeChannels = getActiveChannels(contact.conversations ?? [])
+
   return (
     <div className="space-y-6">
       {duplicates.length > 0 && (
@@ -765,6 +801,29 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
           </div>
           <p className="text-sm text-muted-foreground">{contact.phone?.split('@')[0] ?? contact.email ?? '—'}</p>
         </div>
+        {activeChannels.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            {activeChannels.map(({ platform, conversationId }) => (
+              <TooltipProvider key={platform}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/dashboard/inbox?conversationId=${conversationId}`)}
+                      aria-label={`Abrir chat de ${PLATFORM_LABEL[platform] ?? platform}`}
+                      className="w-7 h-7 rounded-full border border-border/60 bg-muted/40 hover:bg-primary/10 hover:border-primary/40 flex items-center justify-center transition-colors"
+                    >
+                      {PLATFORM_ICONS[platform]
+                        ? <img src={PLATFORM_ICONS[platform]} alt="" className="w-4 h-4" />
+                        : <span className="text-[10px] font-bold">{platform.charAt(0)}</span>}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{PLATFORM_LABEL[platform] ?? platform}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ))}
+          </div>
+        )}
         <Select value={contact.status} onValueChange={handleStatusChange}>
           <SelectTrigger
             className={`ml-2 h-6 text-xs font-medium px-2.5 rounded-full border-0 shadow-none w-auto min-w-0 gap-1 focus:ring-0 focus:ring-offset-0 ${STATUS_COLOR[contact.status] ?? 'bg-muted'}`}
