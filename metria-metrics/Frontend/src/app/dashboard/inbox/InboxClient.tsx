@@ -1,14 +1,23 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 import { useInbox } from '@/hooks/useInbox'
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
 import { ContactPanel } from './components/ContactPanel'
 import { PlatformFilterBar } from './components/PlatformFilterBar'
+import { resolveDeepLinkConversation } from './resolveDeepLinkConversation'
 
-export function InboxClient() {
+const WRAPPER_CLASS = '-mx-6 -my-6 md:-mx-8 md:-my-8 h-[calc(100vh-4rem)] flex flex-col overflow-hidden'
+
+function InboxContent() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [deepLinkResolved, setDeepLinkResolved] = useState(false)
 
   const {
     conversations,
@@ -44,13 +53,34 @@ export function InboxClient() {
     markAsRead(id)
   }, [setSelectedId, markAsRead])
 
-  // Escape the dashboard layout's p-6 md:p-8 padding so inbox fills the viewport
-  const wrapperClass =
-    '-mx-6 -my-6 md:-mx-8 md:-my-8 h-[calc(100vh-4rem)] flex flex-col overflow-hidden'
+  // Resolve a CRM "open chat" deep link (?conversationId= or ?contactId=) into a
+  // selected conversation. Widens the status filter to ALL once if the target
+  // isn't visible under the current filter before giving up.
+  useEffect(() => {
+    if (deepLinkResolved || loadingConvs) return
+    const conversationId = searchParams.get('conversationId')
+    const contactId = searchParams.get('contactId')
+    if (!conversationId && !contactId) return
+
+    const match = resolveDeepLinkConversation(conversations, { conversationId, contactId })
+    if (match) {
+      handleSelectConversation(match.id)
+      setDeepLinkResolved(true)
+      router.replace('/dashboard/inbox')
+      return
+    }
+    if (statusFilter !== 'ALL') {
+      setStatusFilter('ALL')
+      return
+    }
+    toast.error('Conversación no encontrada')
+    setDeepLinkResolved(true)
+    router.replace('/dashboard/inbox')
+  }, [searchParams, conversations, loadingConvs, statusFilter, deepLinkResolved, handleSelectConversation, setStatusFilter, router])
 
   if (!mounted) {
     return (
-      <div className={`${wrapperClass} animate-pulse`}>
+      <div className={`${WRAPPER_CLASS} animate-pulse`}>
         <div className="h-11 bg-muted/30 border-b shrink-0" />
         <div className="flex flex-1 overflow-hidden">
           <div className="w-[320px] bg-muted/30 border-r" />
@@ -62,7 +92,7 @@ export function InboxClient() {
   }
 
   return (
-    <div className={wrapperClass}>
+    <div className={WRAPPER_CLASS}>
       <PlatformFilterBar platformFilter={platformFilter} onPlatformFilterChange={setPlatformFilter} />
       <div className="flex flex-1 overflow-hidden">
         <ConversationList
@@ -93,5 +123,13 @@ export function InboxClient() {
         <ContactPanel conversation={selectedConv} />
       </div>
     </div>
+  )
+}
+
+export function InboxClient() {
+  return (
+    <Suspense fallback={<div className={`${WRAPPER_CLASS} animate-pulse`} />}>
+      <InboxContent />
+    </Suspense>
   )
 }
