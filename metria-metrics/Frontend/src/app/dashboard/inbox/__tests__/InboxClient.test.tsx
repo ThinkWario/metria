@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { InboxClient } from '../InboxClient'
 
-const { mockRouterReplace, mockUseSearchParams, mockUseInbox } = vi.hoisted(() => ({
+const { mockRouterReplace, mockUseSearchParams, mockUseInbox, mockToastError } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
   mockUseSearchParams: vi.fn(),
-  mockUseInbox: vi.fn()
+  mockUseInbox: vi.fn(),
+  mockToastError: vi.fn()
 }))
 
 vi.mock('next/navigation', () => ({
@@ -13,6 +14,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: mockUseSearchParams
 }))
 vi.mock('@/hooks/useInbox', () => ({ useInbox: mockUseInbox }))
+vi.mock('sonner', () => ({ toast: { error: mockToastError } }))
 vi.mock('../components/ConversationList', () => ({ ConversationList: () => <div data-testid="conversation-list" /> }))
 vi.mock('../components/ChatWindow', () => ({ ChatWindow: () => <div data-testid="chat-window" /> }))
 vi.mock('../components/ContactPanel', () => ({ ContactPanel: () => <div data-testid="contact-panel" /> }))
@@ -67,9 +69,17 @@ describe('InboxClient — deep link resolution', () => {
       .mockReturnValueOnce(baseInboxState({ conversations: [conv1] })) // first render: not found under OPEN
       .mockReturnValue(baseInboxState({ conversations: [conv1, closedConv], statusFilter: 'ALL' }))
 
-    render(<InboxClient />)
+    const { rerender } = render(<InboxClient />)
 
     await waitFor(() => expect(mockSetStatusFilter).toHaveBeenCalledWith('ALL'))
+
+    // Simulate useInbox() picking up the widened filter (real hook would re-render
+    // on its own; here we force it since useInbox is fully mocked).
+    rerender(<InboxClient />)
+
+    await waitFor(() => expect(mockSetSelectedId).toHaveBeenCalledWith('conv-closed'))
+    expect(mockMarkAsRead).toHaveBeenCalledWith('conv-closed')
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/inbox')
   })
 
   it('resolves contactId to the contact\'s conversation and selects it', async () => {
@@ -100,5 +110,6 @@ describe('InboxClient — deep link resolution', () => {
 
     await waitFor(() => expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/inbox'))
     expect(mockSetSelectedId).not.toHaveBeenCalled()
+    expect(mockToastError).toHaveBeenCalledWith('Conversación no encontrada')
   })
 })
