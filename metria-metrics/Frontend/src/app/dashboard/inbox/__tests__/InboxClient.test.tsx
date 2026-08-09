@@ -123,6 +123,6 @@ describe('InboxClient — deep link resolution', () => {
 
     await waitFor(() => expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/inbox'))
     expect(mockSetSelectedId).not.toHaveBeenCalled()
-    expect(mockToastError).toHaveBeenCalledWith('Conversación no encontrada')
+    expect(mockToastError).toHaveBeenCalledWith('No pudimos abrir ese chat automáticamente — búscalo en la bandeja')
   })
 })

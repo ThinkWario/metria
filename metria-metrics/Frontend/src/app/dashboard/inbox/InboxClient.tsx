@@ -78,7 +78,10 @@ function InboxContent() {
     // The widened filter re-renders us before its refetch starts, so an unchanged
     // list here means the ALL results haven't landed yet — keep waiting.
     if (preWidenListRef.current === conversations) return
-    toast.error('Conversación no encontrada')
+    // Known limitation (tech debt): resolution only searches the loaded window —
+    // at most 30 conversations, most recent first — so a contact whose activity
+    // is older than that window reads as "not found" even though the chat exists.
+    toast.error('No pudimos abrir ese chat automáticamente — búscalo en la bandeja')
     setDeepLinkResolved(true)
     router.replace('/dashboard/inbox')
   }, [searchParams, conversations, loadingConvs, statusFilter, deepLinkResolved, handleSelectConversation, setStatusFilter, router])
