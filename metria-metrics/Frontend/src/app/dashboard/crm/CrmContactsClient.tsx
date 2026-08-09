@@ -411,8 +411,9 @@ export default function CrmContactsClient() {
               <p className="text-muted-foreground max-w-xs mx-auto">Ajusta los filtros o crea un nuevo contacto manualmente.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <TooltipProvider>
+              <div className="overflow-x-auto">
+                <table className="w-full">
                 <thead>
                   <tr className="border-b border-border/40 text-xs uppercase tracking-wider text-muted-foreground">
                     {/* Select-all checkbox */}
@@ -538,8 +539,9 @@ export default function CrmContactsClient() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+            </TooltipProvider>
           )}
         </CardContent>
       </Card>
@@ -621,21 +623,19 @@ function ActivityBadge({ icon: Icon, count, tooltip, onClick }: { icon: any; cou
     )
   }
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={tooltip}
-            onClick={e => { e.stopPropagation(); onClick() }}
-            className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors group/item"
-          >
-            <Icon className="w-4 h-4" />
-            <span className="text-xs font-bold">{count}</span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top">{tooltip}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={tooltip}
+          onClick={e => { e.stopPropagation(); onClick() }}
+          className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors group/item"
+        >
+          <Icon className="w-4 h-4" />
+          <span className="text-xs font-bold">{count}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   )
 }
