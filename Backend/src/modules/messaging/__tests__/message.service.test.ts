@@ -235,6 +235,40 @@ describe('processInboundMessage', () => {
     expect(prisma.message.create).not.toHaveBeenCalled()
     expect(prisma.conversation.update).not.toHaveBeenCalled()
   })
+
+  it('revives a soft-deleted conversation on a new inbound message and re-emits conversation:new', async () => {
+    const mockChannel = { id: CHANNEL_ID, platform: 'TELEGRAM' }
+    const mockContact = { id: 'contact-revived', name: 'Juan', status: 'CUSTOMER', phone: '+56912345678' }
+    const mockConversation = {
+      id: 'conv-revived', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
+      externalId: 'ext-conv-1', status: 'OPEN', messageCount: 3, contactId: 'contact-revived',
+      contact: mockContact, createdAt: new Date(), deletedAt: new Date('2026-08-01')
+    }
+    const mockMessage = {
+      id: 'msg-revived', conversationId: 'conv-revived', direction: 'INBOUND',
+      senderType: 'CONTACT', content: baseData.content, sentAt: new Date()
+    }
+
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, deletedAt: null, messageCount: 4 } as any)
+    vi.mocked(prisma.message.create).mockResolvedValue(mockMessage as any)
+
+    const mockIO = { to: vi.fn().mockReturnThis(), emit: vi.fn() }
+    vi.mocked(getIO).mockReturnValue(mockIO as any)
+
+    const result = await processInboundMessage(baseData)
+
+    expect(result.isNewConversation).toBe(true)
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'conv-revived' },
+        data: expect.objectContaining({ deletedAt: null })
+      })
+    )
+    expect(mockIO.emit).toHaveBeenCalledWith('conversation:new', expect.objectContaining({ id: 'conv-revived' }))
+  })
 })
 
 describe('sendOutboundPlatformMessage', () => {

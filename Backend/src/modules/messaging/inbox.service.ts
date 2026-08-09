@@ -119,6 +119,7 @@ export async function changeConversationStatus(
   return conversation
 }
 
+// Soft-delete: the (workspaceId, channelId, externalId) row stays, so a new inbound message on this thread revives it automatically (see processInboundMessage in message.service.ts).
 export async function deleteConversation(workspaceId: string, conversationId: string): Promise<void> {
   const existing = await prisma.conversation.findFirst({
     where: { id: conversationId, workspaceId },

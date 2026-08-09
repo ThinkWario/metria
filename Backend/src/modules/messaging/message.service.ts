@@ -303,6 +303,8 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     },
     include: { contact: { select: { id: true, name: true, status: true, phone: true } } }
   })
+  const isRevivingDeleted = !!conversation?.deletedAt
+  if (isRevivingDeleted) isNewConversation = true
 
   let contact: any
   if (data.contactId) {
@@ -408,7 +410,7 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
 
   const updatedConv = await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: new Date(), messageCount: { increment: 1 } },
+    data: { lastMessageAt: new Date(), messageCount: { increment: 1 }, deletedAt: null },
     include: { channel: { select: { platform: true, config: true } } }
   })
 
