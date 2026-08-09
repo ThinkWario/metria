@@ -414,7 +414,7 @@ export default function CrmContactsClient() {
             <TooltipProvider>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                <thead>
+                  <thead>
                   <tr className="border-b border-border/40 text-xs uppercase tracking-wider text-muted-foreground">
                     {/* Select-all checkbox */}
                     <th className="px-4 py-4 w-10">
@@ -436,8 +436,8 @@ export default function CrmContactsClient() {
                     <th className="text-center px-6 py-4 font-black">Actividad</th>
                     <th className="text-right px-6 py-4 font-black">Acciones</th>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40">
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
                   {displayedContacts.map(contact => (
                     <tr
                       key={contact.id}
@@ -495,7 +495,7 @@ export default function CrmContactsClient() {
                             icon={MessageSquare}
                             count={contact._count?.conversations ?? 0}
                             tooltip="Abrir chat"
-                            onClick={() => router.push('/dashboard/inbox?contactId=' + contact.id)}
+                            onClick={() => router.push(`/dashboard/inbox?contactId=${encodeURIComponent(contact.id)}`)}
                           />
                           <ActivityBadge icon={Ticket}       count={contact._count?.tickets ?? 0}       tooltip="Tickets" />
                           <ActivityBadge icon={DollarSign}   count={contact._count?.deals ?? 0}         tooltip="Oportunidades" />
@@ -538,7 +538,7 @@ export default function CrmContactsClient() {
                       </td>
                     </tr>
                   ))}
-                </tbody>
+                  </tbody>
                 </table>
               </div>
             </TooltipProvider>
