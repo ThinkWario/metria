@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import type { Conversation, StatusFilter } from '@/hooks/useInbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -8,9 +9,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { PLATFORM_ICONS } from '@/lib/platformIcons'
-import { MessageSquare, MoreVertical, Search, UserCheck, X } from 'lucide-react'
+import { MessageSquare, MoreVertical, Search, Trash2, UserCheck, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -33,6 +38,7 @@ interface Props {
   assignedToMe: boolean
   onAssignedToMeChange: (value: boolean) => void
   onMarkAsUnread?: (id: string) => void
+  onDeleteConversation?: (id: string) => void
 }
 
 export function ConversationList({
@@ -47,7 +53,9 @@ export function ConversationList({
   assignedToMe,
   onAssignedToMeChange,
   onMarkAsUnread,
+  onDeleteConversation,
 }: Props) {
+  const [conversationToDelete, setConversationToDelete] = useState<string | null>(null)
   return (
     <aside className="w-[320px] bg-card/30 backdrop-blur-xl border-r border-border/40 flex flex-col overflow-hidden shrink-0 animate-in slide-in-from-left duration-500">
       <div className="px-6 pt-6 pb-4 border-b border-border/40 space-y-4">
@@ -190,7 +198,7 @@ export function ConversationList({
                     <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
                       {conv.lastMessageAt ? formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: false, locale: es }).replace('alrededor de ', '') : ''}
                     </span>
-                    {onMarkAsUnread && (conv.unreadCount ?? 0) === 0 && (
+                    {(onMarkAsUnread || onDeleteConversation) && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
@@ -202,13 +210,24 @@ export function ConversationList({
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48" onClick={e => e.stopPropagation()}>
-                          <DropdownMenuItem
-                            onSelect={() => onMarkAsUnread(conv.id)}
-                            className="text-xs gap-2 cursor-pointer"
-                          >
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-                            Marcar como no leído
-                          </DropdownMenuItem>
+                          {onMarkAsUnread && (conv.unreadCount ?? 0) === 0 && (
+                            <DropdownMenuItem
+                              onSelect={() => onMarkAsUnread(conv.id)}
+                              className="text-xs gap-2 cursor-pointer"
+                            >
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                              Marcar como no leído
+                            </DropdownMenuItem>
+                          )}
+                          {onDeleteConversation && (
+                            <DropdownMenuItem
+                              onSelect={() => setConversationToDelete(conv.id)}
+                              className="text-xs gap-2 cursor-pointer text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                              Eliminar conversación
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )}
@@ -240,6 +259,31 @@ export function ConversationList({
             </li>
           ))}
         </ul>
+      )}
+
+      {onDeleteConversation && (
+        <AlertDialog open={conversationToDelete !== null} onOpenChange={open => !open && setConversationToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Eliminar conversación?</AlertDialogTitle>
+              <AlertDialogDescription>
+                La conversación se ocultará del Inbox. Los mensajes no se pierden y la conversación reaparecerá si el contacto vuelve a escribir.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (conversationToDelete) onDeleteConversation(conversationToDelete)
+                  setConversationToDelete(null)
+                }}
+              >
+                Eliminar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </aside>
   )
