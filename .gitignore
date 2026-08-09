@@ -1,3 +1,7 @@
 ﻿*.dll.node.tmp*
 test-results/
 Backend/test-results/
+node_modules
+Backend/.env
+credwsp.txt
+.superpowers/
