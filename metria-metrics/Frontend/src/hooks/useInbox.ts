@@ -270,6 +270,24 @@ export function useInbox() {
     }
   }, [])
 
+  /** Optimistically removes a conversation from the list; rolls back on failure. */
+  const deleteConversation = useCallback(async (conversationId: string) => {
+    const backup = conversations.find(c => c.id === conversationId)
+    setConversations(prev => prev.filter(c => c.id !== conversationId))
+    if (selectedIdRef.current === conversationId) {
+      selectedIdRef.current = null
+      setSelectedId(null)
+    }
+    try {
+      await fetchAPI(`/messaging/conversations/${conversationId}`, { method: 'DELETE' })
+    } catch (err) {
+      if (backup) {
+        setConversations(prev => [backup, ...prev])
+      }
+      throw err
+    }
+  }, [conversations])
+
   /** Optimistically change a conversation's workflow status; rolls back on failure. */
   const changeStatus = useCallback(async (conversationId: string, status: ConversationStatus) => {
     let snapshot: Conversation | undefined
@@ -349,6 +367,7 @@ export function useInbox() {
     handbackToBot,
     markAsRead,
     markAsUnread,
+    deleteConversation,
     changeStatus,
     assignConversation,
     // Filters
