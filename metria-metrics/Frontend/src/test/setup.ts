@@ -22,3 +22,9 @@ vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
 })))
+
+vi.stubGlobal('ResizeObserver', class ResizeObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+})
