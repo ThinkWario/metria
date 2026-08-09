@@ -304,7 +304,6 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
     include: { contact: { select: { id: true, name: true, status: true, phone: true } } }
   })
   const isRevivingDeleted = !!conversation?.deletedAt
-  if (isRevivingDeleted) isNewConversation = true
 
   let contact: any
   if (data.contactId) {
@@ -366,6 +365,13 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
       select: { id: true }
     })
     if (existing) {
+      // If this soft-deleted conversation receives a replayed message, revive it without emitting conversation:new
+      if (isRevivingDeleted) {
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { deletedAt: null }
+        })
+      }
       return {
         conversationId: conversation.id,
         messageId: existing.id,
@@ -373,6 +379,11 @@ export async function processInboundMessage(data: InboundMessageData): Promise<P
         isNewConversation
       }
     }
+  }
+
+  // After dedup check: if this is a soft-deleted conversation with a new (non-duplicate) message, mark as revival
+  if (isRevivingDeleted) {
+    isNewConversation = true
   }
 
   const message = await prisma.message.create({

@@ -269,6 +269,42 @@ describe('processInboundMessage', () => {
     )
     expect(mockIO.emit).toHaveBeenCalledWith('conversation:new', expect.objectContaining({ id: 'conv-revived' }))
   })
+
+  it('revives a soft-deleted conversation on a duplicate inbound message without re-emitting conversation:new', async () => {
+    const mockChannel = { id: CHANNEL_ID, platform: 'TELEGRAM' }
+    const mockContact = { id: 'contact-dedup-revived', name: 'Carlos', status: 'CUSTOMER', phone: '+56987654321' }
+    const mockConversation = {
+      id: 'conv-dedup-revived', workspaceId: WORKSPACE_ID, channelId: CHANNEL_ID,
+      externalId: 'ext-conv-dedup', status: 'OPEN', messageCount: 2, contactId: 'contact-dedup-revived',
+      contact: mockContact, createdAt: new Date(), deletedAt: new Date('2026-08-02')
+    }
+
+    vi.mocked(prisma.channel.findUnique).mockResolvedValue(mockChannel as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue(mockContact as any)
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue(mockConversation as any)
+    vi.mocked(prisma.message.findFirst).mockResolvedValueOnce({ id: 'existing-msg-dedup' } as any)
+    vi.mocked(prisma.conversation.update).mockResolvedValue({ ...mockConversation, deletedAt: null } as any)
+
+    const mockIO = { to: vi.fn().mockReturnThis(), emit: vi.fn() }
+    vi.mocked(getIO).mockReturnValue(mockIO as any)
+
+    const result = await processInboundMessage(baseData)
+
+    // Dedup returns isNewConversation: false (we're not processing a new message)
+    expect(result.isNewConversation).toBe(false)
+    expect(result.messageId).toBe('existing-msg-dedup')
+    // But deletedAt is still cleared in the DB (no-op update since we're returning early from dedup)
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'conv-dedup-revived' },
+        data: { deletedAt: null }
+      })
+    )
+    // conversation:new is NOT emitted on dedup (we return early)
+    expect(mockIO.emit).not.toHaveBeenCalledWith('conversation:new', expect.anything())
+    // message:new is also NOT emitted (dedup early-returns)
+    expect(mockIO.emit).not.toHaveBeenCalledWith('message:new', expect.anything())
+  })
 })
 
 describe('sendOutboundPlatformMessage', () => {
