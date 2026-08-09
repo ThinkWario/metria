@@ -82,6 +82,14 @@ export function useInbox() {
   // Keep a live ref to selectedId so socket handlers don't need to re-subscribe on every select.
   const selectedIdRef = useRef<string | null>(null)
 
+  // Live ref to conversations so optimistic-update callbacks can read the current
+  // list synchronously (for rollback snapshots) without depending on `conversations`
+  // in their useCallback deps, which would recreate them on every list change.
+  const conversationsRef = useRef<Conversation[]>(conversations)
+  useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
+
   // Update the ref synchronously so socket handlers firing between click and
   // re-render read the correct active conversation (avoids unread-count race).
   const setSelectedIdSync = useCallback((id: string | null) => {
@@ -272,8 +280,8 @@ export function useInbox() {
 
   /** Optimistically removes a conversation from the list; rolls back (at its original index) on failure. */
   const deleteConversation = useCallback(async (conversationId: string) => {
-    const backupIndex = conversations.findIndex(c => c.id === conversationId)
-    const backup = backupIndex !== -1 ? conversations[backupIndex] : undefined
+    const backupIndex = conversationsRef.current.findIndex(c => c.id === conversationId)
+    const backup = backupIndex !== -1 ? conversationsRef.current[backupIndex] : undefined
     setConversations(prev => prev.filter(c => c.id !== conversationId))
     if (selectedIdRef.current === conversationId) {
       selectedIdRef.current = null
@@ -287,7 +295,7 @@ export function useInbox() {
       }
       throw err
     }
-  }, [conversations])
+  }, [])
 
   /** Optimistically change a conversation's workflow status; rolls back on failure. */
   const changeStatus = useCallback(async (conversationId: string, status: ConversationStatus) => {
