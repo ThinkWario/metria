@@ -606,12 +606,12 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         // Never trust a model-reconstructed ISO string directly — LLMs
         // reliably mangle timezone offsets and date arithmetic when writing
         // one from memory instead of copying it. Only book a time that
-        // exactly matches one just computed by get_available_slots, which
-        // does the timezone math correctly server-side.
+        // matches one just computed by get_available_slots, which does the
+        // timezone math correctly server-side (findMatchingSlot tolerates
+        // small paraphrasing drift instead of requiring byte-for-byte equality).
         const rawSlots = await getAvailableSlots(workspaceId, type, new Date(), 14)
         const validSlots = await filterSlotsByCalendarBusy(workspaceId, type, rawSlots)
-        const requested = new Date(args.isoDateTime)
-        const matchedSlot = validSlots.find(s => s.getTime() === requested.getTime())
+        const matchedSlot = findMatchingSlot(validSlots, args.isoDateTime)
         if (!matchedSlot) {
           return {
             success: false,
@@ -668,11 +668,11 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         if (!active) return { success: false, error: 'No hay cita activa para reagendar' }
 
         // Same guard as schedule_appointment — only accept a time that
-        // exactly matches a currently valid, timezone-correct slot.
+        // matches a currently valid, timezone-correct slot (findMatchingSlot
+        // tolerates small paraphrasing drift instead of requiring exact equality).
         const rawSlotsForReschedule = await getAvailableSlots(workspaceId, active.type, new Date(), 14)
         const validSlotsForReschedule = await filterSlotsByCalendarBusy(workspaceId, active.type, rawSlotsForReschedule)
-        const requestedNew = new Date(args.newIsoDateTime)
-        const matchedNewSlot = validSlotsForReschedule.find(s => s.getTime() === requestedNew.getTime())
+        const matchedNewSlot = findMatchingSlot(validSlotsForReschedule, args.newIsoDateTime)
         if (!matchedNewSlot) {
           return {
             success: false,
@@ -738,4 +738,28 @@ async function logAiAction(workspaceId: string, conversationId: string, content:
       isInternal: true
     }
   })
+}
+
+// LLMs frequently paraphrase the isoDateTime instead of copying it verbatim
+// from get_available_slots (dropping seconds, truncating the offset), which
+// used to make an exact-match slot lookup fail and bounce the user back to
+// re-picking a time they'd already given. Snap to the closest valid slot
+// when the mismatch is small enough to be unambiguous; only bounce back
+// when the requested time doesn't correspond to any real slot.
+const SLOT_MATCH_TOLERANCE_MS = 15 * 60_000
+
+function findMatchingSlot(validSlots: Date[], requestedIso: string): Date | null {
+  const requested = new Date(requestedIso)
+  if (Number.isNaN(requested.getTime())) return null
+
+  let closest: Date | null = null
+  let closestDiff = Infinity
+  for (const slot of validSlots) {
+    const diff = Math.abs(slot.getTime() - requested.getTime())
+    if (diff < closestDiff) {
+      closestDiff = diff
+      closest = slot
+    }
+  }
+  return closestDiff <= SLOT_MATCH_TOLERANCE_MS ? closest : null
 }
