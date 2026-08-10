@@ -61,16 +61,39 @@ A failure here (expired/missing Gmail grant, Gmail API error, malformed recipien
 
 Subject: `📅 Visita técnica agendada — {contact.name} — {fecha corta}` (created) / `📅 Visita técnica reagendada — {contact.name} — {fecha corta}` (rescheduled).
 
-Body, in the requested order, each field omitted if not present on the contact (never renders "undefined" or an empty link):
+Grouped into sections by operational priority — actionable info (when, who) first, reference info (quote) last — not a flat field dump. Each field/link omitted if not present on the contact (never renders "undefined" or an empty link):
 
-1. **Cotización** — `https://solar.drillchile.cl/cotizaciones?sessionId={contact.sessionId}` (only if `sessionId` present)
-2. **Dirección** — `contact.qualificationData.rawFields.direccion`
-3. **Teléfono** — `contact.phone`
-4. **Geolocalización** — `rawFields.houseMapUrl` ("Ver ubicación de la casa") and `rawFields.meterMapUrl` ("Ver ubicación del medidor"), each linked only if present
-5. **Nombre** — `contact.name`
-6. **Fecha y hora** — `appointment.scheduledAt`, formatted via the existing `formatApptDateTime(d, tz)` in the workspace's timezone
+```
+Equipo DrillChile,
 
-For the rescheduled case, also includes the previous date/time (`oldScheduledAt`) for context, same as the WhatsApp reschedule message does.
+Se agendó una nueva visita técnica. Detalle para coordinar la salida:
+
+🗓️  VISITA
+    Fecha y hora:  {fecha y hora, tz workspace}
+    [reagendamiento only] Anteriormente:  {oldScheduledAt}
+
+👤  CLIENTE
+    Nombre:        {contact.name}
+    Teléfono:      {contact.phone}
+
+📍  UBICACIÓN
+    Dirección:     {rawFields.direccion}
+    → Ver ubicación de la casa      (rawFields.houseMapUrl, if present)
+    → Ver ubicación del medidor     (rawFields.meterMapUrl, if present)
+
+💰  COTIZACIÓN
+    → Ver cotización                (sessionId-based link, if contact.sessionId present)
+
+Revisa el CRM para más detalles.
+
+— Metria · Aviso automático
+```
+
+- **VISITA** section — `appointment.scheduledAt` formatted via the existing `formatApptDateTime(d, tz)`; for `kind: 'rescheduled'` also shows `oldScheduledAt`, same as the WhatsApp reschedule message does.
+- **CLIENTE** — `contact.name`, `contact.phone`.
+- **UBICACIÓN** — `contact.qualificationData.rawFields.direccion`, `.houseMapUrl`, `.meterMapUrl`.
+- **COTIZACIÓN** — `https://solar.drillchile.cl/cotizaciones?sessionId={contact.sessionId}`, only if `sessionId` present; whole section omitted otherwise.
+- Sent as HTML (bold section labels, clickable links) with a plain-text fallback.
 
 ## Error handling
 
