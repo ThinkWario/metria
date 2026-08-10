@@ -55,6 +55,32 @@ router.patch('/appointments/:id/status', ...auth, async (req: any, res) => {
   }
 })
 
+router.post('/appointments/:id/notify-technician', ...auth, async (req: any, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId
+    if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
+
+    const appt = await prisma.appointment.findFirst({
+      where: { id: req.params.id, workspaceId },
+      include: { contact: { select: { name: true, phone: true } } }
+    })
+    if (!appt) return res.status(404).json({ error: 'Cita no encontrada' })
+
+    const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
+    if (!channel) return res.status(400).json({ error: 'No hay un canal de WhatsApp conectado' })
+
+    const { sendTechnicianAlert } = await import('./appointment-notifications.service')
+    await sendTechnicianAlert(workspaceId, channel, {
+      contact: { name: appt.contact.name, phone: appt.contact.phone },
+      appointment: { type: appt.type, scheduledAt: appt.scheduledAt },
+      kind: 'created'
+    })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message ?? 'No se pudo reenviar el aviso al técnico' })
+  }
+})
+
 router.get('/availability/slots', ...auth, async (req: any, res) => {
   try {
     const workspaceId = req.user?.workspaceId

@@ -28,6 +28,53 @@ export function formatApptDateTime(d: Date, tz: string): string {
 }
 
 /**
+ * Sends the internal WhatsApp alert (to the workspace's notifyPhone) for a
+ * created/rescheduled appointment. Unlike notifyAppointmentEvent, this
+ * THROWS on failure — the automatic post-booking flow wraps it and swallows
+ * the error (a notification failure must never fail the booking itself),
+ * but the manual "reenviar aviso" retry endpoint needs the real error to
+ * surface to the user instead of silently pretending it worked.
+ */
+export async function sendTechnicianAlert(
+  workspaceId: string,
+  channel: { id: string; config: unknown },
+  params: {
+    contact: { name: string; phone: string | null }
+    appointment: { type: string; scheduledAt: Date }
+    kind: AppointmentEventKind
+    oldScheduledAt?: Date
+  }
+): Promise<void> {
+  const { contact, appointment, kind, oldScheduledAt } = params
+
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
+  if (!ws?.notifyPhone) throw new Error('notify_phone_not_configured')
+
+  const tz = await getWorkspaceTimezone(workspaceId)
+  const when = formatApptDateTime(appointment.scheduledAt, tz)
+  const type = typeLabel(appointment.type)
+
+  // The encargado's own phone rarely has an open 24h window with the business
+  // number — a plain-text alert gets silently rejected by Meta (error 131047)
+  // unless a template is configured for this specific case.
+  const config = channel.config as Record<string, any>
+  const technicalVisitTemplateId = appointment.type === 'SITE_VISIT' ? config?.technicalVisitTemplateId : undefined
+
+  if (technicalVisitTemplateId) {
+    const { sendInternalWhatsAppTemplate } = await import('../messaging/message.service')
+    await sendInternalWhatsAppTemplate(
+      workspaceId, channel.id, ws.notifyPhone, technicalVisitTemplateId,
+      [contact.name, contact.phone ?? 'sin teléfono', when]
+    )
+  } else {
+    const internalText = kind === 'created'
+      ? `Nueva cita — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}, ${when}.`
+      : `Cita reagendada — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}: de ${formatApptDateTime(oldScheduledAt!, tz)} a ${when}.`
+    await sendPlatformMessage('WHATSAPP', channel.config, ws.notifyPhone, internalText, workspaceId)
+  }
+}
+
+/**
  * Sends the WhatsApp notifications for an appointment being created or rescheduled:
  * a confirmation to the lead, and an alert to the workspace's internal notifyPhone
  * (if configured). No-op if the workspace has no WhatsApp channel connected. Never
@@ -53,36 +100,15 @@ export async function notifyAppointmentEvent(
     const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
     if (!channel) return
 
-    const tz = await getWorkspaceTimezone(workspaceId)
-    const when = formatApptDateTime(appointment.scheduledAt, tz)
-    const type = typeLabel(appointment.type)
-
     try {
-      const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
-      if (ws?.notifyPhone) {
-        const internalText = kind === 'created'
-          ? `Nueva cita — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}, ${when}.`
-          : `Cita reagendada — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}: de ${formatApptDateTime(oldScheduledAt!, tz)} a ${when}.`
-
-        // The encargado's own phone rarely has an open 24h window with the business
-        // number — a plain-text alert gets silently rejected by Meta (error 131047)
-        // unless a template is configured for this specific case.
-        const config = channel.config as Record<string, any>
-        const technicalVisitTemplateId = appointment.type === 'SITE_VISIT' ? config?.technicalVisitTemplateId : undefined
-
-        if (technicalVisitTemplateId) {
-          const { sendInternalWhatsAppTemplate } = await import('../messaging/message.service')
-          await sendInternalWhatsAppTemplate(
-            workspaceId, channel.id, ws.notifyPhone, technicalVisitTemplateId,
-            [contact.name, contact.phone ?? 'sin teléfono', when]
-          )
-        } else {
-          await sendPlatformMessage('WHATSAPP', channel.config, ws.notifyPhone, internalText, workspaceId)
-        }
-      }
+      await sendTechnicianAlert(workspaceId, channel, { contact, appointment, kind, oldScheduledAt })
     } catch (err) {
       console.error('[appointment-notifications] internal alert failed (non-blocking):', err)
     }
+
+    const tz = await getWorkspaceTimezone(workspaceId)
+    const when = formatApptDateTime(appointment.scheduledAt, tz)
+    const type = typeLabel(appointment.type)
 
     try {
       const leadText = kind === 'created'

@@ -7,10 +7,11 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarDays, Clock, Phone, User, Wrench, AlertTriangle } from 'lucide-react'
+import { CalendarDays, CalendarPlus, Clock, Phone, User, Wrench, AlertTriangle, BellRing } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { BookingConfigCard } from './BookingConfigCard'
+import { NewAppointmentModal } from './NewAppointmentModal'
 
 interface Appointment {
   id: string
@@ -56,24 +57,38 @@ function dayKey(iso: string): string {
 }
 
 export default function AppointmentsClient() {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
   return (
     <div className="space-y-8">
       <BookingConfigCard />
       <div className="space-y-3">
-        <h2 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-          <CalendarDays className="w-4 h-4" /> Próximas citas
-        </h2>
-        <AppointmentsList />
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+            <CalendarDays className="w-4 h-4" /> Próximas citas
+          </h2>
+          <Button size="sm" className="rounded-xl gap-1.5" onClick={() => setModalOpen(true)}>
+            <CalendarPlus className="w-4 h-4" /> Nueva cita
+          </Button>
+        </div>
+        <AppointmentsList refreshKey={refreshKey} />
       </div>
+      <NewAppointmentModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onCreated={() => setRefreshKey(k => k + 1)}
+      />
     </div>
   )
 }
 
-function AppointmentsList() {
+function AppointmentsList({ refreshKey }: { refreshKey: number }) {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [resendingId, setResendingId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -82,7 +97,7 @@ function AppointmentsList() {
       .catch(err => { if (active) setError(err instanceof Error ? err.message : 'Error al cargar las citas') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [reloadKey])
+  }, [reloadKey, refreshKey])
 
   const retry = useCallback(() => {
     setLoading(true)
@@ -104,6 +119,18 @@ function AppointmentsList() {
     } catch (err) {
       setAppointments(previous)
       toast.error(err instanceof Error ? err.message : 'No se pudo actualizar la cita')
+    }
+  }
+
+  async function handleResendTechnicianAlert(id: string) {
+    setResendingId(id)
+    try {
+      await fetchAPI(`/appointments/${id}/notify-technician`, { method: 'POST' })
+      toast.success('Aviso reenviado al técnico')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo reenviar el aviso al técnico')
+    } finally {
+      setResendingId(null)
     }
   }
 
@@ -197,6 +224,16 @@ function AppointmentsList() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl gap-1.5"
+                      disabled={resendingId === appt.id}
+                      onClick={() => handleResendTechnicianAlert(appt.id)}
+                    >
+                      <BellRing className="w-3.5 h-3.5" />
+                      {resendingId === appt.id ? 'Enviando...' : 'Reenviar aviso al técnico'}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
