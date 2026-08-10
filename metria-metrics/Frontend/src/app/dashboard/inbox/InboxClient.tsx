@@ -33,6 +33,7 @@ function InboxContent() {
     handbackToBot,
     markAsRead,
     markAsUnread,
+    deleteConversation,
     changeStatus,
     assignConversation,
     statusFilter,
@@ -53,6 +54,15 @@ function InboxContent() {
     setSelectedId(id)
     markAsRead(id)
   }, [setSelectedId, markAsRead])
+
+  const handleDeleteConversation = useCallback(async (id: string) => {
+    try {
+      await deleteConversation(id)
+      toast.success('Conversación eliminada')
+    } catch {
+      toast.error('No se pudo eliminar la conversación')
+    }
+  }, [deleteConversation])
 
   // Resolve a CRM "open chat" deep link (?conversationId= or ?contactId=) into a
   // selected conversation. Widens the status filter to ALL once if the target
@@ -115,6 +125,7 @@ function InboxContent() {
           assignedToMe={assignedToMe}
           onAssignedToMeChange={setAssignedToMe}
           onMarkAsUnread={markAsUnread}
+          onDeleteConversation={handleDeleteConversation}
         />
         <ChatWindow
           conversation={selectedConv}

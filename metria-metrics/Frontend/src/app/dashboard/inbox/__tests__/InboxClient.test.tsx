@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { InboxClient } from '../InboxClient'
 
-const { mockRouterReplace, mockUseSearchParams, mockUseInbox, mockToastError } = vi.hoisted(() => ({
+const { mockRouterReplace, mockUseSearchParams, mockUseInbox, mockToastError, mockToastSuccess, mockConversationListProps } = vi.hoisted(() => ({
   mockRouterReplace: vi.fn(),
   mockUseSearchParams: vi.fn(),
   mockUseInbox: vi.fn(),
-  mockToastError: vi.fn()
+  mockToastError: vi.fn(),
+  mockToastSuccess: vi.fn(),
+  mockConversationListProps: vi.fn()
 }))
 
 vi.mock('next/navigation', () => ({
@@ -14,8 +16,8 @@ vi.mock('next/navigation', () => ({
   useSearchParams: mockUseSearchParams
 }))
 vi.mock('@/hooks/useInbox', () => ({ useInbox: mockUseInbox }))
-vi.mock('sonner', () => ({ toast: { error: mockToastError } }))
-vi.mock('../components/ConversationList', () => ({ ConversationList: () => <div data-testid="conversation-list" /> }))
+vi.mock('sonner', () => ({ toast: { error: mockToastError, success: mockToastSuccess } }))
+vi.mock('../components/ConversationList', () => ({ ConversationList: (props: any) => { mockConversationListProps(props); return <div data-testid="conversation-list" /> } }))
 vi.mock('../components/ChatWindow', () => ({ ChatWindow: () => <div data-testid="chat-window" /> }))
 vi.mock('../components/ContactPanel', () => ({ ContactPanel: () => <div data-testid="contact-panel" /> }))
 vi.mock('../components/PlatformFilterBar', () => ({ PlatformFilterBar: () => <div data-testid="platform-filter-bar" /> }))
@@ -23,6 +25,7 @@ vi.mock('../components/PlatformFilterBar', () => ({ PlatformFilterBar: () => <di
 const mockSetSelectedId = vi.fn()
 const mockMarkAsRead = vi.fn()
 const mockSetStatusFilter = vi.fn()
+const mockDeleteConversation = vi.fn()
 
 const conv1 = {
   id: 'conv-1', status: 'OPEN', messageCount: 1, lastMessageAt: '2026-01-01T00:00:00.000Z',
@@ -39,7 +42,7 @@ function baseInboxState(overrides: Partial<ReturnType<typeof mockUseInbox>> = {}
     loadingConvs: false,
     loadingMsgs: false,
     sendMessage: vi.fn(), sendTemplate: vi.fn(), handoverToHuman: vi.fn(), handbackToBot: vi.fn(),
-    markAsRead: mockMarkAsRead, markAsUnread: vi.fn(), changeStatus: vi.fn(), assignConversation: vi.fn(),
+    markAsRead: mockMarkAsRead, markAsUnread: vi.fn(), deleteConversation: mockDeleteConversation, changeStatus: vi.fn(), assignConversation: vi.fn(),
     statusFilter: 'OPEN', setStatusFilter: mockSetStatusFilter, platformFilter: 'ALL', setPlatformFilter: vi.fn(),
     search: '', setSearch: vi.fn(), assignedToMe: false, setAssignedToMe: vi.fn(), users: [],
     ...overrides
@@ -124,5 +127,36 @@ describe('InboxClient — deep link resolution', () => {
     await waitFor(() => expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/inbox'))
     expect(mockSetSelectedId).not.toHaveBeenCalled()
     expect(mockToastError).toHaveBeenCalledWith('No pudimos abrir ese chat automáticamente — búscalo en la bandeja')
+  })
+})
+
+describe('InboxClient — delete conversation', () => {
+  it('passes onDeleteConversation through and shows a success toast when it resolves', async () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams())
+    mockDeleteConversation.mockResolvedValue(undefined)
+    mockUseInbox.mockReturnValue(baseInboxState())
+
+    render(<InboxClient />)
+    await screen.findByTestId('conversation-list')
+
+    const { onDeleteConversation } = mockConversationListProps.mock.calls.at(-1)![0]
+    await onDeleteConversation('conv-1')
+
+    expect(mockDeleteConversation).toHaveBeenCalledWith('conv-1')
+    expect(mockToastSuccess).toHaveBeenCalledWith('Conversación eliminada')
+  })
+
+  it('shows an error toast when deletion fails', async () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams())
+    mockDeleteConversation.mockRejectedValue(new Error('403'))
+    mockUseInbox.mockReturnValue(baseInboxState())
+
+    render(<InboxClient />)
+    await screen.findByTestId('conversation-list')
+
+    const { onDeleteConversation } = mockConversationListProps.mock.calls.at(-1)![0]
+    await onDeleteConversation('conv-1')
+
+    expect(mockToastError).toHaveBeenCalledWith('No se pudo eliminar la conversación')
   })
 })
