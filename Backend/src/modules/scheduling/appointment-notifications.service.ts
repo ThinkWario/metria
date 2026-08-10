@@ -50,7 +50,7 @@ export async function notifyAppointmentEvent(
       return
     }
 
-    const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP' } })
+    const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
     if (!channel) return
 
     const tz = await getWorkspaceTimezone(workspaceId)
