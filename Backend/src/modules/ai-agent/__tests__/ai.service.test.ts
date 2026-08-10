@@ -125,6 +125,27 @@ describe('processAiResponse (rewired)', () => {
     expect(result).toBe('Agendado')
   })
 
+  it('reschedules the existing active appointment instead of creating a duplicate when the contact already has one', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValueOnce({
+      id: 'existing-1', type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-10T10:00:00')
+    } as any)
+    const submit = vi.fn(async () => ({ text: 'Reagendado', toolCalls: [], submitToolResults: vi.fn() }))
+    chatMock.mockResolvedValue({
+      text: null,
+      toolCalls: [{ name: 'schedule_appointment', args: { contactId: 'c1', isoDateTime: '2026-06-15T10:00:00', type: 'SITE_VISIT' } }],
+      submitToolResults: submit
+    })
+    await processAiResponse(WS, CONV, 'esto no ocurrió, agendemos de nuevo')
+    expect(rescheduleAppointment).toHaveBeenCalledWith(WS, 'existing-1', new Date('2026-06-15T10:00:00'))
+    expect(scheduleAppointment).not.toHaveBeenCalled()
+    // Rescheduling already updates the existing Calendar event — must not create a second one.
+    expect(syncAppointmentToCalendarMock).not.toHaveBeenCalled()
+    expect(notifyAppointmentEventMock).toHaveBeenCalledWith(WS, expect.objectContaining({ kind: 'rescheduled' }))
+    expect(submit).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'schedule_appointment', response: expect.objectContaining({ success: true }) })
+    ])
+  })
+
   it('still reports the booking as successful when the post-booking Calendar sync throws', async () => {
     vi.mocked(prisma.contact.findUnique).mockRejectedValueOnce(new Error('db down'))
     const submit = vi.fn(async () => ({ text: 'Agendado', toolCalls: [], submitToolResults: vi.fn() }))

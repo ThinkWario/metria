@@ -620,12 +620,28 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
           }
         }
 
-        const appt = await scheduleAppointment(workspaceId, {
-          contactId,
-          type,
-          scheduledAt: matchedSlot,
-          createdBy: 'BOT'
-        }, 'chat')
+        // A contact who already has an active appointment of this type and
+        // asks to schedule again (e.g. "esto no ocurrió", or just re-picks a
+        // time later in the conversation) means reschedule, not a second
+        // booking. The model isn't reliable about calling reschedule_appointment
+        // itself in that situation — it kept calling schedule_appointment again,
+        // producing two live appointments for the same contact. Detect it here
+        // instead of trusting the model's tool choice.
+        const existingActive = await prisma.appointment.findFirst({
+          where: { workspaceId, contactId, type, status: { in: ['SCHEDULED', 'CONFIRMED'] } },
+          orderBy: { scheduledAt: 'asc' }
+        })
+
+        const kind: 'created' | 'rescheduled' = existingActive ? 'rescheduled' : 'created'
+        let appt: Awaited<ReturnType<typeof scheduleAppointment>>
+        let oldScheduledAt: Date | undefined
+        if (existingActive) {
+          const rescheduled = await rescheduleAppointment(workspaceId, existingActive.id, matchedSlot)
+          appt = rescheduled
+          oldScheduledAt = rescheduled.oldScheduledAt
+        } else {
+          appt = await scheduleAppointment(workspaceId, { contactId, type, scheduledAt: matchedSlot, createdBy: 'BOT' }, 'chat')
+        }
 
         // Best-effort: a Calendar sync / notification problem must never make the
         // agent report the booking itself as failed — the Appointment row above
@@ -635,27 +651,38 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
             where: { id: contactId },
             select: { name: true, email: true, phone: true }
           })
-          const { syncAppointmentToCalendar } = await import('../scheduling/google-calendar.service')
-          await syncAppointmentToCalendar(workspaceId, appt.id, {
-            title: type === 'SITE_VISIT' ? `Visita técnica — ${bookerContact?.name ?? 'lead'}` : `Llamada — ${bookerContact?.name ?? 'lead'}`,
-            startAt: appt.scheduledAt,
-            durationMin: appt.durationMin,
-            bookerName: bookerContact?.name ?? 'lead',
-            bookerEmail: bookerContact?.email ?? null
-          })
+
+          // rescheduleAppointment() already updates the existing Calendar event
+          // itself — only a brand-new appointment needs its own event created.
+          if (kind === 'created') {
+            const { syncAppointmentToCalendar } = await import('../scheduling/google-calendar.service')
+            await syncAppointmentToCalendar(workspaceId, appt.id, {
+              title: type === 'SITE_VISIT' ? `Visita técnica — ${bookerContact?.name ?? 'lead'}` : `Llamada — ${bookerContact?.name ?? 'lead'}`,
+              startAt: appt.scheduledAt,
+              durationMin: appt.durationMin,
+              bookerName: bookerContact?.name ?? 'lead',
+              bookerEmail: bookerContact?.email ?? null
+            })
+          }
 
           const { notifyAppointmentEvent } = await import('../scheduling/appointment-notifications.service')
           await notifyAppointmentEvent(workspaceId, {
             contact: { id: contactId, name: bookerContact?.name ?? 'lead', phone: bookerContact?.phone ?? null },
             appointment: { type, scheduledAt: appt.scheduledAt, durationMin: appt.durationMin },
-            kind: 'created',
+            kind,
+            oldScheduledAt,
             conversationId
           })
         } catch (err) {
           console.error('[AI Agent] Calendar sync / notify after schedule_appointment failed (non-blocking):', err)
         }
 
-        await logAiAction(workspaceId, conversationId, `Agendó cita ${args.type} para ${args.isoDateTime}`)
+        await logAiAction(
+          workspaceId, conversationId,
+          kind === 'created'
+            ? `Agendó cita ${args.type} para ${args.isoDateTime}`
+            : `Reagendó cita ${args.type} para ${args.isoDateTime} (ya tenía una activa)`
+        )
         const tz = await getWorkspaceTimezone(workspaceId)
         return { success: true, appointmentId: appt.id, scheduledAt: appt.scheduledAt, label: formatApptDateTime(appt.scheduledAt, tz) }
       }
