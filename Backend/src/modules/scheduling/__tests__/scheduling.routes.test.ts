@@ -77,3 +77,59 @@ describe('PATCH /api/scheduling/booking-config', () => {
     )
   })
 })
+
+describe('GET /api/scheduling/booking-config — visitNotifyEmails', () => {
+  it('includes visitNotifyEmails in the response', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({
+      bookingSlug: 'drillchile', bookingTitle: 'Agenda tu visita', bookingDurationMin: 30,
+      notifyPhone: '+56912345678', visitNotifyEmails: 'ops@drillchile.cl,ventas@drillchile.cl'
+    } as any)
+
+    const res = await request(buildApp()).get('/api/scheduling/booking-config')
+
+    expect(res.status).toBe(200)
+    expect(res.body.visitNotifyEmails).toBe('ops@drillchile.cl,ventas@drillchile.cl')
+  })
+})
+
+describe('PATCH /api/scheduling/booking-config — visitNotifyEmails', () => {
+  it('normalizes the list — trims each address and drops empty entries', async () => {
+    vi.mocked(prisma.workspace.update).mockResolvedValue({
+      bookingSlug: 'drillchile', bookingTitle: null, bookingDurationMin: 30,
+      notifyPhone: null, visitNotifyEmails: 'ops@drillchile.cl,ventas@drillchile.cl'
+    } as any)
+
+    const res = await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ visitNotifyEmails: '  ops@drillchile.cl , ventas@drillchile.cl ,, ' })
+
+    expect(res.status).toBe(200)
+    expect(prisma.workspace.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ visitNotifyEmails: 'ops@drillchile.cl,ventas@drillchile.cl' }) })
+    )
+  })
+
+  it('rejects the list when any address is invalid', async () => {
+    const res = await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ visitNotifyEmails: 'ops@drillchile.cl, not-an-email' })
+
+    expect(res.status).toBe(400)
+    expect(prisma.workspace.update).not.toHaveBeenCalled()
+  })
+
+  it('clears visitNotifyEmails when sent as an empty string', async () => {
+    vi.mocked(prisma.workspace.update).mockResolvedValue({
+      bookingSlug: 'drillchile', bookingTitle: null, bookingDurationMin: 30,
+      notifyPhone: null, visitNotifyEmails: null
+    } as any)
+
+    await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ visitNotifyEmails: '' })
+
+    expect(prisma.workspace.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ visitNotifyEmails: null }) })
+    )
+  })
+})

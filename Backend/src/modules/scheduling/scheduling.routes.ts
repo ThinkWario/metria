@@ -142,14 +142,15 @@ router.get('/scheduling/booking-config', ...auth, async (req: any, res) => {
     if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
     const ws = await prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true, notifyPhone: true }
+      select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true, notifyPhone: true, visitNotifyEmails: true }
     })
     if (!ws) return res.status(404).json({ error: 'Workspace not found' })
     res.json({
       bookingSlug: ws.bookingSlug,
       bookingTitle: ws.bookingTitle,
       bookingDurationMin: ws.bookingDurationMin,
-      notifyPhone: ws.notifyPhone
+      notifyPhone: ws.notifyPhone,
+      visitNotifyEmails: ws.visitNotifyEmails
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
@@ -161,8 +162,8 @@ router.patch('/scheduling/booking-config', ...auth, async (req: any, res) => {
     const workspaceId = req.user?.workspaceId
     if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
 
-    const { bookingSlug, bookingTitle, bookingDurationMin, notifyPhone } = req.body ?? {}
-    const data: { bookingSlug?: string; bookingTitle?: string | null; bookingDurationMin?: number; notifyPhone?: string | null } = {}
+    const { bookingSlug, bookingTitle, bookingDurationMin, notifyPhone, visitNotifyEmails } = req.body ?? {}
+    const data: { bookingSlug?: string; bookingTitle?: string | null; bookingDurationMin?: number; notifyPhone?: string | null; visitNotifyEmails?: string | null } = {}
 
     if (bookingSlug !== undefined) {
       const slug = slugify(String(bookingSlug))
@@ -189,18 +190,32 @@ router.patch('/scheduling/booking-config', ...auth, async (req: any, res) => {
         data.notifyPhone = normalized
       }
     }
+    if (visitNotifyEmails !== undefined) {
+      const trimmed = visitNotifyEmails === null ? '' : String(visitNotifyEmails).trim()
+      if (!trimmed) {
+        data.visitNotifyEmails = null
+      } else {
+        const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        const addresses = trimmed.split(',').map(e => e.trim()).filter(Boolean)
+        if (addresses.length === 0 || addresses.some(a => !EMAIL_RE.test(a))) {
+          return res.status(400).json({ error: 'Uno o más correos no son válidos' })
+        }
+        data.visitNotifyEmails = addresses.join(',')
+      }
+    }
 
     try {
       const ws = await prisma.workspace.update({
         where: { id: workspaceId },
         data,
-        select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true, notifyPhone: true }
+        select: { bookingSlug: true, bookingTitle: true, bookingDurationMin: true, notifyPhone: true, visitNotifyEmails: true }
       })
       res.json({
         bookingSlug: ws.bookingSlug,
         bookingTitle: ws.bookingTitle,
         bookingDurationMin: ws.bookingDurationMin,
-        notifyPhone: ws.notifyPhone
+        notifyPhone: ws.notifyPhone,
+        visitNotifyEmails: ws.visitNotifyEmails
       })
     } catch (e: any) {
       // Prisma unique-constraint violation on bookingSlug
