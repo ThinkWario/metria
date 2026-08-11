@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import { processInboundMessage } from '../message.service'
 import { prisma } from '../../../lib/prisma'
 import { getIO } from '../../../lib/socket'
+import { parsePhoneList } from '../../../lib/phoneFormat'
 
 const WA_API_VERSION = 'v26.0'
 
@@ -285,8 +286,8 @@ export async function parseWhatsAppUpdate(
             // confirmación, cae al procesamiento normal de mensaje — nunca se
             // pierde en silencio.
             const workspaceForConfirmation = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
-            const notifyDigitsForConfirmation = (workspaceForConfirmation?.notifyPhone ?? '').replace(/\D/g, '')
-            if (notifyDigitsForConfirmation && msg.from === notifyDigitsForConfirmation) {
+            const notifyDigitsForConfirmation = parsePhoneList(workspaceForConfirmation?.notifyPhone).map(p => p.replace(/\D/g, ''))
+            if (notifyDigitsForConfirmation.includes(msg.from)) {
               const answer = parseVisitConfirmationAnswer(msg.text.body)
               if (answer) {
                 const pendingAppointment = await prisma.appointment.findFirst({
@@ -327,11 +328,11 @@ export async function parseWhatsAppUpdate(
         } else if (msg.type === 'interactive' && msg.interactive?.button_reply?.id) {
           try {
             const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
-            const notifyDigits = (workspace?.notifyPhone ?? '').replace(/\D/g, '')
-            // Solo el número interno configurado como notifyPhone puede confirmar
-            // visitas — cualquier otro botón entrante se ignora en silencio, no se
-            // trata como mensaje de un lead (evita crear/tocar un Contact acá).
-            if (!notifyDigits || msg.from !== notifyDigits) continue
+            const notifyDigits = parsePhoneList(workspace?.notifyPhone).map(p => p.replace(/\D/g, ''))
+            // Solo alguno de los números internos configurados en notifyPhone puede
+            // confirmar visitas — cualquier otro botón entrante se ignora en silencio,
+            // no se trata como mensaje de un lead (evita crear/tocar un Contact acá).
+            if (!notifyDigits.includes(msg.from)) continue
 
             const match = msg.interactive.button_reply.id.match(/^confirm_visit:([^:]+):(yes|no)$/)
             if (!match) continue

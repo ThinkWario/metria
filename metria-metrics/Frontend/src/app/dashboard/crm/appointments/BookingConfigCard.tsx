@@ -227,12 +227,12 @@ export function BookingConfigCard() {
             id="booking-notify-phone"
             value={notifyPhone}
             onChange={e => setNotifyPhone(e.target.value)}
-            placeholder="+56 9 1234 5678"
+            placeholder="+56 9 1234 5678, +56 9 8765 4321"
             className="rounded-xl"
-            maxLength={40}
+            maxLength={200}
           />
           <p className="text-[11px] text-muted-foreground">
-            Recibe un WhatsApp cada vez que se agenda o reagenda una cita.
+            Recibe un WhatsApp cada vez que se agenda o reagenda una cita. Para notificar a más de un número, sepáralos con coma.
           </p>
         </div>
 

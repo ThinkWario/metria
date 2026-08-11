@@ -50,4 +50,25 @@ describe('requestPendingConfirmations', () => {
     expect(sendWhatsAppTemplateToPhone).not.toHaveBeenCalled()
     expect(prisma.appointment.update).not.toHaveBeenCalled()
   })
+
+  it('manda el template a cada número cuando notifyPhone tiene varios separados por coma', async () => {
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([
+      { id: 'a3', workspaceId: 'ws-1', contact: { name: 'Roberto', phone: '56911112222' } }
+    ] as any)
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111,56922223333' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue({
+      id: 'ch-1', config: { visitConfirmationTemplateId: 'tpl-1' }
+    } as any)
+
+    await requestPendingConfirmations()
+
+    expect(sendWhatsAppTemplateToPhone).toHaveBeenCalledWith(
+      'ch-1', '56900001111', 'tpl-1', ['Roberto'],
+      ['confirm_visit:a3:yes', 'confirm_visit:a3:no']
+    )
+    expect(sendWhatsAppTemplateToPhone).toHaveBeenCalledWith(
+      'ch-1', '56922223333', 'tpl-1', ['Roberto'],
+      ['confirm_visit:a3:yes', 'confirm_visit:a3:no']
+    )
+  })
 })

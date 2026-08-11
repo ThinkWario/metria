@@ -23,3 +23,12 @@ export function normalizePhone(raw: string | null | undefined, defaultCountry: C
 
   return parsed.number.replace('+', '')
 }
+
+/**
+ * Splits a comma-separated notifyPhone field (already normalized digits-only
+ * on save, see scheduling.routes.ts) into its individual numbers.
+ */
+export function parsePhoneList(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  return raw.split(',').map(p => p.trim()).filter(Boolean)
+}

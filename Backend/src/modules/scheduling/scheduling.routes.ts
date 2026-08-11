@@ -212,9 +212,12 @@ router.patch('/scheduling/booking-config', ...auth, async (req: any, res) => {
       if (!trimmed) {
         data.notifyPhone = null
       } else {
-        const normalized = normalizePhone(trimmed)
-        if (!normalized) return res.status(400).json({ error: 'Número de notificación inválido' })
-        data.notifyPhone = normalized
+        const rawNumbers = trimmed.split(',').map(n => n.trim()).filter(Boolean)
+        const normalized = rawNumbers.map(n => normalizePhone(n))
+        if (normalized.length === 0 || normalized.some(n => !n)) {
+          return res.status(400).json({ error: 'Uno o más números de notificación no son válidos' })
+        }
+        data.notifyPhone = (normalized as string[]).join(',')
       }
     }
     if (visitNotifyEmails !== undefined) {

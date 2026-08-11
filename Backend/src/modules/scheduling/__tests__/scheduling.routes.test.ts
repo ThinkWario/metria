@@ -83,6 +83,31 @@ describe('PATCH /api/scheduling/booking-config', () => {
       expect.objectContaining({ data: expect.objectContaining({ notifyPhone: null }) })
     )
   })
+
+  it('accepts multiple comma-separated numbers, normalizing each to digits-only', async () => {
+    vi.mocked(prisma.workspace.update).mockResolvedValue({
+      bookingSlug: 'drillchile', bookingTitle: null, bookingDurationMin: 30, notifyPhone: '56912345678,56987654321'
+    } as any)
+
+    const res = await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ notifyPhone: ' +56 9 1234 5678 , +56 9 8765 4321 ' })
+
+    expect(res.status).toBe(200)
+    expect(prisma.workspace.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ notifyPhone: '56912345678,56987654321' }) })
+    )
+    expect(res.body.notifyPhone).toBe('56912345678,56987654321')
+  })
+
+  it('rejects the list when any of the comma-separated numbers is invalid', async () => {
+    const res = await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ notifyPhone: '+56 9 1234 5678, not a phone' })
+
+    expect(res.status).toBe(400)
+    expect(prisma.workspace.update).not.toHaveBeenCalled()
+  })
 })
 
 describe('GET /api/scheduling/booking-config — visitNotifyEmails', () => {

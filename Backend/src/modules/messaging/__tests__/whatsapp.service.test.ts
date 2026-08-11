@@ -227,6 +227,14 @@ describe('parseWhatsAppUpdate — respuesta de confirmación de visita', () => {
 
     expect(updateAppointmentStatus).not.toHaveBeenCalled()
   })
+
+  it('acepta el botón desde cualquiera de los números en un notifyPhone con varios separados por coma', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111,56922223333' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildInteractiveBody('56922223333', 'confirm_visit:appt-1:yes'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'COMPLETED')
+  })
 })
 
 describe('parseWhatsAppUpdate — confirmación de visita por texto libre (sin botones)', () => {
@@ -296,5 +304,14 @@ describe('parseWhatsAppUpdate — confirmación de visita por texto libre (sin b
 
     expect(updateAppointmentStatus).not.toHaveBeenCalled()
     expect(processInboundMessage).toHaveBeenCalled()
+  })
+
+  it('reconoce texto libre desde cualquiera de los números en un notifyPhone con varios separados por coma', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56900001111,56922223333' } as any)
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'appt-1' } as any)
+
+    await parseWhatsAppUpdate('ws-1', 'ch-1', buildTextBody('56922223333', 'si'))
+
+    expect(updateAppointmentStatus).toHaveBeenCalledWith('ws-1', 'appt-1', 'COMPLETED')
   })
 })

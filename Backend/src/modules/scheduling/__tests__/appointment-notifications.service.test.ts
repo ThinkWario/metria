@@ -156,4 +156,13 @@ describe('notifyAppointmentEvent', () => {
     ).resolves.toBeUndefined()
     expect(sendPlatformMessageMock).toHaveBeenCalled()
   })
+
+  it('sends the internal alert to every comma-separated number in notifyPhone', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56999998888,56911119999' } as any)
+
+    await notifyAppointmentEvent(WS, { contact: CONTACT, appointment: APPT, kind: 'created', conversationId: 'conv-1' })
+
+    expect(sendPlatformMessageMock).toHaveBeenCalledWith('WHATSAPP', CHANNEL.config, '56999998888', expect.stringContaining('Nueva cita'), WS)
+    expect(sendPlatformMessageMock).toHaveBeenCalledWith('WHATSAPP', CHANNEL.config, '56911119999', expect.stringContaining('Nueva cita'), WS)
+  })
 })

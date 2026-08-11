@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma'
 import { sendPlatformMessage, sendOutboundPlatformMessage } from '../messaging/message.service'
+import { parsePhoneList } from '../../lib/phoneFormat'
 
 type AppointmentEventKind = 'created' | 'rescheduled'
 
@@ -48,7 +49,8 @@ export async function sendTechnicianAlert(
   const { contact, appointment, kind, oldScheduledAt } = params
 
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { notifyPhone: true } })
-  if (!ws?.notifyPhone) throw new Error('notify_phone_not_configured')
+  const phones = parsePhoneList(ws?.notifyPhone)
+  if (phones.length === 0) throw new Error('notify_phone_not_configured')
 
   const tz = await getWorkspaceTimezone(workspaceId)
   const when = formatApptDateTime(appointment.scheduledAt, tz)
@@ -59,19 +61,33 @@ export async function sendTechnicianAlert(
   // unless a template is configured for this specific case.
   const config = channel.config as Record<string, any>
   const technicalVisitTemplateId = appointment.type === 'SITE_VISIT' ? config?.technicalVisitTemplateId : undefined
+  const internalText = kind === 'created'
+    ? `Nueva cita — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}, ${when}.`
+    : `Cita reagendada — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}: de ${formatApptDateTime(oldScheduledAt!, tz)} a ${when}.`
 
-  if (technicalVisitTemplateId) {
-    const { sendInternalWhatsAppTemplate } = await import('../messaging/message.service')
-    await sendInternalWhatsAppTemplate(
-      workspaceId, channel.id, ws.notifyPhone, technicalVisitTemplateId,
-      [contact.name, contact.phone ?? 'sin teléfono', when]
-    )
-  } else {
-    const internalText = kind === 'created'
-      ? `Nueva cita — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}, ${when}.`
-      : `Cita reagendada — ${contact.name} (${contact.phone ?? 'sin teléfono'}), ${type}: de ${formatApptDateTime(oldScheduledAt!, tz)} a ${when}.`
-    await sendPlatformMessage('WHATSAPP', channel.config, ws.notifyPhone, internalText, workspaceId)
+  const { sendInternalWhatsAppTemplate } = technicalVisitTemplateId
+    ? await import('../messaging/message.service')
+    : { sendInternalWhatsAppTemplate: undefined }
+
+  // Best-effort per number — one bad/unreachable number in the list must not
+  // stop the rest from being alerted. Only throw (for the manual retry
+  // endpoint to surface) if every single number failed.
+  const errors: unknown[] = []
+  for (const phone of phones) {
+    try {
+      if (technicalVisitTemplateId && sendInternalWhatsAppTemplate) {
+        await sendInternalWhatsAppTemplate(
+          workspaceId, channel.id, phone, technicalVisitTemplateId,
+          [contact.name, contact.phone ?? 'sin teléfono', when]
+        )
+      } else {
+        await sendPlatformMessage('WHATSAPP', channel.config, phone, internalText, workspaceId)
+      }
+    } catch (err) {
+      errors.push(err)
+    }
   }
+  if (errors.length === phones.length) throw errors[0]
 }
 
 /**
