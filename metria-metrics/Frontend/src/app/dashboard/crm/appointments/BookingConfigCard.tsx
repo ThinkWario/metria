@@ -16,6 +16,7 @@ interface BookingConfig {
   bookingTitle: string | null
   bookingDurationMin: number
   notifyPhone: string | null
+  visitNotifyEmails: string | null
 }
 
 const DURATIONS = [15, 30, 45, 60, 90, 120]
@@ -40,6 +41,7 @@ export function BookingConfigCard() {
   const [title, setTitle] = useState('')
   const [duration, setDuration] = useState(30)
   const [notifyPhone, setNotifyPhone] = useState('')
+  const [visitNotifyEmails, setVisitNotifyEmails] = useState('')
 
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -56,6 +58,7 @@ export function BookingConfigCard() {
         setTitle(data.bookingTitle ?? '')
         setDuration(data.bookingDurationMin ?? 30)
         setNotifyPhone(data.notifyPhone ?? '')
+        setVisitNotifyEmails(data.visitNotifyEmails ?? '')
       })
       .catch(err => { if (active) setError(err instanceof Error ? err.message : 'Error al cargar la configuración') })
       .finally(() => { if (active) setLoading(false) })
@@ -82,6 +85,7 @@ export function BookingConfigCard() {
           bookingTitle: title.trim() || null,
           bookingDurationMin: duration,
           notifyPhone: notifyPhone.trim() || null,
+          visitNotifyEmails: visitNotifyEmails.trim() || null,
         }),
       })
       setSlug(saved.bookingSlug ?? '')
@@ -89,6 +93,7 @@ export function BookingConfigCard() {
       setTitle(saved.bookingTitle ?? '')
       setDuration(saved.bookingDurationMin ?? 30)
       setNotifyPhone(saved.notifyPhone ?? '')
+      setVisitNotifyEmails(saved.visitNotifyEmails ?? '')
       toast.success('Configuración de reservas guardada')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'No se pudo guardar'
@@ -100,7 +105,7 @@ export function BookingConfigCard() {
     } finally {
       setSaving(false)
     }
-  }, [slug, title, duration, notifyPhone, previewSlug])
+  }, [slug, title, duration, notifyPhone, visitNotifyEmails, previewSlug])
 
   const handleCopy = useCallback(async () => {
     if (!liveUrl) return
@@ -228,6 +233,23 @@ export function BookingConfigCard() {
           />
           <p className="text-[11px] text-muted-foreground">
             Recibe un WhatsApp cada vez que se agenda o reagenda una cita.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="booking-notify-emails" className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+            Correos a notificar
+          </Label>
+          <Input
+            id="booking-notify-emails"
+            value={visitNotifyEmails}
+            onChange={e => setVisitNotifyEmails(e.target.value)}
+            placeholder="ops@drillchile.cl, ventas@drillchile.cl"
+            className="rounded-xl"
+            maxLength={500}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Recibe un correo (separa varios con coma) cada vez que se agenda o reagenda una visita técnica.
           </p>
         </div>
 
