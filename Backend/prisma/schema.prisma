@@ -30,6 +30,7 @@ model Workspace {
   bookingTitle             String?                   @map("booking_title")
   bookingDurationMin       Int                       @default(30) @map("booking_duration_min")
   notifyPhone              String?                   @map("notify_phone")
+  visitNotifyEmails        String?                   @map("visit_notify_emails")
   googleCalAccessToken     String?                   @map("google_cal_access_token")
   googleCalRefreshToken    String?                   @map("google_cal_refresh_token")
   googleCalEmail           String?                   @map("google_cal_email")
