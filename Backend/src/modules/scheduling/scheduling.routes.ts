@@ -81,6 +81,33 @@ router.post('/appointments/:id/notify-technician', ...auth, async (req: any, res
   }
 })
 
+router.post('/appointments/:id/notify-visit-email', ...auth, async (req: any, res) => {
+  try {
+    const workspaceId = req.user?.workspaceId
+    if (!workspaceId) return res.status(401).json({ error: 'Unauthorized: missing workspace' })
+
+    const appt = await prisma.appointment.findFirst({
+      where: { id: req.params.id, workspaceId },
+      include: { contact: { select: { id: true, name: true, phone: true } } }
+    })
+    if (!appt) return res.status(404).json({ error: 'Cita no encontrada' })
+    if (appt.type !== 'SITE_VISIT') return res.status(400).json({ error: 'Solo aplica a visitas técnicas' })
+
+    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { visitNotifyEmails: true } })
+    if (!ws?.visitNotifyEmails) return res.status(400).json({ error: 'No hay correos configurados para notificar' })
+
+    const { sendVisitEmailNotification } = await import('./visitEmailNotification.service')
+    await sendVisitEmailNotification(workspaceId, {
+      contact: { id: appt.contact.id, name: appt.contact.name, phone: appt.contact.phone },
+      appointment: { type: appt.type, scheduledAt: appt.scheduledAt },
+      kind: 'created'
+    })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(400).json({ error: err.message ?? 'No se pudo reenviar el correo al equipo' })
+  }
+})
+
 router.get('/availability/slots', ...auth, async (req: any, res) => {
   try {
     const workspaceId = req.user?.workspaceId

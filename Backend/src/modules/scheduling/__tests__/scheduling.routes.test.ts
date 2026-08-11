@@ -4,16 +4,23 @@ import express from 'express'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
-    workspace: { findUnique: vi.fn(), update: vi.fn() }
+    workspace: { findUnique: vi.fn(), update: vi.fn() },
+    appointment: { findFirst: vi.fn() }
   }
 }))
 vi.mock('../../../middleware/auth', () => ({
   authenticate: (req: any, _res: any, next: any) => { req.user = { workspaceId: 'ws-1' }; next() }
 }))
 vi.mock('../../../middleware/planGate', () => ({ requirePlan: () => (_req: any, _res: any, next: any) => next() }))
+vi.mock('../visitEmailNotification.service', () => ({
+  sendVisitEmailNotification: vi.fn(async () => {})
+}))
 
 import schedulingRouter from '../scheduling.routes'
 import { prisma } from '../../../lib/prisma'
+import { sendVisitEmailNotification } from '../visitEmailNotification.service'
+
+const sendVisitEmailNotificationMock = sendVisitEmailNotification as any
 
 function buildApp() {
   const app = express()
@@ -131,5 +138,66 @@ describe('PATCH /api/scheduling/booking-config — visitNotifyEmails', () => {
     expect(prisma.workspace.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ visitNotifyEmails: null }) })
     )
+  })
+})
+
+describe('POST /api/appointments/:id/notify-visit-email', () => {
+  const APPT = {
+    id: 'appt-1', type: 'SITE_VISIT', scheduledAt: new Date('2026-08-10T19:00:00Z'),
+    contact: { id: 'c1', name: 'Alexis Carvajal', phone: '56942597739' }
+  }
+
+  it('resends the visit email when the appointment exists, is SITE_VISIT, and emails are configured', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue(APPT as any)
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ visitNotifyEmails: 'ops@drillchile.cl' } as any)
+
+    const res = await request(buildApp()).post('/api/appointments/appt-1/notify-visit-email')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ success: true })
+    expect(sendVisitEmailNotificationMock).toHaveBeenCalledWith('ws-1', {
+      contact: { id: 'c1', name: 'Alexis Carvajal', phone: '56942597739' },
+      appointment: { type: 'SITE_VISIT', scheduledAt: APPT.scheduledAt },
+      kind: 'created'
+    })
+  })
+
+  it('returns 404 when the appointment does not exist', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue(null as any)
+
+    const res = await request(buildApp()).post('/api/appointments/missing/notify-visit-email')
+
+    expect(res.status).toBe(404)
+    expect(sendVisitEmailNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 for a non-SITE_VISIT appointment', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ ...APPT, type: 'CALL' } as any)
+
+    const res = await request(buildApp()).post('/api/appointments/appt-1/notify-visit-email')
+
+    expect(res.status).toBe(400)
+    expect(sendVisitEmailNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 when no visitNotifyEmails are configured', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue(APPT as any)
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ visitNotifyEmails: null } as any)
+
+    const res = await request(buildApp()).post('/api/appointments/appt-1/notify-visit-email')
+
+    expect(res.status).toBe(400)
+    expect(sendVisitEmailNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the real error message when the Gmail send fails', async () => {
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValue(APPT as any)
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ visitNotifyEmails: 'ops@drillchile.cl' } as any)
+    sendVisitEmailNotificationMock.mockRejectedValueOnce(new Error('google_calendar_not_connected'))
+
+    const res = await request(buildApp()).post('/api/appointments/appt-1/notify-visit-email')
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('google_calendar_not_connected')
   })
 })
