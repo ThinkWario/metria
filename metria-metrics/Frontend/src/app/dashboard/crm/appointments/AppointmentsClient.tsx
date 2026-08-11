@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarDays, CalendarPlus, Clock, Phone, User, Wrench, AlertTriangle, BellRing } from 'lucide-react'
+import { CalendarDays, CalendarPlus, Clock, Phone, User, Wrench, AlertTriangle, BellRing, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { BookingConfigCard } from './BookingConfigCard'
@@ -89,6 +89,7 @@ function AppointmentsList({ refreshKey }: { refreshKey: number }) {
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [resendingId, setResendingId] = useState<string | null>(null)
+  const [resendingEmailId, setResendingEmailId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -131,6 +132,18 @@ function AppointmentsList({ refreshKey }: { refreshKey: number }) {
       toast.error(err instanceof Error ? err.message : 'No se pudo reenviar el aviso al técnico')
     } finally {
       setResendingId(null)
+    }
+  }
+
+  async function handleResendVisitEmail(id: string) {
+    setResendingEmailId(id)
+    try {
+      await fetchAPI(`/appointments/${id}/notify-visit-email`, { method: 'POST' })
+      toast.success('Correo reenviado al equipo')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo reenviar el correo al equipo')
+    } finally {
+      setResendingEmailId(null)
     }
   }
 
@@ -234,6 +247,18 @@ function AppointmentsList({ refreshKey }: { refreshKey: number }) {
                       <BellRing className="w-3.5 h-3.5" />
                       {resendingId === appt.id ? 'Enviando...' : 'Reenviar aviso al técnico'}
                     </Button>
+                    {appt.type === 'SITE_VISIT' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl gap-1.5"
+                        disabled={resendingEmailId === appt.id}
+                        onClick={() => handleResendVisitEmail(appt.id)}
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        {resendingEmailId === appt.id ? 'Enviando...' : 'Reenviar correo al equipo'}
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
