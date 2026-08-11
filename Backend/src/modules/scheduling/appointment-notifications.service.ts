@@ -98,30 +98,39 @@ export async function notifyAppointmentEvent(
     }
 
     const channel = await prisma.channel.findFirst({ where: { workspaceId, platform: 'WHATSAPP', status: 'CONNECTED' } })
-    if (!channel) return
+    if (channel) {
+      try {
+        await sendTechnicianAlert(workspaceId, channel, { contact, appointment, kind, oldScheduledAt })
+      } catch (err) {
+        console.error('[appointment-notifications] internal alert failed (non-blocking):', err)
+      }
 
-    try {
-      await sendTechnicianAlert(workspaceId, channel, { contact, appointment, kind, oldScheduledAt })
-    } catch (err) {
-      console.error('[appointment-notifications] internal alert failed (non-blocking):', err)
+      const tz = await getWorkspaceTimezone(workspaceId)
+      const when = formatApptDateTime(appointment.scheduledAt, tz)
+      const type = typeLabel(appointment.type)
+
+      try {
+        const leadText = kind === 'created'
+          ? `Tu ${type.toLowerCase()} quedó agendada para el ${when}. Cualquier cambio, escríbenos por aquí.`
+          : `Tu ${type.toLowerCase()} fue reagendada: ahora es el ${when} (antes: ${formatApptDateTime(oldScheduledAt!, tz)}).`
+
+        if (conversationId) {
+          await sendOutboundPlatformMessage(workspaceId, conversationId, leadText)
+        } else if (contact.phone) {
+          await sendPlatformMessage('WHATSAPP', channel.config, contact.phone, leadText, workspaceId)
+        }
+      } catch (err) {
+        console.error('[appointment-notifications] lead confirmation failed (non-blocking):', err)
+      }
     }
 
-    const tz = await getWorkspaceTimezone(workspaceId)
-    const when = formatApptDateTime(appointment.scheduledAt, tz)
-    const type = typeLabel(appointment.type)
-
+    // Independent of the WhatsApp channel above — email must still be
+    // attempted even if the workspace has no WhatsApp connected at all.
     try {
-      const leadText = kind === 'created'
-        ? `Tu ${type.toLowerCase()} quedó agendada para el ${when}. Cualquier cambio, escríbenos por aquí.`
-        : `Tu ${type.toLowerCase()} fue reagendada: ahora es el ${when} (antes: ${formatApptDateTime(oldScheduledAt!, tz)}).`
-
-      if (conversationId) {
-        await sendOutboundPlatformMessage(workspaceId, conversationId, leadText)
-      } else if (contact.phone) {
-        await sendPlatformMessage('WHATSAPP', channel.config, contact.phone, leadText, workspaceId)
-      }
+      const { sendVisitEmailNotification } = await import('./visitEmailNotification.service')
+      await sendVisitEmailNotification(workspaceId, { contact, appointment, kind, oldScheduledAt })
     } catch (err) {
-      console.error('[appointment-notifications] lead confirmation failed (non-blocking):', err)
+      console.error('[appointment-notifications] email notification failed (non-blocking):', err)
     }
   } catch (err) {
     console.error('[appointment-notifications] notifyAppointmentEvent failed (non-blocking):', err)

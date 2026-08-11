@@ -14,13 +14,19 @@ vi.mock('../../messaging/message.service', () => ({
   sendInternalWhatsAppTemplate: vi.fn(async () => {})
 }))
 
+vi.mock('../visitEmailNotification.service', () => ({
+  sendVisitEmailNotification: vi.fn(async () => {})
+}))
+
 import { notifyAppointmentEvent } from '../appointment-notifications.service'
 import { prisma } from '../../../lib/prisma'
 import { sendPlatformMessage, sendOutboundPlatformMessage, sendInternalWhatsAppTemplate } from '../../messaging/message.service'
+import { sendVisitEmailNotification } from '../visitEmailNotification.service'
 
 const sendPlatformMessageMock = sendPlatformMessage as any
 const sendOutboundPlatformMessageMock = sendOutboundPlatformMessage as any
 const sendInternalWhatsAppTemplateMock = sendInternalWhatsAppTemplate as any
+const sendVisitEmailNotificationMock = sendVisitEmailNotification as any
 
 const WS = 'ws-1'
 const CHANNEL = { id: 'ch-1', platform: 'WHATSAPP', config: { phoneNumberId: 'pn-1', accessToken: 'tok' } }
@@ -121,5 +127,33 @@ describe('notifyAppointmentEvent', () => {
 
     expect(sendPlatformMessageMock).not.toHaveBeenCalled()
     expect(sendOutboundPlatformMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('sends the email notification alongside the WhatsApp alert', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56999998888' } as any)
+
+    await notifyAppointmentEvent(WS, { contact: CONTACT, appointment: APPT, kind: 'created', conversationId: 'conv-1' })
+
+    expect(sendVisitEmailNotificationMock).toHaveBeenCalledWith(WS, {
+      contact: CONTACT, appointment: APPT, kind: 'created', oldScheduledAt: undefined
+    })
+  })
+
+  it('still sends the email notification when the workspace has no WhatsApp channel connected', async () => {
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null as any)
+
+    await notifyAppointmentEvent(WS, { contact: CONTACT, appointment: APPT, kind: 'created', conversationId: 'conv-1' })
+
+    expect(sendVisitEmailNotificationMock).toHaveBeenCalled()
+  })
+
+  it('never throws when the email notification fails, and still sends the WhatsApp alert', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({ notifyPhone: '56999998888' } as any)
+    sendVisitEmailNotificationMock.mockRejectedValueOnce(new Error('gmail down'))
+
+    await expect(
+      notifyAppointmentEvent(WS, { contact: CONTACT, appointment: APPT, kind: 'created', conversationId: 'conv-1' })
+    ).resolves.toBeUndefined()
+    expect(sendPlatformMessageMock).toHaveBeenCalled()
   })
 })
