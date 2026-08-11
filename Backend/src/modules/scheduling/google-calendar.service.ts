@@ -9,7 +9,7 @@ interface FreeBusyBlock {
 }
 
 /** Returns a valid access token for the workspace, refreshing if expired. */
-async function getAccessToken(workspaceId: string): Promise<string> {
+export async function getAccessToken(workspaceId: string): Promise<string> {
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: {

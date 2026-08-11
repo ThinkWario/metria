@@ -27,4 +27,11 @@ describe('GoogleCalendarProvider.getAuthUrl', () => {
 
     expect(url.searchParams.get('state')).toBe('workspace-123')
   })
+
+  it('requests gmail.send alongside the calendar scopes', () => {
+    const provider = new GoogleCalendarProvider()
+    const url = provider.getAuthUrl('state-123')
+    const scope = new URL(url).searchParams.get('scope') ?? ''
+    expect(scope).toContain('https://www.googleapis.com/auth/gmail.send')
+  })
 })
