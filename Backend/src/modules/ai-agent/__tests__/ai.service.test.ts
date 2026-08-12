@@ -83,6 +83,18 @@ describe('processAiResponse (rewired)', () => {
     expect(system).toContain('Garantía 10 años')
   })
 
+  it('grounds the system prompt with the contact\'s active appointment so the bot does not re-offer scheduling', async () => {
+    const scheduledAt = new Date('2026-06-15T17:00:00')
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValueOnce({ id: 'a1', type: 'SITE_VISIT', scheduledAt } as any)
+    chatMock.mockResolvedValue({ text: 'Sí, tu visita sigue para esa fecha.', toolCalls: [], submitToolResults: vi.fn() })
+
+    await processAiResponse(WS, CONV, '¿sigue mi cita?')
+
+    const system = chatMock.mock.calls[0][0].system
+    expect(system).toContain('CITA AGENDADA')
+    expect(system).toContain(`formatted:${scheduledAt.toISOString()}`)
+  })
+
   it('executes update_qualification tool call and returns final text', async () => {
     const submit = vi.fn(async () => ({ text: 'Listo, te tengo calificada.', toolCalls: [], submitToolResults: vi.fn() }))
     chatMock.mockResolvedValue({
@@ -126,9 +138,9 @@ describe('processAiResponse (rewired)', () => {
   })
 
   it('reschedules the existing active appointment instead of creating a duplicate when the contact already has one', async () => {
-    vi.mocked(prisma.appointment.findFirst).mockResolvedValueOnce({
-      id: 'existing-1', type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-10T10:00:00')
-    } as any)
+    // Two calls: one grounding the system prompt, one from schedule_appointment's own existing-active check.
+    const existing = { id: 'existing-1', type: 'SITE_VISIT', status: 'SCHEDULED', scheduledAt: new Date('2026-06-10T10:00:00') }
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValueOnce(existing as any).mockResolvedValueOnce(existing as any)
     const submit = vi.fn(async () => ({ text: 'Reagendado', toolCalls: [], submitToolResults: vi.fn() }))
     chatMock.mockResolvedValue({
       text: null,
@@ -210,7 +222,9 @@ describe('processAiResponse (rewired)', () => {
   })
 
   it('executes reschedule_appointment: updates the active appointment and notifies both sides', async () => {
-    vi.mocked(prisma.appointment.findFirst).mockResolvedValue({ id: 'a1', type: 'SITE_VISIT' } as any)
+    // Two calls: one grounding the system prompt, one from reschedule_appointment's own lookup.
+    const active = { id: 'a1', type: 'SITE_VISIT', scheduledAt: new Date('2026-06-10T10:00:00') }
+    vi.mocked(prisma.appointment.findFirst).mockResolvedValueOnce(active as any).mockResolvedValueOnce(active as any)
     vi.mocked(getAvailableSlots).mockResolvedValueOnce([new Date('2026-06-16T10:00:00')])
     const submit = vi.fn(async () => ({ text: 'Reagendado', toolCalls: [], submitToolResults: vi.fn() }))
     chatMock.mockResolvedValue({

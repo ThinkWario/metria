@@ -160,6 +160,20 @@ export async function processAiResponse(
   return processAiResponseLegacy(workspaceId, conversationId, userContent)
 }
 
+/** The contact's active appointment, formatted for the prompt — null if there isn't one. */
+async function getActiveAppointmentContext(workspaceId: string, contactId: string) {
+  const appt = await prisma.appointment.findFirst({
+    where: { workspaceId, contactId, status: { in: ['SCHEDULED', 'CONFIRMED'] } },
+    orderBy: { scheduledAt: 'asc' }
+  })
+  if (!appt) return null
+  const tz = await getWorkspaceTimezone(workspaceId)
+  return {
+    typeLabel: appt.type === 'SITE_VISIT' ? 'Visita técnica' : 'Llamada',
+    when: formatApptDateTime(appt.scheduledAt, tz)
+  }
+}
+
 async function processAiResponseLegacy(
   workspaceId: string,
   conversationId: string,
@@ -192,13 +206,17 @@ async function processAiResponseLegacy(
         include: { stage: true }
       })
     : null
+  const appointment = conversation.contact
+    ? await getActiveAppointmentContext(workspaceId, conversation.contact.id)
+    : null
 
   const system = compileSystemPrompt({
     agent: { name: agent.name, tone: agent.tone, promptBase: agent.promptBase },
     profile,
     knowledgeChunks: knowledge.map(k => k.content),
     contact: conversation.contact as any,
-    deal: deal as any
+    deal: deal as any,
+    appointment
   })
 
   const rawHistory = [...conversation.messages]
@@ -279,6 +297,9 @@ async function loadAiContext(workspaceId: string, conversationId: string, userCo
         include: { stage: true }
       })
     : null
+  const appointment = conversation.contact
+    ? await getActiveAppointmentContext(workspaceId, conversation.contact.id)
+    : null
 
   const rawHistory = [...conversation.messages]
     .reverse()
@@ -298,7 +319,7 @@ async function loadAiContext(workspaceId: string, conversationId: string, userCo
     else history.push({ ...turn })
   }
 
-  return { conversation, agent, profile, knowledge, deal, history }
+  return { conversation, agent, profile, knowledge, deal, appointment, history }
 }
 
 async function applyDealAction(
@@ -414,7 +435,7 @@ async function processAiResponseSplit(
 ): Promise<string | null> {
   const ctx = await loadAiContext(workspaceId, conversationId, userContent)
   if (!ctx) return null
-  const { agent, profile, knowledge, deal, history } = ctx
+  const { agent, profile, knowledge, deal, appointment, history } = ctx
   const contact = ctx.conversation.contact as any
 
   const provider = getProvider(agent.provider)
@@ -426,7 +447,8 @@ async function processAiResponseSplit(
     profile,
     knowledgeChunks: knowledge.map(k => k.content),
     contact,
-    deal: deal as any
+    deal: deal as any,
+    appointment
   })
 
   const [qualifierSettled, responderSettled] = await Promise.allSettled([

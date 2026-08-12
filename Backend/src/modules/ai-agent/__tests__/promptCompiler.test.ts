@@ -43,6 +43,19 @@ describe('compileSystemPrompt', () => {
     expect(prompt).toContain('Cotización')
   })
 
+  it('includes the active appointment and tells the model not to re-offer scheduling', () => {
+    const appointment = { typeLabel: 'Visita técnica', when: '11 de agosto a las 17:00' }
+    const prompt = compileSystemPrompt({ agent, profile: baseProfile, knowledgeChunks: [], contact: null, deal: null, appointment })
+    expect(prompt).toContain('CITA AGENDADA')
+    expect(prompt).toContain('11 de agosto a las 17:00')
+    expect(prompt).toContain('reschedule_appointment')
+  })
+
+  it('omits the appointment section when there is none', () => {
+    const prompt = compileSystemPrompt({ agent, profile: baseProfile, knowledgeChunks: [], contact: null, deal: null, appointment: null })
+    expect(prompt).not.toContain('CITA AGENDADA')
+  })
+
   it('works with empty profile (no wizard yet)', () => {
     const prompt = compileSystemPrompt({ agent, profile: null, knowledgeChunks: [], contact: null, deal: null })
     expect(prompt).toContain('Sol')

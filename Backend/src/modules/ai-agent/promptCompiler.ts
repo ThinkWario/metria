@@ -19,6 +19,9 @@ export interface CompileInput {
     qualificationData: any
   } | null
   deal: { title: string; status: string; stage?: { name: string } | null } | null
+  /** The contact's active (SCHEDULED/CONFIRMED) appointment, if any — grounds the model so
+   *  it doesn't re-offer scheduling (including on follow-ups) when one already exists. */
+  appointment?: { typeLabel: string; when: string } | null
 }
 
 function pendingQualificationQuestions(profile: AgentProfile | null, contact: CompileInput['contact']) {
@@ -28,7 +31,7 @@ function pendingQualificationQuestions(profile: AgentProfile | null, contact: Co
 }
 
 function renderPrompt(
-  { agent, profile, knowledgeChunks, contact, deal }: CompileInput,
+  { agent, profile, knowledgeChunks, contact, deal, appointment }: CompileInput,
   includeQualifierRules: boolean
 ): string {
   const sections: string[] = []
@@ -58,6 +61,10 @@ function renderPrompt(
 
   if (deal) {
     sections.push(`DEAL ACTIVO: "${deal.title}" en etapa "${deal.stage?.name ?? 'inicial'}". Tu trabajo es empujarlo a la siguiente etapa.`)
+  }
+
+  if (appointment) {
+    sections.push(`CITA AGENDADA:\n${appointment.typeLabel} confirmada para ${appointment.when}. NO ofrezcas agendar de nuevo ni preguntes qué día le acomoda — esa cita ya existe. Si el cliente pregunta por ella, confírmasela con esta fecha/hora tal cual. Si pide cambiarla, usa reschedule_appointment.`)
   }
 
   if (profile?.objections?.length) {
