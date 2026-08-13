@@ -233,6 +233,13 @@ describe('MessagingController - Messenger Webhooks', () => {
       expect(generateAndSendAiReply).toHaveBeenCalledWith('ws-1', 'conv-1', 'ch-1', 'Podemos coordinar para otro día?')
       expect(res.status).toHaveBeenCalledWith(202)
       expect(res.json).toHaveBeenCalledWith({ status: 'processing' })
+      // Internal system notes ("La IA retomó el control...") must never be
+      // mistaken for the customer's own message.
+      expect(prisma.conversation.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+        include: expect.objectContaining({
+          messages: expect.objectContaining({ where: { isInternal: false } })
+        })
+      }))
     })
 
     it('hands control back to the bot first when a human currently holds the conversation', async () => {

@@ -197,6 +197,10 @@ export function ChatWindow({
 
   const status = conversation.status
   const assignee = conversation.assignedToUser
+  // Skips internal system notes (e.g. "La IA retomó el control...") — those
+  // aren't customer-facing, so they must not hide the "Forzar respuesta IA"
+  // button when the customer's own last message is still unanswered.
+  const lastCustomerFacingMessage = [...messages].reverse().find(m => !m.isInternal)
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-background/30 overflow-hidden animate-in fade-in duration-300">
@@ -315,7 +319,7 @@ export function ChatWindow({
                     Devolver a IA
                 </Button>
             )}
-            {onForceAiReply && messages.length > 0 && messages[messages.length - 1].direction === 'INBOUND' && (
+            {onForceAiReply && lastCustomerFacingMessage?.direction === 'INBOUND' && (
                 <Button
                     variant="outline"
                     size="sm"

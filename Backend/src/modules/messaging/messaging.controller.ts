@@ -370,7 +370,10 @@ export async function triggerAiReplyHandler(req: Request, res: Response): Promis
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId, workspaceId },
-      include: { messages: { orderBy: { sentAt: 'desc' }, take: 1 } }
+      // Internal system notes (e.g. "La IA retomó el control...", logged
+      // right below by this same handler) are not customer-facing — they
+      // must never be mistaken for the message we're trying to answer.
+      include: { messages: { where: { isInternal: false }, orderBy: { sentAt: 'desc' }, take: 1 } }
     })
     if (!conversation) { res.status(404).json({ error: 'Conversación no encontrada' }); return }
 
