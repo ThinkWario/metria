@@ -330,6 +330,82 @@ describe('processAiResponse (rewired)', () => {
   })
 })
 
+describe('logIfQualifierStalled — measuring how often update_qualification misses an answer', () => {
+  const PROFILE_WITH_QUESTIONS = {
+    qualificationQuestions: [
+      { key: 'monthly_bill', question: '¿Cuánto pagas de luz al mes?' },
+      { key: 'is_owner', question: '¿Eres propietario?' }
+    ]
+  }
+
+  it('logs pending_question_not_captured when the pending list is unchanged after a customer reply', async () => {
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+      id: CONV, workspaceId: WS, isHandledByBot: true,
+      contact: { id: 'c1', name: 'Ana', status: 'LEAD', leadTemperature: null, leadType: null, leadScore: null, qualificationData: {} },
+      messages: [{ senderType: 'CONTACT', content: 'Hola' }],
+      channel: { platform: 'WHATSAPP' }
+    } as any)
+    vi.mocked(prisma.botAgent.findFirst).mockResolvedValue({
+      id: 'bot-1', name: 'Sol', tone: 'casual', promptBase: null, provider: 'gemini', config: { profile: PROFILE_WITH_QUESTIONS }
+    } as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValueOnce({
+      name: 'Ana', status: 'LEAD', leadTemperature: null, leadType: null, leadScore: null, qualificationData: {}
+    } as any)
+    chatMock.mockResolvedValue({ text: 'Perfecto, cuéntame más.', toolCalls: [], submitToolResults: vi.fn() })
+
+    await processAiResponse(WS, CONV, 'Casa')
+
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        source: 'ai-qualifier',
+        event: 'pending_question_not_captured',
+        payload: expect.objectContaining({ pendingKeys: ['monthly_bill', 'is_owner'] })
+      })
+    }))
+  })
+
+  it('does not log when the customer reply resolved at least one pending question', async () => {
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+      id: CONV, workspaceId: WS, isHandledByBot: true,
+      contact: { id: 'c1', name: 'Ana', status: 'LEAD', leadTemperature: null, leadType: null, leadScore: null, qualificationData: {} },
+      messages: [{ senderType: 'CONTACT', content: 'Hola' }],
+      channel: { platform: 'WHATSAPP' }
+    } as any)
+    vi.mocked(prisma.botAgent.findFirst).mockResolvedValue({
+      id: 'bot-1', name: 'Sol', tone: 'casual', promptBase: null, provider: 'gemini', config: { profile: PROFILE_WITH_QUESTIONS }
+    } as any)
+    vi.mocked(prisma.contact.findUnique).mockResolvedValueOnce({
+      name: 'Ana', status: 'LEAD', leadTemperature: null, leadType: null, leadScore: null, qualificationData: { monthly_bill: '180000' }
+    } as any)
+    chatMock.mockResolvedValue({ text: 'Perfecto, cuéntame más.', toolCalls: [], submitToolResults: vi.fn() })
+
+    await processAiResponse(WS, CONV, '180 mil')
+
+    expect(prisma.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('skips the check entirely (no extra fetch, no log) when there were no pending questions to begin with', async () => {
+    vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+      id: CONV, workspaceId: WS, isHandledByBot: true,
+      contact: {
+        id: 'c1', name: 'Ana', status: 'LEAD', leadTemperature: null, leadType: null, leadScore: null,
+        qualificationData: { monthly_bill: 'x', is_owner: 'x' }
+      },
+      messages: [{ senderType: 'CONTACT', content: 'Hola' }],
+      channel: { platform: 'WHATSAPP' }
+    } as any)
+    vi.mocked(prisma.botAgent.findFirst).mockResolvedValue({
+      id: 'bot-1', name: 'Sol', tone: 'casual', promptBase: null, provider: 'gemini', config: { profile: PROFILE_WITH_QUESTIONS }
+    } as any)
+    chatMock.mockResolvedValue({ text: 'Gracias.', toolCalls: [], submitToolResults: vi.fn() })
+
+    await processAiResponse(WS, CONV, 'ok')
+
+    expect(prisma.contact.findUnique).not.toHaveBeenCalled()
+    expect(prisma.auditLog.create).not.toHaveBeenCalled()
+  })
+})
+
 describe('processAiResponse (split path — AI_QUALIFIER_SPLIT_ENABLED=true)', () => {
   beforeEach(() => {
     process.env.AI_QUALIFIER_SPLIT_ENABLED = 'true'

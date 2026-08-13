@@ -24,7 +24,7 @@ export interface CompileInput {
   appointment?: { typeLabel: string; when: string } | null
 }
 
-function pendingQualificationQuestions(profile: AgentProfile | null, contact: CompileInput['contact']) {
+export function pendingQualificationQuestions(profile: AgentProfile | null, contact: CompileInput['contact']) {
   if (!contact) return []
   const qualified = (contact.qualificationData ?? {}) as Record<string, unknown>
   return (profile?.qualificationQuestions ?? []).filter(q => qualified[q.key] === undefined)

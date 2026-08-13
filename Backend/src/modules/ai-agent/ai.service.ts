@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma'
 import { updateContact, updateQualification, addTag } from '../crm/contact.service'
 import { createDeal, moveDeal } from '../crm/pipeline.service'
 import { getProvider } from './providers/provider.factory'
-import { compileSystemPrompt, compileResponderPrompt, compileQualifierPrompt, type AgentProfile, type CompileInput } from './promptCompiler'
+import { compileSystemPrompt, compileResponderPrompt, compileQualifierPrompt, pendingQualificationQuestions, type AgentProfile, type CompileInput } from './promptCompiler'
 import { retrieveRelevantChunks } from '../knowledge/retrieval.service'
 import { getAvailableSlots, filterSlotsByCalendarBusy, scheduleAppointment, rescheduleAppointment, getWorkspaceTimezone } from '../scheduling/scheduling.service'
 import { formatApptDateTime } from '../scheduling/appointment-notifications.service'
@@ -174,6 +174,55 @@ async function getActiveAppointmentContext(workspaceId: string, contactId: strin
   }
 }
 
+/**
+ * Best-effort, non-blocking measurement (never throws, never delays the
+ * reply): fires when the contact had pending qualification questions before
+ * this turn and STILL has the exact same ones pending after it, despite the
+ * customer having said something. This is a heuristic, not proof — a
+ * legitimate off-topic reply (an objection, small talk) also leaves the
+ * pending set unchanged, so some false positives are expected. It exists
+ * purely to measure how often update_qualification appears to miss an
+ * answer the customer actually gave, before investing in a prompt fix (see
+ * [[project_solar_wizard_qualification_mapping]] — observed in German
+ * Barrales Venegas' transcript, 2026-08-12: property_type/location answered
+ * once with no tool call, then asked again a few turns later).
+ */
+async function logIfQualifierStalled(params: {
+  workspaceId: string
+  conversationId: string
+  contactId: string
+  profile: AgentProfile | null
+  pendingBeforeKeys: string[]
+  userContent: string
+}): Promise<void> {
+  const { workspaceId, conversationId, contactId, profile, pendingBeforeKeys, userContent } = params
+  if (pendingBeforeKeys.length === 0 || !userContent.trim()) return
+
+  try {
+    const fresh = await prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { name: true, status: true, leadTemperature: true, leadType: true, leadScore: true, qualificationData: true }
+    })
+    if (!fresh) return
+
+    const pendingAfterKeys = pendingQualificationQuestions(profile, { id: contactId, ...fresh }).map(q => q.key)
+    const unchanged = pendingBeforeKeys.length === pendingAfterKeys.length
+      && pendingBeforeKeys.every(k => pendingAfterKeys.includes(k))
+    if (!unchanged) return
+
+    console.warn(`[AI Agent] Qualifier stalled — pending questions unchanged after a customer reply (conversation ${conversationId}):`, pendingBeforeKeys)
+    await prisma.auditLog.create({
+      data: {
+        workspaceId, source: 'ai-qualifier', event: 'pending_question_not_captured', status: 'warn',
+        message: pendingBeforeKeys.join(', '),
+        payload: { conversationId, contactId, pendingKeys: pendingBeforeKeys, userContent: userContent.slice(0, 300) }
+      }
+    })
+  } catch (error) {
+    console.error('[AI Agent] logIfQualifierStalled failed (non-blocking):', error)
+  }
+}
+
 async function processAiResponseLegacy(
   workspaceId: string,
   conversationId: string,
@@ -209,6 +258,9 @@ async function processAiResponseLegacy(
   const appointment = conversation.contact
     ? await getActiveAppointmentContext(workspaceId, conversation.contact.id)
     : null
+  const pendingBeforeKeys = conversation.contact
+    ? pendingQualificationQuestions(profile, conversation.contact as any).map(q => q.key)
+    : []
 
   const system = compileSystemPrompt({
     agent: { name: agent.name, tone: agent.tone, promptBase: agent.promptBase },
@@ -264,6 +316,13 @@ async function processAiResponseLegacy(
     result = await result.submitToolResults(responses)
     rounds++
   }
+
+  if (conversation.contact) {
+    await logIfQualifierStalled({
+      workspaceId, conversationId, contactId: conversation.contact.id, profile, pendingBeforeKeys, userContent
+    })
+  }
+
   // Handover already wrote a system message — suppress AI text reply to avoid duplicate
   if (handoverCalled) return null
   if (!result.text) return result.text
@@ -437,6 +496,7 @@ async function processAiResponseSplit(
   if (!ctx) return null
   const { agent, profile, knowledge, deal, appointment, history } = ctx
   const contact = ctx.conversation.contact as any
+  const pendingBeforeKeys = contact ? pendingQualificationQuestions(profile, contact).map(q => q.key) : []
 
   const provider = getProvider(agent.provider)
   const promptAgent = { name: agent.name, tone: agent.tone, promptBase: agent.promptBase }
@@ -496,6 +556,12 @@ async function processAiResponseSplit(
     } catch (error) {
       console.error('[AI Agent] Failed to write ai-qualifier AuditLog:', error)
     }
+  }
+
+  if (contact) {
+    await logIfQualifierStalled({
+      workspaceId, conversationId, contactId: contact.id, profile, pendingBeforeKeys, userContent
+    })
   }
 
   if (responderSettled.status === 'rejected') throw responderSettled.reason
