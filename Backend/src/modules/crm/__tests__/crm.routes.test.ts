@@ -28,7 +28,18 @@ vi.mock('../../../middleware/auth', () => ({
 }))
 vi.mock('../../../middleware/planGate', () => ({ requirePlan: () => (_req: any, _res: any, next: any) => next() }))
 
+const { mockUpdateSolarLeadData } = vi.hoisted(() => ({ mockUpdateSolarLeadData: vi.fn() }))
+vi.mock('../../leads/leadIngestion.service', () => ({ updateSolarLeadData: mockUpdateSolarLeadData }))
+
+const { mockGenerateVisitLetterPdf } = vi.hoisted(() => ({ mockGenerateVisitLetterPdf: vi.fn() }))
+vi.mock('../../leads/visitLetter.service', () => ({ generateVisitLetterPdf: mockGenerateVisitLetterPdf }))
+
+vi.mock('../../../lib/prisma', () => ({
+  prisma: { workspace: { findUnique: vi.fn() } }
+}))
+
 import crmRouter from '../crm.routes'
+import { prisma } from '../../../lib/prisma'
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -111,5 +122,58 @@ describe('PATCH /api/crm/contacts/:contactId/custom-fields', () => {
       .expect(200)
     expect(res.body).toEqual({ id: 'ct-1', customFields: { rut: '11.111.111-1' } })
     expect(mockSetContactCustomFields).toHaveBeenCalledWith('ws-1', 'ct-1', { rut: '11.111.111-1' })
+  })
+})
+
+describe('PATCH /api/crm/contacts/:contactId/solar-data', () => {
+  it('updates the rawFields and visitLetter data of the contact', async () => {
+    mockUpdateSolarLeadData.mockResolvedValue({ id: 'ct-1' })
+    const res = await request(buildApp())
+      .patch('/api/crm/contacts/ct-1/solar-data')
+      .send({ rawFields: { comuna: 'Colina' }, visitLetter: { tecnicoResponsable: 'Juan' } })
+      .expect(200)
+
+    expect(res.body).toEqual({ id: 'ct-1' })
+    expect(mockUpdateSolarLeadData).toHaveBeenCalledWith('ws-1', 'ct-1', {
+      rawFields: { comuna: 'Colina' }, visitLetter: { tecnicoResponsable: 'Juan' }
+    })
+  })
+
+  it('returns 404 when the contact is not found', async () => {
+    mockUpdateSolarLeadData.mockRejectedValue(new Error('Contact not found'))
+    const res = await request(buildApp())
+      .patch('/api/crm/contacts/missing/solar-data')
+      .send({ rawFields: { comuna: 'Colina' } })
+      .expect(404)
+    expect(res.body).toEqual({ error: 'Contact not found' })
+  })
+})
+
+describe('POST /api/crm/visit-letter/generate', () => {
+  it('streams a PDF built from manually-entered data, using the workspace executive', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({
+      visitLetterExecutiveName: 'Roberto Morales', visitLetterExecutiveTitle: 'Gerente Comercial'
+    } as any)
+    mockGenerateVisitLetterPdf.mockResolvedValue(Buffer.from('%PDF-fake'))
+
+    const res = await request(buildApp())
+      .post('/api/crm/visit-letter/generate')
+      .send({ nombre: 'Lead Manual', comuna: 'Providencia' })
+      .expect(200)
+
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(mockGenerateVisitLetterPdf).toHaveBeenCalledWith(expect.objectContaining({
+      nombre: 'Lead Manual', comuna: 'Providencia',
+      ejecutivoNombre: 'Roberto Morales', ejecutivoTitulo: 'Gerente Comercial'
+    }))
+  })
+
+  it('rejects when nombre is missing', async () => {
+    const res = await request(buildApp())
+      .post('/api/crm/visit-letter/generate')
+      .send({ comuna: 'Providencia' })
+      .expect(400)
+    expect(res.body).toEqual({ error: 'nombre es requerido' })
+    expect(mockGenerateVisitLetterPdf).not.toHaveBeenCalled()
   })
 })

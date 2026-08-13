@@ -15,7 +15,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from '@/components/ui/alert-dialog'
-import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign, MoreVertical, Trash2, X } from 'lucide-react'
+import { Users, UserCheck, TrendingUp, Search, Plus, Filter, MessageSquare, Ticket, DollarSign, MoreVertical, Trash2, X, FileText } from 'lucide-react'
+import { VisitLetterGeneratorModal } from './VisitLetterGeneratorModal'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -62,6 +63,7 @@ export default function CrmContactsClient() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   // New contact dialog
   const [newContactOpen, setNewContactOpen] = useState(false)
+  const [visitLetterGeneratorOpen, setVisitLetterGeneratorOpen] = useState(false)
   const [newContactForm, setNewContactForm] = useState({ name: '', email: '', phone: '', status: 'LEAD' })
   const [newContactSaving, setNewContactSaving] = useState(false)
   const router = useRouter()
@@ -217,11 +219,15 @@ export default function CrmContactsClient() {
           <p className="text-muted-foreground">Gestiona tus contactos y maximiza su valor de vida (LTV).</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" className="rounded-xl gap-2" onClick={() => setVisitLetterGeneratorOpen(true)}>
+            <FileText className="w-4 h-4" /> Generar carta personalizada
+          </Button>
           <Button className="rounded-xl gap-2 shadow-lg shadow-primary/20" onClick={() => setNewContactOpen(true)}>
             <Plus className="w-4 h-4" /> Nuevo Contacto
           </Button>
         </div>
       </div>
+      <VisitLetterGeneratorModal open={visitLetterGeneratorOpen} onClose={() => setVisitLetterGeneratorOpen(false)} />
 
       {/* ── New Contact Dialog ────────────────────────────────────── */}
       <Dialog open={newContactOpen} onOpenChange={setNewContactOpen}>

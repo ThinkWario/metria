@@ -5,6 +5,8 @@ import * as ps from './pipeline.service'
 import * as ts from './ticket.service'
 import * as cfs from './customField.service'
 import { prisma } from '../../lib/prisma'
+import { updateSolarLeadData } from '../leads/leadIngestion.service'
+import { generateVisitLetterPdf, type VisitLetterData } from '../leads/visitLetter.service'
 
 function notFoundStatus(msg: string) {
   return msg.toLowerCase().includes('not found') ? 404 : 500
@@ -38,6 +40,63 @@ export async function setContactCustomFieldsHandler(req: AuthRequest, res: Respo
     const { values } = req.body
     res.json(await cfs.setContactCustomFields(req.user!.workspaceId!, req.params.contactId, values ?? {}))
   } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+// ── Solar lead data / Carta de intención ────────────────────────────────────
+
+export async function updateSolarDataHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const { rawFields, visitLetter } = req.body ?? {}
+    res.json(await updateSolarLeadData(req.user!.workspaceId!, req.params.contactId, { rawFields, visitLetter }))
+  } catch (err: any) { res.status(notFoundStatus(err.message)).json({ error: err.message }) }
+}
+
+/**
+ * "In situ" generator: builds the Carta de intención from data typed by hand
+ * (a lead not yet in the CRM) — streams the PDF back directly, nothing is
+ * persisted. For a lead already in the CRM, the download link on the sessionId
+ * (see the public /api/public/solar/visit-letter/:sessionId route) is used
+ * instead, so the PDF always reflects the saved data.
+ */
+export async function generateVisitLetterHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const body = req.body ?? {}
+    if (!String(body.nombre ?? '').trim()) { res.status(400).json({ error: 'nombre es requerido' }); return }
+
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: req.user!.workspaceId! },
+      select: { visitLetterExecutiveName: true, visitLetterExecutiveTitle: true }
+    })
+
+    const data: VisitLetterData = {
+      numeroSolicitud: body.numeroSolicitud,
+      fechaEmision: new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Santiago' }).format(new Date()),
+      ejecutivoNombre: workspace?.visitLetterExecutiveName,
+      ejecutivoTitulo: workspace?.visitLetterExecutiveTitle,
+      zonaComuna: body.comuna,
+      nombre: String(body.nombre).trim(),
+      rut: body.rut,
+      direccion: body.direccion,
+      comuna: body.comuna,
+      telefono: body.telefono,
+      email: body.email,
+      numeroClienteElectrico: body.numeroClienteElectrico,
+      distribuidora: body.distribuidora,
+      fechaVisita: body.fechaVisita,
+      tecnicoResponsable: body.tecnicoResponsable,
+      fechaPropuesta: body.fechaPropuesta,
+      fechaMaximaRespuesta: body.fechaMaximaRespuesta,
+      modalidad: body.modalidad,
+      observaciones: body.observaciones
+    }
+
+    const pdf = await generateVisitLetterPdf(data)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', 'inline; filename="Solicitud-Formal-Visita-Tecnica.pdf"')
+    res.send(pdf)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
 }
 
 // ── Contacts ──────────────────────────────────────────────────────────────────

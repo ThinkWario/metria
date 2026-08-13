@@ -4,6 +4,7 @@ import type { Request, Response } from 'express'
 import { simpleRateLimit } from '../../lib/rateLimit'
 import { authenticateSolarApiKey } from '../../middleware/solarApiKey'
 import { resolveOrCreatePartialContact, finalizeLead, SOLAR_SOURCE, type FinalizeLeadResult } from './leadIngestion.service'
+import { getVisitLetterDataByToken, generateVisitLetterPdf } from './visitLetter.service'
 import { prisma } from '../../lib/prisma'
 import { redis } from '../../lib/redis'
 
@@ -208,6 +209,25 @@ router.get('/solar/lead', authenticateSolarApiKey, simpleRateLimit(60 * 1000, 30
     res.json({ status: 'success', data: rawFields, step: (rawFields.step as number) ?? 1 })
   } catch (err: any) {
     logAndRespondUnexpectedError(res, `Error en GET (sessionId=${req.query?.sessionId})`, err)
+  }
+})
+
+// Public download — no auth, gated only by the wizard's own (unguessable) sessionId,
+// same posture as the existing "Ver cotización" link (solar.drillchile.cl/cotizaciones).
+// Used both by staff from the CRM and by whoever receives the visit-notification email.
+router.get('/solar/visit-letter/:sessionId', simpleRateLimit(60 * 1000, 30), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const sessionId = String(req.params.sessionId ?? '')
+    if (!sessionId) { res.status(400).json({ error: 'sessionId requerido' }); return }
+
+    const data = await getVisitLetterDataByToken(getWorkspaceId(), sessionId)
+    const pdf = await generateVisitLetterPdf(data)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', 'inline; filename="Solicitud-Formal-Visita-Tecnica.pdf"')
+    res.send(pdf)
+  } catch (err: any) {
+    if (err?.message === 'Contact not found') { res.status(404).json({ error: 'No encontrado' }); return }
+    logAndRespondUnexpectedError(res, `Error en GET visit-letter (sessionId=${req.params?.sessionId})`, err)
   }
 })
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
-    contact: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    contact: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     contactTag: { deleteMany: vi.fn() },
     deal: { findFirst: vi.fn(), create: vi.fn() },
     channel: { findFirst: vi.fn() }
@@ -24,7 +24,7 @@ vi.mock('../../meta-events/metaEvents.service', () => ({
   emitMetaQualifiedLeadEvent: vi.fn(async () => {})
 }))
 
-import { resolveOrCreatePartialContact, finalizeLead, SOLAR_SOURCE } from '../leadIngestion.service'
+import { resolveOrCreatePartialContact, finalizeLead, updateSolarLeadData, SOLAR_SOURCE } from '../leadIngestion.service'
 import { qualifySolarLead, evaluateSolarResV2Criteria } from '../solarQualifier'
 import { prepareWhatsappConversation } from '../whatsappHandoff'
 import { emitMetaContactEvent, emitMetaLeadEvent, emitMetaFinanceApplicationSubmittedEvent, emitMetaQualifiedLeadEvent } from '../../meta-events/metaEvents.service'
@@ -39,6 +39,7 @@ const WS_ID = 'ws-1'
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(prisma.contact.findUnique).mockReset()
+  vi.mocked(prisma.contact.findFirst).mockReset()
   vi.mocked(prisma.contact.create).mockReset()
   vi.mocked(prisma.contact.update).mockReset()
   vi.mocked(prisma.contactTag.deleteMany).mockReset()
@@ -583,5 +584,68 @@ describe('finalizeLead', () => {
     } as any)
 
     expect(result.ok).toBe(true)
+  })
+})
+
+describe('updateSolarLeadData', () => {
+  it('throws when the contact does not belong to the workspace', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue(null)
+
+    await expect(
+      updateSolarLeadData(WS_ID, 'missing', { rawFields: { comuna: 'Colina' } })
+    ).rejects.toThrow('Contact not found')
+    expect(prisma.contact.update).not.toHaveBeenCalled()
+  })
+
+  it('merges editable rawFields and visitLetter fields over the existing ones', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: 'c1',
+      qualificationData: {
+        rawFields: { sessionId: 'sess-1', comuna: 'Providencia', montoBoleta: '45000' },
+        visitLetter: { tecnicoResponsable: 'Juan Pérez' }
+      }
+    } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1' } as any)
+
+    await updateSolarLeadData(WS_ID, 'c1', {
+      rawFields: { comuna: 'Colina' },
+      visitLetter: { numeroSolicitud: 'SOL-001', modalidad: 'presencial' }
+    })
+
+    expect(prisma.contact.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: {
+        qualificationData: {
+          rawFields: { sessionId: 'sess-1', comuna: 'Colina', montoBoleta: '45000' },
+          visitLetter: { tecnicoResponsable: 'Juan Pérez', numeroSolicitud: 'SOL-001', modalidad: 'presencial' }
+        }
+      }
+    })
+  })
+
+  it('ignores keys outside the editable allowlist (e.g. identity fields)', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: 'c1', qualificationData: { rawFields: {}, visitLetter: {} }
+    } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1' } as any)
+
+    await updateSolarLeadData(WS_ID, 'c1', {
+      rawFields: { comuna: 'Colina', nombre: 'Hackeo', rut: '11.111.111-1' } as any
+    })
+
+    const updateArgs = vi.mocked(prisma.contact.update).mock.calls.at(-1)?.[0] as any
+    expect(updateArgs.data.qualificationData.rawFields).toEqual({ comuna: 'Colina' })
+  })
+
+  it('clears a field when sent as an empty string', async () => {
+    vi.mocked(prisma.contact.findFirst).mockResolvedValue({
+      id: 'c1', qualificationData: { rawFields: { comuna: 'Colina' }, visitLetter: {} }
+    } as any)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1' } as any)
+
+    await updateSolarLeadData(WS_ID, 'c1', { rawFields: { comuna: '' } })
+
+    const updateArgs = vi.mocked(prisma.contact.update).mock.calls.at(-1)?.[0] as any
+    expect(updateArgs.data.qualificationData.rawFields.comuna).toBeUndefined()
   })
 })

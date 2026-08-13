@@ -7,11 +7,12 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarDays, CalendarPlus, Clock, Phone, User, Wrench, AlertTriangle, BellRing, Mail } from 'lucide-react'
+import { CalendarDays, CalendarPlus, Clock, Phone, User, Wrench, AlertTriangle, BellRing, Mail, UserCog } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { BookingConfigCard } from './BookingConfigCard'
 import { NewAppointmentModal } from './NewAppointmentModal'
+import { VisitLetterExecutiveModal } from './VisitLetterExecutiveModal'
 
 interface Appointment {
   id: string
@@ -58,6 +59,7 @@ function dayKey(iso: string): string {
 
 export default function AppointmentsClient() {
   const [modalOpen, setModalOpen] = useState(false)
+  const [executiveModalOpen, setExecutiveModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (
@@ -68,9 +70,14 @@ export default function AppointmentsClient() {
           <h2 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
             <CalendarDays className="w-4 h-4" /> Próximas citas
           </h2>
-          <Button size="sm" className="rounded-xl gap-1.5" onClick={() => setModalOpen(true)}>
-            <CalendarPlus className="w-4 h-4" /> Nueva cita
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="rounded-xl gap-1.5" onClick={() => setExecutiveModalOpen(true)}>
+              <UserCog className="w-4 h-4" /> Ejecutivo responsable
+            </Button>
+            <Button size="sm" className="rounded-xl gap-1.5" onClick={() => setModalOpen(true)}>
+              <CalendarPlus className="w-4 h-4" /> Nueva cita
+            </Button>
+          </div>
         </div>
         <AppointmentsList refreshKey={refreshKey} />
       </div>
@@ -78,6 +85,10 @@ export default function AppointmentsClient() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onCreated={() => setRefreshKey(k => k + 1)}
+      />
+      <VisitLetterExecutiveModal
+        open={executiveModalOpen}
+        onClose={() => setExecutiveModalOpen(false)}
       />
     </div>
   )

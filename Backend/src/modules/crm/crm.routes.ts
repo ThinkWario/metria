@@ -11,6 +11,7 @@ import {
   bulkUpdateContactsHandler, bulkDeleteContactsHandler,
   listDuplicateContactsHandler, mergeContactsHandler,
   listCustomFieldsHandler, createCustomFieldHandler, deleteCustomFieldHandler, setContactCustomFieldsHandler,
+  updateSolarDataHandler, generateVisitLetterHandler,
   listPipelinesHandler, createPipelineHandler,
   createStageHandler, updateStageHandler, deleteStageHandler, reorderStagesHandler,
   listDealsHandler, createDealHandler, moveDealHandler, closeDealHandler, updateDealHandler,
@@ -43,6 +44,10 @@ router.delete('/crm/custom-fields/:id', ...auth, deleteCustomFieldHandler)
 router.patch('/crm/contacts/:contactId/custom-fields', ...auth, setContactCustomFieldsHandler)
 router.get('/crm/contacts/:contactId/duplicates', ...auth, listDuplicateContactsHandler)
 router.post('/crm/contacts/:contactId/merge', ...auth, mergeContactsHandler)
+
+// Solar lead data / Carta de intención de proyecto solar
+router.patch('/crm/contacts/:contactId/solar-data', ...auth, updateSolarDataHandler)
+router.post('/crm/visit-letter/generate', ...auth, generateVisitLetterHandler)
 
 // Pipelines + Deals
 router.get('/crm/pipelines', ...auth, listPipelinesHandler)

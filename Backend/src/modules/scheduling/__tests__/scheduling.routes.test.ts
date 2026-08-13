@@ -166,6 +166,61 @@ describe('PATCH /api/scheduling/booking-config — visitNotifyEmails', () => {
   })
 })
 
+describe('GET /api/scheduling/booking-config — visitLetterExecutiveName/Title', () => {
+  it('includes both fields in the response', async () => {
+    vi.mocked(prisma.workspace.findUnique).mockResolvedValue({
+      bookingSlug: 'drillchile', bookingTitle: 'Agenda tu visita', bookingDurationMin: 30,
+      notifyPhone: null, visitNotifyEmails: null,
+      visitLetterExecutiveName: 'Roberto Morales', visitLetterExecutiveTitle: 'Gerente Comercial'
+    } as any)
+
+    const res = await request(buildApp()).get('/api/scheduling/booking-config')
+
+    expect(res.status).toBe(200)
+    expect(res.body.visitLetterExecutiveName).toBe('Roberto Morales')
+    expect(res.body.visitLetterExecutiveTitle).toBe('Gerente Comercial')
+  })
+})
+
+describe('PATCH /api/scheduling/booking-config — visitLetterExecutiveName/Title', () => {
+  it('trims and saves both fields', async () => {
+    vi.mocked(prisma.workspace.update).mockResolvedValue({
+      bookingSlug: 'drillchile', bookingTitle: null, bookingDurationMin: 30,
+      notifyPhone: null, visitNotifyEmails: null,
+      visitLetterExecutiveName: 'Roberto Morales', visitLetterExecutiveTitle: 'Gerente Comercial'
+    } as any)
+
+    const res = await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ visitLetterExecutiveName: '  Roberto Morales  ', visitLetterExecutiveTitle: '  Gerente Comercial  ' })
+
+    expect(res.status).toBe(200)
+    expect(prisma.workspace.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ visitLetterExecutiveName: 'Roberto Morales', visitLetterExecutiveTitle: 'Gerente Comercial' })
+      })
+    )
+    expect(res.body.visitLetterExecutiveName).toBe('Roberto Morales')
+    expect(res.body.visitLetterExecutiveTitle).toBe('Gerente Comercial')
+  })
+
+  it('clears both fields when sent as empty strings', async () => {
+    vi.mocked(prisma.workspace.update).mockResolvedValue({
+      bookingSlug: 'drillchile', bookingTitle: null, bookingDurationMin: 30,
+      notifyPhone: null, visitNotifyEmails: null,
+      visitLetterExecutiveName: null, visitLetterExecutiveTitle: null
+    } as any)
+
+    await request(buildApp())
+      .patch('/api/scheduling/booking-config')
+      .send({ visitLetterExecutiveName: '', visitLetterExecutiveTitle: '' })
+
+    expect(prisma.workspace.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ visitLetterExecutiveName: null, visitLetterExecutiveTitle: null }) })
+    )
+  })
+})
+
 describe('POST /api/appointments/:id/notify-visit-email', () => {
   const APPT = {
     id: 'appt-1', type: 'SITE_VISIT', scheduledAt: new Date('2026-08-10T19:00:00Z'),

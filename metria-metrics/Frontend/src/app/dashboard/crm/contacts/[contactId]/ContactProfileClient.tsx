@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { fetchAPI } from '@/lib/api'
+import { API_BASE_URL } from '@/lib/constants'
 import { PLATFORM_ICONS } from '@/lib/platformIcons'
 import { getActiveChannels, type ContactConversationSummary } from './getActiveChannels'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -118,14 +119,38 @@ function safeExternalUrl(url?: string | null): string | undefined {
   return undefined
 }
 
+const MODALIDAD_OPTIONS: { value: string; label: string }[] = [
+  { value: 'presencial', label: 'Reunión presencial' },
+  { value: 'videollamada', label: 'Videollamada' },
+  { value: 'llamada', label: 'Llamada telefónica' },
+  { value: 'correo', label: 'Correo electrónico' }
+]
+
+const VISIT_LETTER_FIELDS: Array<[key: string, label: string]> = [
+  ['numeroSolicitud', 'N.º de solicitud'], ['tecnicoResponsable', 'Técnico responsable'],
+  ['fechaPropuesta', 'Presentación de la propuesta'], ['fechaMaximaRespuesta', 'Fecha máxima de respuesta'],
+  ['numeroClienteElectrico', 'N.º de cliente eléctrico']
+]
+
+const EDITABLE_RAW_FIELDS: Array<[key: string, label: string, placeholder?: string]> = [
+  ['propertyType', 'Tipo de propiedad', 'casa'], ['ownershipType', 'Tipo de tenencia', 'dueño'],
+  ['materialTecho', 'Material del techo', 'teja_chilena'], ['comuna', 'Comuna'], ['direccion', 'Dirección'],
+  ['montoBoleta', 'Monto boleta'], ['distribuidora', 'Distribuidora'], ['consumoHorario', 'Consumo horario'],
+  ['empalme', 'Empalme'], ['plazoInstalacion', 'Plazo de instalación']
+]
+
 /** Solar-specific detail cards — only rendered for source === 'solar_direct'. */
-function SolarLeadCard({ contact }: { contact: Contact }) {
+function SolarLeadCard({ contact, onUpdated }: { contact: Contact; onUpdated: (patch: Partial<Contact>) => void }) {
   const raw = (contact.qualificationData?.rawFields ?? {}) as Record<string, string>
+  const visitLetter = (contact.qualificationData?.visitLetter ?? {}) as Record<string, string>
   const qualificationStatus = contact.qualificationData?.qualificationStatus as string | undefined
   const qualificationSummary = contact.qualificationData?.qualificationSummary as string | undefined
   const hasFinancing = FINANCING_FIELDS.some(([key]) => raw[key])
   const quoteUrl = contact.sessionId
     ? safeExternalUrl(`https://solar.drillchile.cl/cotizaciones?sessionId=${contact.sessionId}`)
+    : undefined
+  const letterUrl = contact.sessionId
+    ? `${API_BASE_URL}/public/solar/visit-letter/${contact.sessionId}`
     : undefined
   const houseMapUrl = safeExternalUrl(raw.houseMapUrl)
   const meterMapUrl = safeExternalUrl(raw.meterMapUrl)
@@ -133,8 +158,68 @@ function SolarLeadCard({ contact }: { contact: Contact }) {
     ([key, value]) => !KNOWN_RAW_FIELD_KEYS.has(key) && value !== undefined && value !== null && value !== ''
   )
 
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState<Record<string, string>>({})
+
+  function startEditing() {
+    setForm({
+      ...Object.fromEntries(EDITABLE_RAW_FIELDS.map(([key]) => [key, raw[key] ?? ''])),
+      techoConfirmado: raw.techoConfirmado ?? '',
+      ...Object.fromEntries([...VISIT_LETTER_FIELDS, ['modalidad', ''], ['observaciones', '']].map(([key]) => [key, visitLetter[key as string] ?? '']))
+    })
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const rawFieldsPatch = Object.fromEntries(EDITABLE_RAW_FIELDS.map(([key]) => [key, form[key] ?? '']))
+      rawFieldsPatch.techoConfirmado = form.techoConfirmado ?? ''
+      const visitLetterPatch = Object.fromEntries(
+        [...VISIT_LETTER_FIELDS.map(([key]) => key), 'modalidad', 'observaciones'].map(key => [key, form[key] ?? ''])
+      )
+      const updated = await fetchAPI(`/crm/contacts/${contact.id}/solar-data`, {
+        method: 'PATCH',
+        body: JSON.stringify({ rawFields: rawFieldsPatch, visitLetter: visitLetterPatch })
+      })
+      onUpdated({ qualificationData: updated.qualificationData })
+      toast.success('Datos guardados')
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudieron guardar los datos')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <>
+      <div className="md:col-span-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {editing ? (
+            <>
+              <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                {saving ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+              <button onClick={() => setEditing(false)} disabled={saving} className="px-3 py-1.5 text-sm rounded-lg border hover:bg-muted">
+                Cancelar
+              </button>
+            </>
+          ) : (
+            <button onClick={startEditing} className="px-3 py-1.5 text-sm rounded-lg border hover:bg-muted flex items-center gap-1.5">
+              <Pencil className="w-3.5 h-3.5" /> Editar datos
+            </button>
+          )}
+        </div>
+        {letterUrl && (
+          <a href={letterUrl} target="_blank" rel="noopener noreferrer"
+             className="px-3 py-1.5 text-sm rounded-lg border hover:bg-muted">
+            Descargar carta de intención
+          </a>
+        )}
+      </div>
+
       {qualificationStatus && (
         <div className="rounded-lg border p-4 space-y-2 md:col-span-2">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Calificación</h3>
@@ -145,42 +230,121 @@ function SolarLeadCard({ contact }: { contact: Contact }) {
         </div>
       )}
 
-      <div className="rounded-lg border p-4 space-y-3">
-        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Propiedad y techo</h3>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <Field label="Tipo de propiedad" value={raw.propertyType} />
-          <Field label="Tipo de tenencia" value={raw.ownershipType} />
-          <Field label="Techo confirmado" value={raw.techoConfirmado === 'true' ? 'Sí' : raw.techoConfirmado === 'false' ? 'No' : undefined} />
-          <Field label="Material del techo" value={raw.materialTecho} />
-          <Field label="Comuna" value={raw.comuna} />
-          <Field label="Dirección" value={raw.direccion} />
+      {editing ? (
+        <div className="rounded-lg border p-4 space-y-3 md:col-span-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Propiedad, consumo y carta de intención</h3>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            {EDITABLE_RAW_FIELDS.map(([key, label, placeholder]) => (
+              <div key={key} className="space-y-1">
+                <label className="text-[11px] text-muted-foreground">{label}</label>
+                <input
+                  value={form[key] ?? ''}
+                  onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                  className="w-full px-2 py-1.5 text-sm rounded-lg border bg-background"
+                />
+              </div>
+            ))}
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">Techo confirmado</label>
+              <select
+                value={form.techoConfirmado ?? ''}
+                onChange={e => setForm(f => ({ ...f, techoConfirmado: e.target.value }))}
+                className="w-full px-2 py-1.5 text-sm rounded-lg border bg-background"
+              >
+                <option value="">Sin especificar</option>
+                <option value="true">Sí</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+            {VISIT_LETTER_FIELDS.map(([key, label]) => (
+              <div key={key} className="space-y-1">
+                <label className="text-[11px] text-muted-foreground">{label}</label>
+                <input
+                  value={form[key] ?? ''}
+                  onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                  className="w-full px-2 py-1.5 text-sm rounded-lg border bg-background"
+                />
+              </div>
+            ))}
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">Modalidad de seguimiento</label>
+              <select
+                value={form.modalidad ?? ''}
+                onChange={e => setForm(f => ({ ...f, modalidad: e.target.value }))}
+                className="w-full px-2 py-1.5 text-sm rounded-lg border bg-background"
+              >
+                <option value="">Sin especificar</option>
+                {MODALIDAD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] text-muted-foreground">Observaciones del levantamiento</label>
+            <textarea
+              value={form.observaciones ?? ''}
+              onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))}
+              rows={3}
+              className="w-full px-2 py-1.5 text-sm rounded-lg border bg-background"
+            />
+          </div>
         </div>
-        {(houseMapUrl || meterMapUrl) && (
-          <div className="flex flex-wrap gap-3 pt-1 border-t text-sm">
-            {houseMapUrl && (
-              <a href={houseMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
-                Ver ubicación de la casa
-              </a>
-            )}
-            {meterMapUrl && (
-              <a href={meterMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
-                Ver ubicación del medidor
-              </a>
+      ) : (
+        <>
+          <div className="rounded-lg border p-4 space-y-3">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Propiedad y techo</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <Field label="Tipo de propiedad" value={raw.propertyType} />
+              <Field label="Tipo de tenencia" value={raw.ownershipType} />
+              <Field label="Techo confirmado" value={raw.techoConfirmado === 'true' ? 'Sí' : raw.techoConfirmado === 'false' ? 'No' : undefined} />
+              <Field label="Material del techo" value={raw.materialTecho} />
+              <Field label="Comuna" value={raw.comuna} />
+              <Field label="Dirección" value={raw.direccion} />
+            </div>
+            {(houseMapUrl || meterMapUrl) && (
+              <div className="flex flex-wrap gap-3 pt-1 border-t text-sm">
+                {houseMapUrl && (
+                  <a href={houseMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                    Ver ubicación de la casa
+                  </a>
+                )}
+                {meterMapUrl && (
+                  <a href={meterMapUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+                    Ver ubicación del medidor
+                  </a>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
 
-      <div className="rounded-lg border p-4 space-y-3">
-        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Consumo eléctrico</h3>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <Field label="Monto boleta" value={raw.montoBoleta} />
-          <Field label="Distribuidora" value={raw.distribuidora} />
-          <Field label="Consumo horario" value={raw.consumoHorario} />
-          <Field label="Empalme" value={raw.empalme} />
-          <Field label="Plazo de instalación" value={raw.plazoInstalacion} />
-        </div>
-      </div>
+          <div className="rounded-lg border p-4 space-y-3">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Consumo eléctrico</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <Field label="Monto boleta" value={raw.montoBoleta} />
+              <Field label="Distribuidora" value={raw.distribuidora} />
+              <Field label="Consumo horario" value={raw.consumoHorario} />
+              <Field label="Empalme" value={raw.empalme} />
+              <Field label="Plazo de instalación" value={raw.plazoInstalacion} />
+            </div>
+          </div>
+
+          {(VISIT_LETTER_FIELDS.some(([key]) => visitLetter[key]) || visitLetter.modalidad || visitLetter.observaciones) && (
+            <div className="rounded-lg border p-4 space-y-3 md:col-span-2">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Carta de intención</h3>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                {VISIT_LETTER_FIELDS.map(([key, label]) => <Field key={key} label={label} value={visitLetter[key]} />)}
+                <Field label="Modalidad de seguimiento" value={MODALIDAD_OPTIONS.find(o => o.value === visitLetter.modalidad)?.label} />
+              </div>
+              {visitLetter.observaciones && (
+                <div>
+                  <p className="text-[11px] text-muted-foreground">Observaciones del levantamiento</p>
+                  <p className="text-sm whitespace-pre-wrap">{visitLetter.observaciones}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       {hasFinancing && (
         <div className="rounded-lg border border-orange-300 bg-orange-50/50 p-4 space-y-3">
@@ -902,7 +1066,7 @@ export default function ContactProfileClient({ contactId }: { contactId: string 
             )}
             {contact.source === 'solar_direct' && (
               <>
-                <SolarLeadCard contact={contact} />
+                <SolarLeadCard contact={contact} onUpdated={(patch) => setContact(c => c ? { ...c, ...patch } : c)} />
                 <MetaEventsCard events={metaEvents} loading={metaEventsLoading} />
                 <QualifiedLeadConfirmCard contact={contact} onConfirmed={(patch) => setContact(c => c ? { ...c, ...patch } : c)} />
               </>

@@ -208,6 +208,65 @@ function mapSolarRawFieldsToQualification(rawFields: Record<string, unknown>): R
   return mapped
 }
 
+// The subset of rawFields the CRM's "editar datos" panel is allowed to touch —
+// display/document fields only. Identity fields (name/email/phone/rut) go through
+// the existing generic PATCH /crm/contacts/:contactId, which already handles the
+// uniqueness/conflict checks these don't.
+const EDITABLE_RAW_FIELD_KEYS = [
+  'propertyType', 'ownershipType', 'techoConfirmado', 'materialTecho', 'comuna', 'direccion',
+  'montoBoleta', 'distribuidora', 'consumoHorario', 'empalme', 'plazoInstalacion'
+] as const
+
+// New fields specific to the Carta de intención de proyecto solar — not part of
+// the wizard's StepData, filled in by DrillChile staff from the CRM.
+const EDITABLE_VISIT_LETTER_KEYS = [
+  'numeroSolicitud', 'tecnicoResponsable', 'fechaPropuesta', 'fechaMaximaRespuesta',
+  'modalidad', 'numeroClienteElectrico', 'observaciones'
+] as const
+
+function mergeEditableFields(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown> | undefined,
+  allowedKeys: readonly string[]
+): Record<string, unknown> {
+  if (!incoming) return existing
+  const next = { ...existing }
+  for (const key of allowedKeys) {
+    if (!(key in incoming)) continue
+    const value = incoming[key]
+    // Empty string/null clears the field — same convention as notifyPhone/visitNotifyEmails.
+    if (value === null || value === '') delete next[key]
+    else next[key] = String(value).trim()
+  }
+  return next
+}
+
+/**
+ * Backs the CRM's "editar datos" panel on the solar lead card — lets DrillChile
+ * staff correct/fill in wizard fields and the visit-letter-specific fields
+ * without touching the identity columns (name/email/phone/rut).
+ */
+export async function updateSolarLeadData(
+  workspaceId: string,
+  contactId: string,
+  data: { rawFields?: Record<string, unknown>; visitLetter?: Record<string, unknown> }
+) {
+  const contact = await prisma.contact.findFirst({ where: { id: contactId, workspaceId } })
+  if (!contact) throw new Error('Contact not found')
+
+  const existingQualificationData = (contact.qualificationData as object) ?? {}
+  const existingRawFields = ((contact.qualificationData as any)?.rawFields ?? {}) as Record<string, unknown>
+  const existingVisitLetter = ((contact.qualificationData as any)?.visitLetter ?? {}) as Record<string, unknown>
+
+  const rawFields = mergeEditableFields(existingRawFields, data.rawFields, EDITABLE_RAW_FIELD_KEYS)
+  const visitLetter = mergeEditableFields(existingVisitLetter, data.visitLetter, EDITABLE_VISIT_LETTER_KEYS)
+
+  return prisma.contact.update({
+    where: { id: contactId },
+    data: { qualificationData: { ...existingQualificationData, rawFields, visitLetter } as Prisma.InputJsonValue }
+  })
+}
+
 export interface FinalizeLeadResult {
   ok: boolean
   status?: number

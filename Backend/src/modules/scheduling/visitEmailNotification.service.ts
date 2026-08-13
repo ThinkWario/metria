@@ -30,9 +30,13 @@ function buildVisitEmailHtml(data: {
   houseMapUrl?: string
   meterMapUrl?: string
   quoteUrl?: string
+  letterUrl?: string
 }): string {
   const quoteSection = data.quoteUrl
     ? `<h3 style="margin:20px 0 6px;">💰 Cotización</h3>${mapLink(data.quoteUrl, 'Ver cotización')}`
+    : ''
+  const letterSection = data.letterUrl
+    ? `<h3 style="margin:20px 0 6px;">📄 Carta de intención</h3>${mapLink(data.letterUrl, 'Descargar carta de intención (PDF)')}`
     : ''
 
   return `
@@ -60,6 +64,8 @@ function buildVisitEmailHtml(data: {
   ${mapLink(data.meterMapUrl, 'Ver ubicación del medidor')}
 
   ${quoteSection}
+
+  ${letterSection}
 
   <p style="margin-top:24px;">Revisa el CRM para más detalles.</p>
   <p style="color:#999;font-size:12px;margin-top:24px;">— Metria · Aviso automático</p>
@@ -97,6 +103,9 @@ export async function sendVisitEmailNotification(
   })
   const rawFields = ((full?.qualificationData as any)?.rawFields ?? {}) as Record<string, string>
   const quoteUrl = full?.sessionId ? `https://solar.drillchile.cl/cotizaciones?sessionId=${full.sessionId}` : undefined
+  const letterUrl = full?.sessionId
+    ? `${process.env.BACKEND_URL ?? 'http://localhost:4000'}/api/public/solar/visit-letter/${full.sessionId}`
+    : undefined
 
   const tz = await getWorkspaceTimezone(workspaceId)
   const when = formatApptDateTime(appointment.scheduledAt, tz)
@@ -114,7 +123,8 @@ export async function sendVisitEmailNotification(
     direccion: rawFields.direccion,
     houseMapUrl: rawFields.houseMapUrl,
     meterMapUrl: rawFields.meterMapUrl,
-    quoteUrl
+    quoteUrl,
+    letterUrl
   })
 
   await sendGmailEmail(workspaceId, { to: recipients, subject, html })

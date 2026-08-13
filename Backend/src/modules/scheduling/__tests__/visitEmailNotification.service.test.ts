@@ -65,6 +65,29 @@ describe('sendVisitEmailNotification', () => {
     expect(html).not.toContain('cotizaciones?sessionId')
   })
 
+  it('includes the Carta de intención download link, pointing at BACKEND_URL', async () => {
+    const previous = process.env.BACKEND_URL
+    process.env.BACKEND_URL = 'https://backend.example.com'
+    try {
+      await sendVisitEmailNotification(WS, { contact: CONTACT, appointment: APPT, kind: 'created' })
+
+      const html = vi.mocked(sendGmailEmail).mock.calls[0][1].html
+      expect(html).toContain('https://backend.example.com/api/public/solar/visit-letter/sess-123')
+      expect(html).toContain('Carta de intención')
+    } finally {
+      process.env.BACKEND_URL = previous
+    }
+  })
+
+  it('omits the letter link when the contact has no sessionId', async () => {
+    vi.mocked(prisma.contact.findUnique).mockResolvedValue({ sessionId: null, qualificationData: null } as any)
+
+    await sendVisitEmailNotification(WS, { contact: CONTACT, appointment: APPT, kind: 'created' })
+
+    const html = vi.mocked(sendGmailEmail).mock.calls[0][1].html
+    expect(html).not.toContain('visit-letter')
+  })
+
   it('does nothing for a CALL appointment', async () => {
     await sendVisitEmailNotification(WS, { contact: CONTACT, appointment: { type: 'CALL', scheduledAt: APPT.scheduledAt }, kind: 'created' })
 

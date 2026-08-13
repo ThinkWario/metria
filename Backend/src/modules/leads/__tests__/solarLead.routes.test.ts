@@ -10,6 +10,10 @@ vi.mock('../leadIngestion.service', () => ({
   finalizeLead: vi.fn(async () => ({ ok: true, contact: { id: 'c1' } })),
   SOLAR_SOURCE: 'solar_direct'
 }))
+vi.mock('../visitLetter.service', () => ({
+  getVisitLetterDataByToken: vi.fn(),
+  generateVisitLetterPdf: vi.fn()
+}))
 vi.mock('../../../lib/prisma', () => ({
   prisma: { contact: { findUnique: vi.fn() } }
 }))
@@ -27,6 +31,7 @@ vi.mock('../../../lib/redis', () => ({
 
 import solarLeadRouter, { __resetCompleteCoalescingForTests } from '../solarLead.routes'
 import { resolveOrCreatePartialContact, finalizeLead } from '../leadIngestion.service'
+import { getVisitLetterDataByToken, generateVisitLetterPdf } from '../visitLetter.service'
 import { prisma } from '../../../lib/prisma'
 import { redis } from '../../../lib/redis'
 
@@ -250,5 +255,27 @@ describe('GET /api/public/solar/lead', () => {
 
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ status: 'success', data: { comuna: 'Providencia' }, step: 1 })
+  })
+})
+
+describe('GET /api/public/solar/visit-letter/:sessionId', () => {
+  it('streams the PDF for a known sessionId, no API key required', async () => {
+    vi.mocked(getVisitLetterDataByToken).mockResolvedValue({ nombre: 'Ana', fechaEmision: '13 de agosto de 2026' } as any)
+    vi.mocked(generateVisitLetterPdf).mockResolvedValue(Buffer.from('%PDF-fake'))
+
+    const res = await request(buildApp()).get('/api/public/solar/visit-letter/sess-1')
+
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(getVisitLetterDataByToken).toHaveBeenCalledWith('ws-1', 'sess-1')
+  })
+
+  it('responds 404 when the sessionId does not match any contact', async () => {
+    vi.mocked(getVisitLetterDataByToken).mockRejectedValue(new Error('Contact not found'))
+
+    const res = await request(buildApp()).get('/api/public/solar/visit-letter/missing-session')
+
+    expect(res.status).toBe(404)
+    expect(generateVisitLetterPdf).not.toHaveBeenCalled()
   })
 })
