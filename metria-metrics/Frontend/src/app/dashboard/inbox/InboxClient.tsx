@@ -31,6 +31,7 @@ function InboxContent() {
     sendTemplate,
     handoverToHuman,
     handbackToBot,
+    triggerAiReply,
     markAsRead,
     markAsUnread,
     deleteConversation,
@@ -135,6 +136,7 @@ function InboxContent() {
           onSendTemplate={sendTemplate}
           onHandover={handoverToHuman}
           onHandback={handbackToBot}
+          onForceAiReply={triggerAiReply}
           onChangeStatus={changeStatus}
           onAssign={assignConversation}
           users={users}

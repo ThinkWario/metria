@@ -17,7 +17,7 @@ vi.mock('../../messaging/message.service', () => ({ sendOutboundPlatformMessage:
 vi.mock('../../messaging/inbox.service', () => ({ trackAiMetric: vi.fn(async () => undefined) }))
 vi.mock('../followup.service', () => ({ scheduleNextFollowUp: vi.fn(async () => undefined) }))
 
-import { scheduleAiReply, __resetAiResponderForTests, __getInFlightForTests } from '../aiResponder'
+import { scheduleAiReply, generateAndSendAiReply, __resetAiResponderForTests, __getInFlightForTests } from '../aiResponder'
 import { processAiResponse } from '../ai.service'
 import { sendOutboundPlatformMessage } from '../../messaging/message.service'
 import { prisma } from '../../../lib/prisma'
@@ -189,5 +189,31 @@ describe('scheduleAiReply', () => {
     await runToCompletion()
 
     expect(processAiResponse).not.toHaveBeenCalled()
+  })
+})
+
+describe('generateAndSendAiReply', () => {
+  it('generates and sends immediately, bypassing the debounce queue entirely', async () => {
+    vi.mocked(processAiResponse).mockResolvedValueOnce('Claro, coordinemos otro día')
+
+    // Resolves without ever needing to advance the fake debounce timer —
+    // proof the 8s debounce window was bypassed entirely.
+    await generateAndSendAiReply(WORKSPACE_ID, conversationId, CHANNEL_ID, 'Podemos coordinar para otro día?')
+
+    expect(processAiResponse).toHaveBeenCalledWith(WORKSPACE_ID, conversationId, 'Podemos coordinar para otro día?')
+    expect(sendOutboundPlatformMessage).toHaveBeenCalledWith(WORKSPACE_ID, conversationId, 'Claro, coordinemos otro día', 'BOT')
+  })
+
+  it('reports failure the same way as the queued path when every retry fails', async () => {
+    vi.mocked(processAiResponse).mockRejectedValue(new Error('provider down'))
+
+    const done = generateAndSendAiReply(WORKSPACE_ID, conversationId, CHANNEL_ID, 'Hola')
+    await vi.runAllTimersAsync() // drains the retry backoff sleeps
+    await done
+
+    expect(sendOutboundPlatformMessage).not.toHaveBeenCalled()
+    expect(prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ content: expect.stringContaining('no pudo responder') })
+    }))
   })
 })

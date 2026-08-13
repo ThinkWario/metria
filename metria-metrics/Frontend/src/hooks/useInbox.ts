@@ -254,6 +254,18 @@ export function useInbox() {
     }
   }, [])
 
+  /**
+   * Manually triggers an AI reply to the conversation's last (unanswered)
+   * inbound message — for when a human took control while a customer
+   * message came in, so the bot never got a chance to process it and won't
+   * until a new message arrives. The reply itself lands via the usual
+   * message:new socket event, not this call's response.
+   */
+  const triggerAiReply = useCallback(async (conversationId: string) => {
+    await fetchAPI(`/messaging/conversations/${conversationId}/trigger-ai-reply`, { method: 'POST' })
+    setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, isHandledByBot: true } : c))
+  }, [])
+
   /** Optimistically zeroes the unread badge, then persists via PATCH /read. */
   const markAsRead = useCallback(async (conversationId: string) => {
     setConversations(prev => prev.map(c =>
@@ -374,6 +386,7 @@ export function useInbox() {
     sendTemplate,
     handoverToHuman,
     handbackToBot,
+    triggerAiReply,
     markAsRead,
     markAsUnread,
     deleteConversation,

@@ -41,7 +41,7 @@ function baseInboxState(overrides: Partial<ReturnType<typeof mockUseInbox>> = {}
     messages: [],
     loadingConvs: false,
     loadingMsgs: false,
-    sendMessage: vi.fn(), sendTemplate: vi.fn(), handoverToHuman: vi.fn(), handbackToBot: vi.fn(),
+    sendMessage: vi.fn(), sendTemplate: vi.fn(), handoverToHuman: vi.fn(), handbackToBot: vi.fn(), triggerAiReply: vi.fn(),
     markAsRead: mockMarkAsRead, markAsUnread: vi.fn(), deleteConversation: mockDeleteConversation, changeStatus: vi.fn(), assignConversation: vi.fn(),
     statusFilter: 'OPEN', setStatusFilter: mockSetStatusFilter, platformFilter: 'ALL', setPlatformFilter: vi.fn(),
     search: '', setSearch: vi.fn(), assignedToMe: false, setAssignedToMe: vi.fn(), users: [],

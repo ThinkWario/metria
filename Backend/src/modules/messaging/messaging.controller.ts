@@ -354,6 +354,55 @@ export async function handbackToBotHandler(req: Request, res: Response): Promise
   }
 }
 
+/**
+ * Manual "Forzar respuesta IA" — a human took control (or the bot was
+ * otherwise inactive) while the customer's last message came in, so it was
+ * never queued through the normal debounced pipeline and the bot has no
+ * other way to catch up on it (it only reacts to NEW inbound messages).
+ * Hands control back to the bot if needed, then generates and sends a reply
+ * to the conversation's last message — same pipeline a real inbound message
+ * would trigger, just invoked on demand instead of from a webhook.
+ */
+export async function triggerAiReplyHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const workspaceId = (req as AuthRequest).user!.workspaceId as string
+    const { conversationId } = req.params
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId, workspaceId },
+      include: { messages: { orderBy: { sentAt: 'desc' }, take: 1 } }
+    })
+    if (!conversation) { res.status(404).json({ error: 'Conversación no encontrada' }); return }
+
+    const lastMessage = conversation.messages[0]
+    if (!lastMessage || lastMessage.direction !== 'INBOUND') {
+      res.status(400).json({ error: 'No hay un mensaje pendiente de responder' })
+      return
+    }
+
+    if (!conversation.isHandledByBot) {
+      await prisma.conversation.update({ where: { id: conversationId }, data: { isHandledByBot: true } })
+      await prisma.message.create({
+        data: {
+          workspaceId, conversationId, direction: 'OUTBOUND', senderType: 'SYSTEM',
+          content: 'La IA retomó el control de la conversación.', isInternal: true
+        }
+      })
+    }
+
+    // Fire-and-forget: generation can take up to ~30s with retries — the
+    // reply arrives via the usual message:new socket event, same as any
+    // other AI-sent message, so the request itself doesn't need to wait.
+    const { generateAndSendAiReply } = await import('../ai-agent/aiResponder')
+    generateAndSendAiReply(workspaceId, conversationId, conversation.channelId, lastMessage.content)
+      .catch(err => console.error(`[TriggerAiReply] Failed for conversation ${conversationId}:`, err))
+
+    res.status(202).json({ status: 'processing' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
 export async function markAsReadHandler(req: Request, res: Response): Promise<void> {
   try {
     const workspaceId = (req as AuthRequest).user!.workspaceId as string

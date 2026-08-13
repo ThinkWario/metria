@@ -11,6 +11,7 @@ import {
   upsertChannelConfigHandler,
   handoverToHumanHandler,
   handbackToBotHandler,
+  triggerAiReplyHandler,
   changeStatusHandler,
   assignConversationHandler,
   deleteConversationHandler,
@@ -49,6 +50,7 @@ router.post('/messaging/conversations/:conversationId/messages', authenticate, r
 router.post('/messaging/conversations/:conversationId/template', authenticate, requirePlan('PRO', 'SCALE'), sendTemplateHandler)
 router.post('/messaging/conversations/:conversationId/handover', authenticate, requirePlan('PRO', 'SCALE'), handoverToHumanHandler)
 router.post('/messaging/conversations/:conversationId/handback', authenticate, requirePlan('PRO', 'SCALE'), handbackToBotHandler)
+router.post('/messaging/conversations/:conversationId/trigger-ai-reply', authenticate, requirePlan('PRO', 'SCALE'), triggerAiReplyHandler)
 router.patch('/messaging/conversations/:conversationId/status', authenticate, requirePlan('PRO', 'SCALE'), changeStatusHandler)
 router.patch('/messaging/conversations/:conversationId/assign', authenticate, requirePlan('PRO', 'SCALE'), assignConversationHandler)
 router.delete('/messaging/conversations/:conversationId', authenticate, requirePlan('PRO', 'SCALE'), deleteConversationHandler)

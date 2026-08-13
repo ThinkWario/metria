@@ -5,7 +5,7 @@ import { fetchAPI } from '@/lib/api'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
-  Send, MoreVertical, Phone, Video, Search, ShieldCheck, Bot, Hand, Sparkles,
+  Send, MoreVertical, Phone, Video, Search, ShieldCheck, Bot, Hand, Sparkles, Zap,
   Lock, Check, CheckCheck, Clock, AlertCircle, UserPlus, ChevronDown, MessageSquare, StickyNote, FileText
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -43,6 +43,7 @@ interface Props {
   onSendTemplate?: (templateId: string) => Promise<void>
   onHandover?: (conversationId: string) => Promise<void>
   onHandback?: (conversationId: string) => Promise<void>
+  onForceAiReply?: (conversationId: string) => Promise<void>
   onChangeStatus?: (conversationId: string, status: ConversationStatus) => Promise<void>
   onAssign?: (conversationId: string, userId: string | null) => Promise<void>
   users?: WorkspaceUser[]
@@ -62,10 +63,11 @@ function DeliveryStatus({ msg, light }: { msg: Message; light: boolean }) {
 }
 
 export function ChatWindow({
-  conversation, messages, loading, onSend, onSendTemplate, onHandover, onHandback, onChangeStatus, onAssign, users = []
+  conversation, messages, loading, onSend, onSendTemplate, onHandover, onHandback, onForceAiReply, onChangeStatus, onAssign, users = []
 }: Props) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [forcingAiReply, setForcingAiReply] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [noteMode, setNoteMode] = useState(false)
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
@@ -145,6 +147,19 @@ export function ChatWindow({
       toast.success(name ? `Asignada a ${name}` : 'Asignación removida')
     } catch (err: any) {
       toast.error(err?.message || 'No se pudo asignar la conversación')
+    }
+  }
+
+  async function handleForceAiReply() {
+    if (!conversation || !onForceAiReply) return
+    setForcingAiReply(true)
+    try {
+      await onForceAiReply(conversation.id)
+      toast.success('La IA está preparando su respuesta...')
+    } catch (err: any) {
+      toast.error(err?.message || 'No se pudo forzar la respuesta de la IA')
+    } finally {
+      setForcingAiReply(false)
     }
   }
 
@@ -298,6 +313,19 @@ export function ChatWindow({
                 >
                     <Sparkles className="w-3.5 h-3.5 mr-1.5" />
                     Devolver a IA
+                </Button>
+            )}
+            {onForceAiReply && messages.length > 0 && messages[messages.length - 1].direction === 'INBOUND' && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-1 h-8 rounded-xl bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+                    disabled={forcingAiReply}
+                    onClick={handleForceAiReply}
+                    title="El cliente respondió mientras un humano tenía el control — la IA no lo procesó automáticamente."
+                >
+                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    {forcingAiReply ? 'Generando...' : 'Forzar respuesta IA'}
                 </Button>
             )}
             <Button aria-label="Llamar" title="Próximamente" disabled variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 transition-colors"><Phone className="w-4 h-4" /></Button>

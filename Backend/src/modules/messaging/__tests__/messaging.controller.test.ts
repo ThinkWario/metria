@@ -1,14 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Request, Response } from 'express'
-import { messengerWebhookVerify, messengerWebhook, sendTemplateHandler } from '../messaging.controller'
+import { messengerWebhookVerify, messengerWebhook, sendTemplateHandler, triggerAiReplyHandler } from '../messaging.controller'
 import { prisma } from '../../../lib/prisma'
 import * as messengerService from '../channels/messenger.service'
 import * as messageService from '../message.service'
+import { generateAndSendAiReply } from '../../ai-agent/aiResponder'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
     channel: {
       findFirst: vi.fn()
+    },
+    conversation: {
+      findUnique: vi.fn(),
+      update: vi.fn()
+    },
+    message: {
+      create: vi.fn()
     }
   }
 }))
@@ -20,6 +28,10 @@ vi.mock('../channels/messenger.service', () => ({
 
 vi.mock('../message.service', () => ({
   sendOutboundWhatsAppTemplate: vi.fn()
+}))
+
+vi.mock('../../ai-agent/aiResponder', () => ({
+  generateAndSendAiReply: vi.fn().mockResolvedValue(undefined)
 }))
 
 describe('MessagingController - Messenger Webhooks', () => {
@@ -201,6 +213,65 @@ describe('MessagingController - Messenger Webhooks', () => {
       await sendTemplateHandler(req, res)
 
       expect(res.status).toHaveBeenCalledWith(400)
+    })
+  })
+
+  describe('triggerAiReplyHandler', () => {
+    function makeReq() {
+      return { params: { conversationId: 'conv-1' }, user: { workspaceId: 'ws-1', id: 'user-1' } } as any
+    }
+
+    it('generates and sends a reply to the last inbound message when the bot is already active', async () => {
+      vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+        id: 'conv-1', channelId: 'ch-1', isHandledByBot: true,
+        messages: [{ id: 'm1', direction: 'INBOUND', content: 'Podemos coordinar para otro día?' }]
+      } as any)
+
+      await triggerAiReplyHandler(makeReq(), res)
+
+      expect(prisma.conversation.update).not.toHaveBeenCalled() // already bot-handled, no handback needed
+      expect(generateAndSendAiReply).toHaveBeenCalledWith('ws-1', 'conv-1', 'ch-1', 'Podemos coordinar para otro día?')
+      expect(res.status).toHaveBeenCalledWith(202)
+      expect(res.json).toHaveBeenCalledWith({ status: 'processing' })
+    })
+
+    it('hands control back to the bot first when a human currently holds the conversation', async () => {
+      vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+        id: 'conv-1', channelId: 'ch-1', isHandledByBot: false,
+        messages: [{ id: 'm1', direction: 'INBOUND', content: 'Podemos coordinar para otro día?' }]
+      } as any)
+
+      await triggerAiReplyHandler(makeReq(), res)
+
+      expect(prisma.conversation.update).toHaveBeenCalledWith({
+        where: { id: 'conv-1' }, data: { isHandledByBot: true }
+      })
+      expect(prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ content: expect.stringContaining('retomó el control') })
+      }))
+      expect(generateAndSendAiReply).toHaveBeenCalledWith('ws-1', 'conv-1', 'ch-1', 'Podemos coordinar para otro día?')
+    })
+
+    it('returns 404 when the conversation does not belong to the workspace', async () => {
+      vi.mocked(prisma.conversation.findUnique).mockResolvedValue(null)
+
+      await triggerAiReplyHandler(makeReq(), res)
+
+      expect(res.status).toHaveBeenCalledWith(404)
+      expect(generateAndSendAiReply).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when the last message is not an unanswered inbound message', async () => {
+      vi.mocked(prisma.conversation.findUnique).mockResolvedValue({
+        id: 'conv-1', channelId: 'ch-1', isHandledByBot: true,
+        messages: [{ id: 'm1', direction: 'OUTBOUND', content: 'Ya te respondí esto' }]
+      } as any)
+
+      await triggerAiReplyHandler(makeReq(), res)
+
+      expect(res.status).toHaveBeenCalledWith(400)
+      expect(res.json).toHaveBeenCalledWith({ error: 'No hay un mensaje pendiente de responder' })
+      expect(generateAndSendAiReply).not.toHaveBeenCalled()
     })
   })
 })

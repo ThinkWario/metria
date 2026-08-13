@@ -206,6 +206,24 @@ async function reportFailure(workspaceId: string, conversationId: string, err: u
   }
 }
 
+/**
+ * Bypasses the debounce/queue entirely — generates and sends an AI reply
+ * right now for the given content. Used by the inbox's manual "Forzar
+ * respuesta IA" action: a human took control (or the bot was otherwise
+ * inactive) while a customer message came in, so it was never queued
+ * through scheduleAiReply and the bot has no other way to catch up on it —
+ * waiting for the next inbound message isn't an option since there may not
+ * be one.
+ */
+export async function generateAndSendAiReply(
+  workspaceId: string,
+  conversationId: string,
+  channelId: string,
+  userContent: string
+): Promise<void> {
+  return generateAndSend(workspaceId, conversationId, channelId, userContent)
+}
+
 /** Test-only: clears debounce state between test cases. */
 export function __resetAiResponderForTests(): void {
   for (const state of pendingByConversation.values()) {
