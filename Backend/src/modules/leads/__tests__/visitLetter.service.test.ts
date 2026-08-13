@@ -56,6 +56,13 @@ describe('buildVisitLetterHtml', () => {
     const html = buildVisitLetterHtml(BASE)
     expect(html.match(/class="page"/g)?.length).toBe(2)
   })
+
+  it('includes the company footer with RUT and address on both pages, numbered 1 and 2', () => {
+    const html = buildVisitLetterHtml(BASE)
+    expect(html.match(/RUT 76\.655\.391-5 \| Servicios de Ingeniería \| Casa Real 4530/g)?.length).toBe(2)
+    expect(html).toContain('Página 1')
+    expect(html).toContain('Página 2')
+  })
 })
 
 describe('getVisitLetterDataForContact', () => {

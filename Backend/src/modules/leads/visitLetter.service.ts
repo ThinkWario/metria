@@ -5,6 +5,12 @@ import { formatApptDateTime } from '../scheduling/appointment-notifications.serv
 import { SOLAR_SOURCE } from './leadIngestion.service'
 import { DRILLCHILE_LOGO_DATA_URI } from './drillchileLogo'
 
+const COMPANY_FOOTER = 'RUT 76.655.391-5 | Servicios de Ingeniería | Casa Real 4530'
+
+function pageFooter(pageNumber: number): string {
+  return `<div class="page-footer"><span><b>DRILL CHILE</b> | ${COMPANY_FOOTER}</span><span>Página ${pageNumber}</span></div>`
+}
+
 const MODALIDAD_LABELS: Record<string, string> = {
   presencial: 'Reunión presencial',
   videollamada: 'Videollamada',
@@ -152,7 +158,8 @@ export function buildVisitLetterHtml(data: VisitLetterData): string {
   table.commitments th { background: #0f172a; color: #fff; text-align: left; padding: 5px 8px; font-size: 9px; }
   table.commitments td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
   table.commitments td:first-child { width: 22px; text-align: center; font-weight: 700; }
-  .footer-note { text-align: center; font-size: 8px; color: #94a3b8; position: absolute; bottom: 10mm; left: 0; right: 0; }
+  .page-footer { margin-top: 24px; padding-top: 8px; border-top: 1.5px solid #0d9488; display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #475569; }
+  .page-footer b { color: #0f172a; }
   .data-grid { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #cbd5e1; margin-bottom: 18px; }
   .data-cell { padding: 8px 12px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
   .data-cell:nth-child(2n) { border-right: none; }
@@ -210,6 +217,7 @@ export function buildVisitLetterHtml(data: VisitLetterData): string {
   <h2>3. RECONOCIMIENTO DEL TRABAJO TÉCNICO</h2>
   <p>El cliente reconoce que la visita técnica gratuita requiere planificación, traslado, asignación de personal especializado, levantamiento de información, evaluación del inmueble y preparación de una propuesta personalizada.</p>
   <p>La solución definitiva, sus alcances, equipos, plazos y condiciones se establecerán en la cotización correspondiente. La contratación del proyecto se formalizará mediante la aceptación expresa de dicha cotización y la suscripción de los documentos aplicables.</p>
+  ${pageFooter(1)}
 </div>
 
 <div class="page">
@@ -271,6 +279,7 @@ export function buildVisitLetterHtml(data: VisitLetterData): string {
   </div>
 
   <div class="tagline">VISITA TÉCNICA GRATUITA · SOLICITADA CON INTENCIÓN FORMAL DE DESARROLLAR EL PROYECTO SOLAR</div>
+  ${pageFooter(2)}
 </div>
 
 </body>
