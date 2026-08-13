@@ -335,6 +335,74 @@ describe('finalizeLead', () => {
     expect(prepareWhatsappConversation).not.toHaveBeenCalled() // sin canal conectado
   })
 
+  it('mapea los rawFields del wizard a las claves de calificación del bot de chat, para que no vuelva a preguntar lo mismo', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({
+        id: 'c1', name: 'Germán', email: null, phone: null,
+        qualificationData: { rawFields: { sessionId: 'sess-german' } }
+      } as any) // by sessionId
+      .mockResolvedValueOnce(null) // by email
+      .mockResolvedValueOnce(null) // by phone
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1', name: 'Germán', phone: null, email: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    await finalizeLead(WS_ID, {
+      sessionId: 'sess-german', consentAccepted: true, consentVersion: 'v1',
+      montoBoleta: '210000', materialTecho: 'teja_chilena', propertyType: 'casa',
+      ownershipType: 'dueño', comuna: 'Colina', plazoInstalacion: 'ahora'
+    } as any)
+
+    expect(prisma.contact.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        qualificationData: expect.objectContaining({
+          monthly_bill: '210000',
+          roof_material: 'teja_chilena',
+          property_type: 'casa',
+          is_owner: 'dueño',
+          location: 'Colina',
+          timeline: 'ahora'
+        })
+      })
+    }))
+  })
+
+  it('marca financing solo cuando el wizard trae datos del sub-formulario de financiamiento', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({ id: 'c1', name: 'x', email: null, phone: null, qualificationData: { rawFields: {} } } as any)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1', name: 'x', phone: null, email: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    await finalizeLead(WS_ID, {
+      sessionId: 'sess-fin', consentAccepted: true, consentVersion: 'v1', edad: '64', ingresoMensual: '2000000'
+    } as any)
+
+    expect(prisma.contact.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        qualificationData: expect.objectContaining({ financing: 'financiamiento' })
+      })
+    }))
+  })
+
+  it('no agrega claves de calificación cuando el wizard no trae esos campos', async () => {
+    vi.mocked(prisma.contact.findUnique)
+      .mockResolvedValueOnce({ id: 'c1', name: 'x', email: null, phone: null, qualificationData: { rawFields: {} } } as any)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    vi.mocked(prisma.contact.update).mockResolvedValue({ id: 'c1', name: 'x', phone: null, email: null } as any)
+    vi.mocked(prisma.deal.findFirst).mockResolvedValue({ id: 'd1' } as any)
+    vi.mocked(prisma.channel.findFirst).mockResolvedValue(null)
+
+    await finalizeLead(WS_ID, { sessionId: 'sess-empty', consentAccepted: true, consentVersion: 'v1' } as any)
+
+    const updateArgs = vi.mocked(prisma.contact.update).mock.calls.at(-1)?.[0] as any
+    expect(updateArgs.data.qualificationData.monthly_bill).toBeUndefined()
+    expect(updateArgs.data.qualificationData.financing).toBeUndefined()
+  })
+
   it('sigue devolviendo ok:true si prisma.deal.create falla (SOLAR_PIPELINE_ID/STAGE_ID mal configurado) — el Contact ya quedó persistido', async () => {
     vi.mocked(prisma.contact.findUnique)
       .mockResolvedValueOnce({

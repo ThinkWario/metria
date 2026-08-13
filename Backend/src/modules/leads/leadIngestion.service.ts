@@ -168,6 +168,46 @@ function isFinancingApplication(payload: SolarLeadPayload): boolean {
   })
 }
 
+/**
+ * Maps the wizard's rawFields (StepData shape, Spanish field names) to the
+ * DrillChile chat bot's own qualificationQuestions keys
+ * (bot/templates/solar.template.ts) so promptCompiler's
+ * pendingQualificationQuestions() recognizes them as already answered.
+ *
+ * Without this, the two stores never overlap — a lead who just finished the
+ * wizard (propertyType/ownershipType/materialTecho/comuna/montoBoleta/
+ * plazoInstalacion under qualificationData.rawFields) gets asked the exact
+ * same questions again seconds later when WhatsApp opens, because the chat
+ * qualifier checks qualificationData.monthly_bill/is_owner/roof_material/
+ * location/property_type/timeline directly — a different key set at a
+ * different nesting level. Confirmed against a real lead (Germán Barrales
+ * Venegas, contact 940681bc-0899-49b0-b2ad-96218b7d429e): wizard completed
+ * 2026-08-12 20:59:08, WhatsApp handoff fired a second later and re-asked
+ * all 7 qualification questions from scratch.
+ */
+function mapSolarRawFieldsToQualification(rawFields: Record<string, unknown>): Record<string, string> {
+  const mapped: Record<string, string> = {}
+  const copyIfPresent = (rawKey: string, qualificationKey: string) => {
+    const value = rawFields[rawKey]
+    if (typeof value === 'string' && value.trim()) mapped[qualificationKey] = value
+  }
+
+  copyIfPresent('montoBoleta', 'monthly_bill')
+  copyIfPresent('materialTecho', 'roof_material')
+  copyIfPresent('propertyType', 'property_type')
+  copyIfPresent('ownershipType', 'is_owner')
+  copyIfPresent('comuna', 'location')
+  copyIfPresent('plazoInstalacion', 'timeline')
+  // No dedicated "contado vs. cuotas" wizard field — its financing sub-form
+  // (SOLICITUD DE FINANCIAMIENTO: edad/estadoCivil/valorCasa/etc.) is only
+  // filled when the lead explicitly opted into financing, so its presence
+  // is itself the answer. Absence does NOT imply "prefiere contado" — leave
+  // that case for the chat to ask.
+  if (isFinancingApplication(rawFields as SolarLeadPayload)) mapped.financing = 'financiamiento'
+
+  return mapped
+}
+
 export interface FinalizeLeadResult {
   ok: boolean
   status?: number
@@ -249,6 +289,7 @@ export async function finalizeLead(
   const existingQualificationData = (bySession?.qualificationData as object) ?? {}
   const qualificationData = {
     ...existingQualificationData,
+    ...mapSolarRawFieldsToQualification(mergedRawFields),
     rawFields: mergedRawFields,
     qualificationStatus: qualResult.qualificationStatus,
     qualificationSummary: qualResult.qualificationSummary,
