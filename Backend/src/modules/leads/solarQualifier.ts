@@ -39,6 +39,7 @@ export function qualifySolarLead(data: Record<string, unknown>): SolarQualificat
   const techoConfirmado = data.techoConfirmado === true
   const techoRechazado = data.techoConfirmado === false
   const montoBoleta = parseMontoBoleta(data.montoBoleta)
+  const materialTecho = String(data.materialTecho ?? '')
 
   const isOwnerOrFamily = ownershipType === 'dueño' || ownershipType === 'familiar'
 
@@ -48,6 +49,16 @@ export function qualifySolarLead(data: Record<string, unknown>): SolarQualificat
       qualificationSummary: ownershipType === 'arrendatario'
         ? 'Arrendatario — requiere autorización del propietario, no califica directamente.'
         : 'Techo no confirmado — no se puede evaluar viabilidad de instalación.'
+    }
+  }
+
+  // DrillChile aún no tiene sistema de anclaje para teja chilena — el wizard
+  // web ya bloquea este material, pero el gate corre acá también por si el
+  // lead entra por otra vía (bot, carga manual en CRM, API).
+  if (materialTecho === 'teja_chilena') {
+    return {
+      qualificationStatus: 'REVISAR',
+      qualificationSummary: 'Techo de teja chilena — DrillChile aún no opera este material, requiere lista de espera / revisión manual.'
     }
   }
 

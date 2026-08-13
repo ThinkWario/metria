@@ -42,6 +42,14 @@ describe('qualifySolarLead', () => {
     expect(result.qualificationStatus).toBe('REVISAR')
   })
 
+  it('deja en revisión si el techo es teja chilena, aunque el resto del lead califique', () => {
+    const result = qualifySolarLead({
+      ownershipType: 'dueño', techoConfirmado: true, montoBoleta: '210000', materialTecho: 'teja_chilena'
+    })
+    expect(result.qualificationStatus).toBe('REVISAR')
+    expect(result.qualificationSummary).toMatch(/teja chilena/i)
+  })
+
   it('deja en revisión con resumen explícito para líneas de servicio sin reglas propias (perforación/bombeo/mantención)', () => {
     const result = qualifySolarLead({
       service: 'drilling', ownershipType: 'dueño', techoConfirmado: true
