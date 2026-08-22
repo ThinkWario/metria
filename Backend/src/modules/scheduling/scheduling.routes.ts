@@ -31,6 +31,32 @@ router.post('/appointments', ...auth, async (req: any, res) => {
     const appt = await scheduleAppointment(workspaceId, {
       contactId, type, scheduledAt: new Date(scheduledAt), dealId, notes, createdBy: req.user?.id ?? 'USER'
     })
+
+    // Best-effort: a Calendar sync / notification problem must never fail
+    // the appointment creation — the Appointment row above already exists.
+    // Mirrors the bot's schedule_appointment tool (ai.service.ts) so manual
+    // bookings from the CRM also notify the technician and the lead.
+    try {
+      const contact = await prisma.contact.findUnique({ where: { id: contactId }, select: { name: true, email: true, phone: true } })
+      const { syncAppointmentToCalendar } = await import('./google-calendar.service')
+      await syncAppointmentToCalendar(workspaceId, appt.id, {
+        title: type === 'SITE_VISIT' ? `Visita técnica — ${contact?.name ?? 'lead'}` : `Llamada — ${contact?.name ?? 'lead'}`,
+        startAt: appt.scheduledAt,
+        durationMin: appt.durationMin,
+        bookerName: contact?.name ?? 'lead',
+        bookerEmail: contact?.email ?? null
+      })
+
+      const { notifyAppointmentEvent } = await import('./appointment-notifications.service')
+      await notifyAppointmentEvent(workspaceId, {
+        contact: { id: contactId, name: contact?.name ?? 'lead', phone: contact?.phone ?? null },
+        appointment: { type, scheduledAt: appt.scheduledAt, durationMin: appt.durationMin },
+        kind: 'created'
+      })
+    } catch (err) {
+      console.error('[scheduling] Calendar sync / notify after manual appointment failed (non-blocking):', err)
+    }
+
     res.status(201).json(appt)
   } catch (err: any) {
     res.status(400).json({ error: err.message })

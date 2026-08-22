@@ -723,12 +723,23 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
         const kind: 'created' | 'rescheduled' = existingActive ? 'rescheduled' : 'created'
         let appt: Awaited<ReturnType<typeof scheduleAppointment>>
         let oldScheduledAt: Date | undefined
-        if (existingActive) {
-          const rescheduled = await rescheduleAppointment(workspaceId, existingActive.id, matchedSlot)
-          appt = rescheduled
-          oldScheduledAt = rescheduled.oldScheduledAt
-        } else {
-          appt = await scheduleAppointment(workspaceId, { contactId, type, scheduledAt: matchedSlot, createdBy: 'BOT' }, 'chat')
+        try {
+          if (existingActive) {
+            const rescheduled = await rescheduleAppointment(workspaceId, existingActive.id, matchedSlot)
+            appt = rescheduled
+            oldScheduledAt = rescheduled.oldScheduledAt
+          } else {
+            appt = await scheduleAppointment(workspaceId, { contactId, type, scheduledAt: matchedSlot, createdBy: 'BOT' }, 'chat')
+          }
+        } catch (err: any) {
+          // The booking genuinely failed (collision, availability changed, etc).
+          // Spell out the instruction instead of returning a bare error string —
+          // otherwise the model has been observed claiming success anyway.
+          return {
+            success: false,
+            error: 'schedule_failed',
+            message: `No se pudo agendar la cita (${err.message}). Dile al cliente que hubo un problema y NO le digas que la cita quedó agendada. Llama a get_available_slots de nuevo y ofrécele otro horario.`
+          }
         }
 
         // Best-effort: a Calendar sync / notification problem must never make the
@@ -796,7 +807,16 @@ async function handleToolCall(workspaceId: string, conversationId: string, call:
           }
         }
 
-        const rescheduled = await rescheduleAppointment(workspaceId, active.id, matchedNewSlot)
+        let rescheduled: Awaited<ReturnType<typeof rescheduleAppointment>>
+        try {
+          rescheduled = await rescheduleAppointment(workspaceId, active.id, matchedNewSlot)
+        } catch (err: any) {
+          return {
+            success: false,
+            error: 'schedule_failed',
+            message: `No se pudo reagendar la cita (${err.message}). Dile al cliente que hubo un problema y NO le digas que quedó reagendada. Llama a get_available_slots de nuevo y ofrécele otro horario.`
+          }
+        }
 
         // Best-effort: a Calendar sync / notification problem must never make the
         // agent report the reschedule itself as failed — the update above already happened.
