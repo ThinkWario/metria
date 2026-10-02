@@ -35,25 +35,37 @@ export async function createContact(workspaceId: string, data: { name: string; e
   })
 }
 
+// Shared by list and count so the total always matches what pagination can reach.
+function buildContactFilter(workspaceId: string, opts: ListContactsOpts) {
+  const { search, status, leadTemperature, leadType, includeIncomplete } = opts
+  return {
+    workspaceId,
+    ...(status && { status }),
+    ...(leadTemperature && { leadTemperature }),
+    ...(leadType && { leadType }),
+    ...(!includeIncomplete && { tags: { none: { name: INCOMPLETE_LEAD_TAG } } }),
+    ...(search && {
+      OR: [
+        { name: { contains: search, mode: 'insensitive' as const } },
+        { email: { contains: search, mode: 'insensitive' as const } },
+        { phone: { contains: search, mode: 'insensitive' as const } }
+      ]
+    })
+  }
+}
+
+export async function countContacts(workspaceId: string, opts: ListContactsOpts = {}) {
+  return prisma.contact.count({ where: buildContactFilter(workspaceId, opts) as any })
+}
+
 export async function listContacts(workspaceId: string, opts: ListContactsOpts = {}) {
-  const { search, status, leadTemperature, leadType, limit = 50, cursor, includeIncomplete } = opts
+  const { limit = 50, cursor } = opts
   const safeLimit = Math.min(limit, 200)
   return prisma.contact.findMany({
     where: {
-      workspaceId,
-      ...(status && { status }),
-      ...(leadTemperature && { leadTemperature }),
-      ...(leadType && { leadType }),
-      ...(!includeIncomplete && { tags: { none: { name: INCOMPLETE_LEAD_TAG } } }),
-      ...(search && {
-        OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search, mode: 'insensitive' } }
-        ]
-      }),
+      ...buildContactFilter(workspaceId, opts),
       ...(cursor && { createdAt: { lt: new Date(cursor) } })
-    },
+    } as any,
     include: {
       tags: true,
       _count: { select: { conversations: true, deals: true, tickets: true } }

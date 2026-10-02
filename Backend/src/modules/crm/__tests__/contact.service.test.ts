@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
-    contact: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    contact: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), delete: vi.fn(), count: vi.fn() },
     contactNote: { create: vi.fn(), updateMany: vi.fn() },
     contactTag: { upsert: vi.fn(), findFirst: vi.fn(), delete: vi.fn(), updateMany: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn() },
     contactHealthScore: { create: vi.fn(), updateMany: vi.fn() },
@@ -22,7 +22,7 @@ vi.mock('../../meta-events/metaEvents.service', () => ({
   emitMetaQualifiedLeadEvent: vi.fn(async () => {})
 }))
 
-import { listContacts, getContact, updateContact, addNote, addTag, removeTag, calculateHealthScore, updateQualification, findPossibleDuplicates, mergeContacts, confirmQualifiedLead } from '../contact.service'
+import { listContacts, countContacts, getContact, updateContact, addNote, addTag, removeTag, calculateHealthScore, updateQualification, findPossibleDuplicates, mergeContacts, confirmQualifiedLead } from '../contact.service'
 import { prisma } from '../../../lib/prisma'
 import { emitMetaQualifiedLeadEvent } from '../../meta-events/metaEvents.service'
 
@@ -87,6 +87,38 @@ describe('listContacts', () => {
     await listContacts(WS, { includeIncomplete: true })
     const arg = vi.mocked(prisma.contact.findMany).mock.calls[0][0] as any
     expect(arg.where).not.toHaveProperty('tags')
+  })
+})
+
+describe('countContacts', () => {
+  it('counts every contact in the workspace, not just one page', async () => {
+    vi.mocked(prisma.contact.count).mockResolvedValue(137)
+
+    const total = await countContacts(WS, {})
+
+    expect(total).toBe(137)
+    expect(prisma.contact.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ workspaceId: WS })
+    })
+  })
+
+  it('applies the same filters as listContacts and excludes Incompleto by default', async () => {
+    vi.mocked(prisma.contact.count).mockResolvedValue(3)
+    await countContacts(WS, { leadTemperature: 'HOT', search: 'ana' })
+    const arg = vi.mocked(prisma.contact.count).mock.calls[0][0] as any
+    expect(arg.where).toMatchObject({
+      workspaceId: WS,
+      leadTemperature: 'HOT',
+      tags: { none: { name: 'Incompleto' } }
+    })
+    expect(arg.where.OR).toBeDefined()
+  })
+
+  it('ignores the pagination cursor so the total stays stable', async () => {
+    vi.mocked(prisma.contact.count).mockResolvedValue(10)
+    await countContacts(WS, { cursor: '2026-01-01T00:00:00.000Z' })
+    const arg = vi.mocked(prisma.contact.count).mock.calls[0][0] as any
+    expect(arg.where).not.toHaveProperty('createdAt')
   })
 })
 

@@ -113,6 +113,18 @@ export async function listContactsHandler(req: AuthRequest, res: Response): Prom
   } catch (err: any) { res.status(500).json({ error: err.message }) }
 }
 
+export async function countContactsHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const workspaceId = req.user!.workspaceId!
+    const { search, status, leadTemperature, leadType, includeIncomplete } = req.query as Record<string, string>
+    const total = await cs.countContacts(workspaceId, {
+      search, status, leadTemperature, leadType,
+      includeIncomplete: includeIncomplete === 'true'
+    })
+    res.json({ total })
+  } catch (err: any) { res.status(500).json({ error: err.message }) }
+}
+
 export async function getContactHandler(req: AuthRequest, res: Response): Promise<void> {
   try {
     res.json(await cs.getContact(req.user!.workspaceId!, req.params.contactId))

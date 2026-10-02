@@ -25,6 +25,8 @@ import { toast } from 'sonner'
 
 const cleanPhone = (phone: string | null) => phone ? phone.split('@')[0] : null
 
+const PAGE_SIZE = 50
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   LEAD:     { label: 'Lead',      color: 'bg-blue-500/10 text-blue-500 border-blue-500/20',     variant: 'secondary' },
   PROSPECT: { label: 'Prospecto', color: 'bg-purple-500/10 text-purple-500 border-purple-500/20', variant: 'secondary' },
@@ -42,6 +44,7 @@ interface Contact {
   ltv: string | number
   source: string
   avatarUrl: string | null
+  createdAt?: string
   leadScore: number | null
   leadTemperature: string | null
   leadType: string | null
@@ -52,6 +55,10 @@ export default function CrmContactsClient() {
   const [mounted, setMounted] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
+  // Real count from the server — `contacts` only holds the pages loaded so far
+  const [totalContacts, setTotalContacts] = useState<number | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [search, setSearch] = useState('')
   const [temperatureFilter, setTemperatureFilter] = useState('ALL')
   const [typeFilter, setTypeFilter] = useState('ALL')
@@ -79,11 +86,46 @@ export default function CrmContactsClient() {
     // Status filtering is multi-select and done client-side
 
     setLoading(true)
+    fetchAPI(`/crm/contacts/count?${params}`)
+      .then(data => setTotalContacts(typeof data?.total === 'number' ? data.total : null))
+      .catch(console.error)
+
+    params.set('limit', String(PAGE_SIZE))
     fetchAPI(`/crm/contacts?${params}`)
-      .then(data => setContacts(Array.isArray(data) ? data : []))
+      .then(data => {
+        const page: Contact[] = Array.isArray(data) ? data : []
+        setContacts(page)
+        setHasMore(page.length >= PAGE_SIZE)
+      })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [mounted, search, temperatureFilter, typeFilter])
+
+  async function handleLoadMore() {
+    const cursor = contacts[contacts.length - 1]?.createdAt
+    if (!cursor || loadingMore) return
+    const params = new URLSearchParams()
+    if (search) params.set('search', search)
+    if (temperatureFilter && temperatureFilter !== 'ALL') params.set('leadTemperature', temperatureFilter)
+    if (typeFilter && typeFilter !== 'ALL') params.set('leadType', typeFilter)
+    params.set('limit', String(PAGE_SIZE))
+    params.set('cursor', cursor)
+
+    setLoadingMore(true)
+    try {
+      const data = await fetchAPI(`/crm/contacts?${params}`)
+      const page: Contact[] = Array.isArray(data) ? data : []
+      setContacts(prev => {
+        const seen = new Set(prev.map(c => c.id))
+        return [...prev, ...page.filter(c => !seen.has(c.id))]
+      })
+      setHasMore(page.length >= PAGE_SIZE)
+    } catch (err: any) {
+      toast.error(err.message || 'Error al cargar más contactos')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   // Clear selection whenever the server list refreshes
   useEffect(() => { setSelectedIds(new Set()) }, [contacts])
@@ -162,6 +204,7 @@ export default function CrmContactsClient() {
     const prevContacts = contacts
     // Optimistic removal
     setContacts(c => c.filter(x => !ids.includes(x.id)))
+    setTotalContacts(t => (t === null ? t : Math.max(0, t - ids.length)))
     setSelectedIds(new Set())
     setDeleteDialogOpen(false)
     try {
@@ -172,6 +215,7 @@ export default function CrmContactsClient() {
       toast.success(`${ids.length} contacto${ids.length !== 1 ? 's' : ''} eliminado${ids.length !== 1 ? 's' : ''}`)
     } catch (err: any) {
       setContacts(prevContacts)
+      setTotalContacts(t => (t === null ? t : t + ids.length))
       toast.error(err.message || 'Error al eliminar contactos')
     }
   }
@@ -186,6 +230,7 @@ export default function CrmContactsClient() {
         body: JSON.stringify(newContactForm),
       })
       setContacts(prev => [created, ...prev])
+      setTotalContacts(t => (t === null ? t : t + 1))
       setNewContactOpen(false)
       setNewContactForm({ name: '', email: '', phone: '', status: 'LEAD' })
       toast.success('Contacto creado')
@@ -204,7 +249,7 @@ export default function CrmContactsClient() {
   )
 
   const metrics = {
-    total:       contacts.length,
+    total:       totalContacts ?? contacts.length,
     vips:        contacts.filter(c => c.status === 'VIP').length,
     avgLtv:      contacts.length ? contacts.reduce((acc, c) => acc + Number(c.ltv), 0) / contacts.length : 0,
     activeLeads: contacts.filter(c => c.status === 'LEAD' || c.status === 'PROSPECT').length,
@@ -547,6 +592,16 @@ export default function CrmContactsClient() {
                   </tbody>
                 </table>
               </div>
+              {hasMore && (
+                <div className="flex flex-col items-center gap-2 py-4 border-t border-border/40">
+                  <span className="text-xs text-muted-foreground">
+                    Mostrando {contacts.length}{totalContacts !== null ? ` de ${totalContacts}` : ''}
+                  </span>
+                  <Button variant="outline" className="rounded-xl" onClick={handleLoadMore} disabled={loadingMore}>
+                    {loadingMore ? 'Cargando...' : 'Cargar más'}
+                  </Button>
+                </div>
+              )}
             </TooltipProvider>
           )}
         </CardContent>

@@ -38,6 +38,61 @@ beforeEach(() => {
   })
 })
 
+const makePage = (start: number, size: number) =>
+  Array.from({ length: size }, (_, i) => ({
+    ...contacts[1],
+    id: `pg-${start + i}`,
+    name: `Lead ${start + i}`,
+    createdAt: new Date(2026, 0, 1, 0, 0, 1000 - (start + i)).toISOString(),
+  }))
+
+describe('CrmContactsClient — total y paginación', () => {
+  it('muestra el total real del servidor, no solo los contactos cargados', async () => {
+    const page = makePage(0, 50)
+    vi.mocked(fetchAPI).mockImplementation((url: string) => {
+      if (url.startsWith('/crm/contacts/count')) return Promise.resolve({ total: 120 })
+      if (url.startsWith('/crm/contacts?')) return Promise.resolve(page)
+      return Promise.resolve(null)
+    })
+    render(<CrmContactsClient />)
+
+    expect(await screen.findByText('120')).toBeInTheDocument()
+  })
+
+  it('"Cargar más" pide la siguiente página con cursor y agrega los contactos', async () => {
+    const user = userEvent.setup()
+    const first = makePage(0, 50)
+    const second = makePage(50, 20)
+    vi.mocked(fetchAPI).mockImplementation((url: string) => {
+      if (url.startsWith('/crm/contacts/count')) return Promise.resolve({ total: 70 })
+      if (url.startsWith('/crm/contacts?') && url.includes('cursor=')) return Promise.resolve(second)
+      if (url.startsWith('/crm/contacts?')) return Promise.resolve(first)
+      return Promise.resolve(null)
+    })
+    render(<CrmContactsClient />)
+
+    await user.click(await screen.findByRole('button', { name: /cargar más/i }))
+
+    expect(await screen.findByText('Lead 69')).toBeInTheDocument()
+    expect(screen.getByText('Lead 0')).toBeInTheDocument()
+    const cursorCall = vi.mocked(fetchAPI).mock.calls.map(c => c[0] as string).find(u => u.includes('cursor='))!
+    expect(decodeURIComponent(cursorCall)).toContain(`cursor=${first[49].createdAt}`)
+    expect(screen.queryByRole('button', { name: /cargar más/i })).not.toBeInTheDocument()
+  })
+
+  it('no muestra "Cargar más" cuando todo cabe en una página', async () => {
+    vi.mocked(fetchAPI).mockImplementation((url: string) => {
+      if (url.startsWith('/crm/contacts/count')) return Promise.resolve({ total: 2 })
+      if (url.startsWith('/crm/contacts?')) return Promise.resolve(contacts)
+      return Promise.resolve(null)
+    })
+    render(<CrmContactsClient />)
+
+    await screen.findByText('Sin Chats')
+    expect(screen.queryByRole('button', { name: /cargar más/i })).not.toBeInTheDocument()
+  })
+})
+
 describe('CrmContactsClient — quick access to chat', () => {
   it('opens the inbox for the contact when the conversations badge is clicked', async () => {
     const user = userEvent.setup()

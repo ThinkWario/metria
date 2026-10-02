@@ -5,7 +5,7 @@ import { requirePlan } from '../../middleware/planGate'
 import type { AuthRequest } from '../../middleware/auth'
 import { prisma } from '../../lib/prisma'
 import {
-  listContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
+  listContactsHandler, countContactsHandler, getContactHandler, createContactHandler, updateContactHandler,
   addNoteHandler, addTagHandler, removeTagHandler, calculateHealthScoreHandler,
   confirmQualifiedLeadHandler,
   bulkUpdateContactsHandler, bulkDeleteContactsHandler,
@@ -26,6 +26,8 @@ const auth = [authenticate, requirePlan('PRO', 'SCALE')] as const
 
 // Contacts
 router.get('/crm/contacts', ...auth, listContactsHandler)
+// Must stay before '/crm/contacts/:contactId' or "count" is parsed as an id
+router.get('/crm/contacts/count', ...auth, countContactsHandler)
 router.post('/crm/contacts', ...auth, createContactHandler)
 router.post('/crm/contacts/bulk-update', ...auth, bulkUpdateContactsHandler)
 router.post('/crm/contacts/bulk-delete', ...auth, bulkDeleteContactsHandler)
